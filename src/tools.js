@@ -87,10 +87,63 @@ function thermometer(step, gameArea) {
   };
 }
 
+// --- Voronoi cells shared by Matching & Tentacles ------------------------
+// Returns { cells } where cells[i] is the clipped Voronoi cell geometry for
+// features[i] (or null). The partition is computed over a bbox that contains both
+// the features and the game area, then each cell is clipped to the game area.
+function voronoiCells(features, gameArea) {
+  const pts = features.map((f) => T().point([f.lng, f.lat]));
+  const collection = T().featureCollection([...pts, feat(gameArea)]);
+  let bbox = T().bbox(collection);
+  // Pad the bbox so edge cells are unbounded-safe.
+  const padX = (bbox[2] - bbox[0]) * 0.15 || 0.05;
+  const padY = (bbox[3] - bbox[1]) * 0.15 || 0.05;
+  bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
+  let raw;
+  try {
+    raw = T().voronoi(T().featureCollection(pts), { bbox });
+  } catch (e) {
+    console.warn("voronoi failed", e);
+    return { cells: features.map(() => null) };
+  }
+  const cells = (raw.features || []).map((cell) => (cell ? safeIntersect(cell, gameArea) : null));
+  return { cells };
+}
+
+// Matching & Tentacles: keep OR shade the selected feature's cell.
+function voronoiTool(step, gameArea) {
+  const { features } = step.inputs;
+  const { featureIndex, keep } = step.answer || {};
+  const guides = [
+    ...(features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${i + 1}` })),
+  ];
+  if (!gameArea || !features || features.length < 2 || featureIndex == null) {
+    return { eliminated: null, guides };
+  }
+  const { cells } = voronoiCells(features, gameArea);
+  for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
+  const selected = cells[featureIndex];
+  if (!selected) return { eliminated: null, guides };
+  const eliminated = keep ? safeDiff(gameArea, selected) : selected;
+  return { eliminated, guides };
+}
+
+// Extract outer rings of a geometry as arrays of {lat,lng} for guide drawing.
+function geojsonRings(geom) {
+  const rings = [];
+  let polys = [];
+  if (geom.type === "MultiPolygon") polys = geom.coordinates;
+  else if (geom.type === "Polygon") polys = [geom.coordinates];
+  for (const poly of polys) if (poly[0]) rings.push(poly[0].map(([lng, lat]) => ({ lat, lng })));
+  return rings;
+}
+
 export function computeElimination(step, gameArea) {
   switch (step.tool) {
     case "radar": return radar(step, gameArea);
     case "thermometer": return thermometer(step, gameArea);
+    case "matching":
+    case "tentacles": return voronoiTool(step, gameArea);
     default: return { eliminated: null, guides: [] };
   }
 }
@@ -121,6 +174,14 @@ export function describeStep(step) {
   }
   if (step.tool === "thermometer") {
     return `Thermometer · ${step.answer?.side === "hotter" ? "hotter (→B)" : "colder (→A)"}`;
+  }
+  if (step.tool === "matching" || step.tool === "tentacles") {
+    const feats = step.inputs.features || [];
+    const sel = feats[step.answer?.featureIndex];
+    const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
+    const label = step.tool === "matching" ? "Matching" : "Tentacles";
+    const verb = step.answer?.keep ? "keep" : "shade";
+    return `${label} · ${cat} · ${verb} “${sel?.name || "?"}”`;
   }
   return step.tool;
 }

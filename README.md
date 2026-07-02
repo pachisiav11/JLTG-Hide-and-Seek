@@ -22,6 +22,11 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - **Radar** (centre + radius circle) and **Thermometer** (perpendicular bisector).
   - Toggleable shaded elimination layers; `activeArea` recomputed as game area minus enabled eliminations.
   - Backtracking: undo / redo and per-layer enable/disable.
+- **Phase 3 — Voronoi tools** ✅
+  - **Matching** ("is your nearest X the same?") and **Tentacles** ("which are you closest to?").
+  - Shared `turf.voronoi` engine; cells clipped to the game area and drawn as guides.
+  - Places API category search (railway/park/hospital/…, plus keyword); feature set stored
+    in the step so the partition recomputes deterministically.
 
 ## Run it locally
 

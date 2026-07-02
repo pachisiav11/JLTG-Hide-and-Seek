@@ -2,6 +2,18 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 3 — Voronoi tools
+- **Matching** ("is your nearest X the same as mine?") and **Tentacles** ("which of these
+  are you closest to?") on a shared `turf.voronoi` engine (`voronoiCells` in `src/tools.js`).
+- Voronoi computed over a padded bbox covering features + game area, then each cell clipped
+  to the game area; verified as an exact partition (all cells sum to the game area).
+- **Places API** category search (`src/places.js`, classic `PlacesService.nearbySearch`):
+  railway/metro/bus/park/hospital/school/worship/attraction/mall/restaurant + free keyword.
+- The fetched feature set is stored in the step's inputs so the partition recomputes
+  deterministically later (Places results are not stable over time).
+- Matching keeps or shades the selected feature's cell (Yes/No); Tentacles keeps the
+  revealed-closest feature's cell.
+
 ## Phase 2 — Core tools
 - **Radar** (centre + radius circle): "Yes/inside" keeps the circle, "No/outside" removes it.
 - **Thermometer** (perpendicular bisector of A→B): hotter keeps B's half, colder keeps A's.

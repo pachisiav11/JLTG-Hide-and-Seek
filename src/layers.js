@@ -6,6 +6,7 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPaths } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
+import { CATEGORIES, searchCategory } from "./places.js";
 import { openSheet, closeSheet, toast, escapeHtml } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
@@ -97,6 +98,8 @@ export class Layers {
         this.overlays.push(new google.maps.Polyline({ ...LINE_GUIDE, path: [gd.from, gd.to], map: this.map, clickable: false }));
       } else if (gd.type === "point") {
         this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
+      } else if (gd.type === "outline") {
+        this.overlays.push(new google.maps.Polygon({ paths: gd.ring, strokeColor: "#94a3b8", strokeOpacity: 0.5, strokeWeight: 1, fillOpacity: 0, clickable: false, map: this.map }));
       }
     }
   }
@@ -162,6 +165,10 @@ export class Layers {
           <button id="t-thermo" class="btn btn-primary">🌡 Thermometer</button>
         </div>
         <div class="row">
+          <button id="t-match" class="btn btn-primary">🧭 Matching</button>
+          <button id="t-tent" class="btn btn-primary">🐙 Tentacles</button>
+        </div>
+        <div class="row">
           <button id="t-undo" class="btn">↶ Undo</button>
           <button id="t-redo" class="btn" ${canRedo ? "" : "disabled"}>↷ Redo</button>
         </div>
@@ -171,6 +178,8 @@ export class Layers {
 
     s.q("#t-radar").onclick = () => this.startRadar();
     s.q("#t-thermo").onclick = () => this.startThermometer();
+    s.q("#t-match").onclick = () => this.startVoronoi("matching");
+    s.q("#t-tent").onclick = () => this.startVoronoi("tentacles");
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
     s.qa("[data-toggle]").forEach((c) => (c.onchange = () => this.toggle(c.dataset.toggle)));
@@ -231,6 +240,97 @@ export class Layers {
       this.addStep("thermometer", { a, b }, { side });
       s.close();
       toast("Thermometer elimination added.");
+    };
+  }
+
+  // ---- Matching / Tentacles (shared Voronoi flow) ----
+  _searchParams(gameArea) {
+    const turf = window.turf;
+    const c = turf.centroid(turf.feature(gameArea)).geometry.coordinates; // [lng,lat]
+    const bb = turf.bbox(turf.feature(gameArea));
+    const diag = turf.distance([bb[0], bb[1]], [bb[2], bb[3]], { units: "meters" });
+    return { center: { lat: c[1], lng: c[0] }, radius: Math.min(50000, Math.max(500, (diag / 2) * 1.2)) };
+  }
+
+  async startVoronoi(kind) {
+    const g = store.getCurrent();
+    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    const title = kind === "matching" ? "Matching" : "Tentacles";
+    const catOpts = CATEGORIES.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
+    const s = openSheet({
+      title,
+      bodyHTML: `
+        <label class="fieldlbl">Category</label>
+        <select id="v-cat" class="field">${catOpts}</select>
+        <label class="fieldlbl">Keyword (optional)</label>
+        <input id="v-kw" class="field" placeholder="e.g. McDonald's" />
+        <div class="sheet-actions">
+          <button id="v-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="v-find" class="btn btn-primary">Find places</button>
+        </div>
+        <p id="v-status" class="muted"></p>`,
+    });
+    s.q("#v-cancel").onclick = () => s.close();
+    s.q("#v-find").onclick = async () => {
+      const cat = CATEGORIES.find((c) => c.id === s.q("#v-cat").value);
+      const keyword = s.q("#v-kw").value.trim();
+      const { center, radius } = this._searchParams(g.gameArea);
+      s.q("#v-status").textContent = "Searching…";
+      let features = [];
+      try {
+        features = await searchCategory(this.map, { center, radius, type: cat.type, keyword });
+      } catch (e) {
+        s.q("#v-status").textContent = e.message;
+        return;
+      }
+      features = features.slice(0, 20);
+      if (features.length < 2) {
+        s.q("#v-status").textContent = `Found ${features.length}. Need at least 2 to partition.`;
+        return;
+      }
+      s.close();
+      this._chooseFeature(kind, cat, features);
+    };
+  }
+
+  _chooseFeature(kind, cat, features) {
+    const temp = features.map((f, i) =>
+      new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
+    );
+    const list = features
+      .map((f, i) => `<label><input type="radio" name="v-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
+      .join("");
+    const matchingExtra = kind === "matching"
+      ? `<h3 class="sub">Answer</h3>
+         <div class="seg">
+           <label><input type="radio" name="v-ans" value="yes" checked/> Yes — same nearest (keep this cell)</label>
+           <label><input type="radio" name="v-ans" value="no"/> No — different (shade this cell)</label>
+         </div>`
+      : "";
+    const prompt = kind === "matching"
+      ? "Which is the hider’s nearest one?"
+      : "Which one is the hider closest to? (keeps that cell)";
+    const s = openSheet({
+      title: kind === "matching" ? "Matching" : "Tentacles",
+      bodyHTML: `
+        <p class="muted">${prompt} (${features.length} found)</p>
+        <div class="seg">${list}</div>
+        ${matchingExtra}
+        <div class="sheet-actions">
+          <button id="v-cancel2" class="btn btn-ghost">Cancel</button>
+          <button id="v-add" class="btn btn-primary">Add elimination</button>
+        </div>`,
+      onClose: () => temp.forEach((m) => m.setMap(null)),
+    });
+    s.q("#v-cancel2").onclick = () => s.close();
+    s.q("#v-add").onclick = () => {
+      const featureIndex = parseInt(s.qa('input[name="v-feat"]').find((r) => r.checked)?.value ?? "0", 10);
+      const keep = kind === "matching"
+        ? s.qa('input[name="v-ans"]').find((r) => r.checked)?.value === "yes"
+        : true; // Tentacles always keeps the revealed-closest cell
+      this.addStep(kind, { category: cat.id, categoryLabel: cat.label, features }, { featureIndex, keep });
+      s.close();
+      toast(`${kind === "matching" ? "Matching" : "Tentacles"} elimination added.`);
     };
   }
 }
