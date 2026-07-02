@@ -24,6 +24,29 @@ function getService(map) {
   return service;
 }
 
+// Free-text place search (for the Directions tab). Resolves to
+// [{ name, lat, lng, address }].
+export function searchText(map, query) {
+  const svc = getService(map);
+  return new Promise((resolve, reject) => {
+    svc.textSearch({ query }, (results, status) => {
+      const S = google.maps.places.PlacesServiceStatus;
+      if (status === S.OK && results) {
+        resolve(results.filter((r) => r.geometry?.location).map((r) => ({
+          name: r.name || r.formatted_address || "(unnamed)",
+          address: r.formatted_address || "",
+          lat: r.geometry.location.lat(),
+          lng: r.geometry.location.lng(),
+        })));
+      } else if (status === S.ZERO_RESULTS) {
+        resolve([]);
+      } else {
+        reject(new Error(`Search failed: ${status}`));
+      }
+    });
+  });
+}
+
 // Search a category near a centre. Resolves to [{ name, lat, lng }]. `keyword`
 // optionally narrows results (e.g. "McDonald's"). Radius is clamped to the API max.
 export function searchCategory(map, { center, radius, type, keyword }) {

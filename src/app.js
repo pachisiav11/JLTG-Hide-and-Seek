@@ -158,6 +158,7 @@ function wireToolbar(zones, features, layers, hider) {
     if (act === "zones") zones.openPanel();
     else if (act === "layers") layers.openPanel();
     else if (act === "hider") hider.openPanel(layers);
+    else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());
     else if (act === "locate") {

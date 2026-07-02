@@ -8,7 +8,7 @@ import { geojsonToPaths } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, autoAnswer } from "./tools.js";
 import { CATEGORIES, searchCategory } from "./places.js";
 import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
-import { openSheet, closeSheet, toast, escapeHtml } from "./ui.js";
+import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
 const ACTIVE_STYLE = { fillColor: "#34d399", fillOpacity: 0.08, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3 };
@@ -166,14 +166,17 @@ export class Layers {
           <li>
             <label class="li-toggle">
               <input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""} />
-              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(describeStep(s))}</span>
+              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}</span>
             </label>
-            <button class="btn btn-ghost btn-sm" data-del="${s.id}">🗑</button>
+            <span class="li-actions">
+              <button class="btn btn-ghost btn-sm" data-rename="${s.id}">✏️</button>
+              <button class="btn btn-ghost btn-sm" data-del="${s.id}">🗑</button>
+            </span>
           </li>`).join("")
-      : `<li class="muted">No eliminations yet. Add one below.</li>`;
+      : `<li class="muted">No questions yet. Add one below.</li>`;
 
     const s = openSheet({
-      title: "Eliminations",
+      title: "Questions",
       bodyHTML: `
         <div class="row">
           <button id="t-radar" class="btn btn-primary">◎ Radar</button>
@@ -190,7 +193,7 @@ export class Layers {
           <button id="t-undo" class="btn">↶ Undo</button>
           <button id="t-redo" class="btn" ${canRedo ? "" : "disabled"}>↷ Redo</button>
         </div>
-        <h3 class="sub">Layers</h3>
+        <h3 class="sub">Questions</h3>
         <ul class="list">${rows}</ul>`,
     });
 
@@ -203,6 +206,13 @@ export class Layers {
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
     s.qa("[data-toggle]").forEach((c) => (c.onchange = () => this.toggle(c.dataset.toggle)));
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.remove(b.dataset.del); s.close(); this.openPanel(); }));
+    s.qa("[data-rename]").forEach((b) => (b.onclick = async () => {
+      const step = store.getCurrent().history.find((x) => x.id === b.dataset.rename);
+      const name = await promptText({ title: "Rename question", label: "Question", value: step?.title || describeStep(step), cta: "Save" });
+      if (name === null) return;
+      store.update((g) => { const st = g.history.find((x) => x.id === b.dataset.rename); if (st) st.title = name || undefined; });
+      this.openPanel();
+    }));
   }
 
   // ---- Radar flow ----
@@ -223,7 +233,7 @@ export class Layers {
         ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="r-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="r-add" class="btn btn-primary">Add elimination</button>
+          <button id="r-add" class="btn btn-primary">Add question</button>
         </div>`,
     });
     s.q("#r-cancel").onclick = () => s.close();
@@ -236,7 +246,7 @@ export class Layers {
         : { side: s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in" };
       this.addStep("radar", inputs, answer);
       s.close();
-      toast("Radar elimination added.");
+      toast("Radar question added.");
     };
   }
 
@@ -256,7 +266,7 @@ export class Layers {
         ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="th-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="th-add" class="btn btn-primary">Add elimination</button>
+          <button id="th-add" class="btn btn-primary">Add question</button>
         </div>`,
     });
     s.q("#th-cancel").onclick = () => s.close();
@@ -268,7 +278,7 @@ export class Layers {
         : { side: s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter" };
       this.addStep("thermometer", inputs, answer);
       s.close();
-      toast("Thermometer elimination added.");
+      toast("Thermometer question added.");
     };
   }
 
@@ -348,7 +358,7 @@ export class Layers {
         ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="v-cancel2" class="btn btn-ghost">Cancel</button>
-          <button id="v-add" class="btn btn-primary">Add elimination</button>
+          <button id="v-add" class="btn btn-primary">Add question</button>
         </div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
@@ -368,7 +378,7 @@ export class Layers {
       }
       this.addStep(kind, inputs, answer);
       s.close();
-      toast(`${kind === "matching" ? "Matching" : "Tentacles"} elimination added.`);
+      toast(`${kind === "matching" ? "Matching" : "Tentacles"} question added.`);
     };
   }
 
@@ -396,7 +406,7 @@ export class Layers {
         ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="m-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="m-add" class="btn btn-primary">Add elimination</button>
+          <button id="m-add" class="btn btn-primary">Add question</button>
         </div>
         <p id="m-status" class="muted"></p>`,
     });
@@ -438,7 +448,7 @@ export class Layers {
         : { side: s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in" };
       this.addStep("measuring", inputs, answer);
       s.close();
-      toast("Measuring elimination added.");
+      toast("Measuring question added.");
     };
   }
 }

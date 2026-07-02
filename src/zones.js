@@ -5,6 +5,7 @@ import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
 import { geojsonToPaths, unionRings, parseZoneInput } from "./geo.js";
+import { searchRegions, regionToRings } from "./regions.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 
 const ZONE_STYLE = { strokeColor: "#2dd4bf", strokeOpacity: 0.95, strokeWeight: 1.5, fillColor: "#2dd4bf", fillOpacity: 0.12 };
@@ -171,7 +172,10 @@ export class Zones {
       title: "Zones",
       bodyHTML: `
         <div class="row">
-          <button id="z-draw" class="btn btn-primary">✎ Draw zone</button>
+          <button id="z-region" class="btn btn-primary">🌍 Add named region</button>
+        </div>
+        <div class="row">
+          <button id="z-draw" class="btn">✎ Draw zone</button>
           <button id="z-import" class="btn">⇩ Import</button>
         </div>
         <h3 class="sub">In this game</h3>
@@ -180,6 +184,7 @@ export class Zones {
         <ul class="list">${libHtml}</ul>`,
     });
 
+    s.q("#z-region").onclick = () => this._openRegionSearch();
     s.q("#z-draw").onclick = () => { s.close(); this.startDraw(); };
     s.q("#z-import").onclick = () => this._openImport();
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.removeZone(b.dataset.del); s.close(); this.openPanel(); }));
@@ -210,6 +215,64 @@ export class Zones {
       s.close();
       if (n) this.openPanel();
     };
+  }
+
+  // Search a named region (Juhu, Versova, Switzerland…) and add its real boundary
+  // as a zone. Add several to combine them into one game area (turf.union).
+  _openRegionSearch() {
+    const s = openSheet({
+      title: "Add named region",
+      bodyHTML: `
+        <p class="muted">Type a place — neighbourhood, city, state, or country. Add several to combine them into the play area.</p>
+        <input id="rg-q" class="field" placeholder="e.g. Juhu, Versova, Switzerland" />
+        <div class="sheet-actions">
+          <button id="rg-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="rg-go" class="btn btn-primary">Search</button>
+        </div>
+        <ul id="rg-res" class="list"></ul>`,
+    });
+    s.q("#rg-q").focus();
+    const run = async () => {
+      const q = s.q("#rg-q").value.trim();
+      if (!q) return;
+      s.q("#rg-res").innerHTML = '<li class="muted">Searching…</li>';
+      let results = [];
+      try {
+        results = await searchRegions(q);
+      } catch (e) {
+        s.q("#rg-res").innerHTML = `<li class="muted">${escapeHtml(e.message)}</li>`;
+        return;
+      }
+      if (!results.length) {
+        s.q("#rg-res").innerHTML = '<li class="muted">No matching regions.</li>';
+        return;
+      }
+      this._regionResults = results;
+      s.q("#rg-res").innerHTML = results
+        .map((r, i) => {
+          const hasPoly = r.geojson && (r.geojson.type === "Polygon" || r.geojson.type === "MultiPolygon");
+          return `<li>
+            <div class="game-meta">
+              <span class="li-name">${escapeHtml(r.shortName)}</span>
+              <span class="muted">${escapeHtml(r.kind)}${hasPoly ? "" : " · box only"}</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" data-add="${i}">Add</button>
+          </li>`;
+        })
+        .join("");
+      s.qa("[data-add]").forEach((b) => (b.onclick = async () => {
+        const r = this._regionResults[parseInt(b.dataset.add, 10)];
+        const rings = regionToRings(r);
+        if (!rings.length) { toast("No boundary available for that result."); return; }
+        for (let i = 0; i < rings.length; i++) {
+          await this.addZone(rings.length > 1 ? `${r.shortName} (${i + 1})` : r.shortName, rings[i], { toLibrary: true });
+        }
+        s.close();
+      }));
+    };
+    s.q("#rg-cancel").onclick = () => s.close();
+    s.q("#rg-go").onclick = run;
+    s.q("#rg-q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
   }
 
   // ---- Rendering ----

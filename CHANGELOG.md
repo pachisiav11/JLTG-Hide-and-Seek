@@ -2,6 +2,17 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Post-roadmap enhancements
+- **Draggable measure points**: the two Measure points are now draggable; distance +
+  travel time recompute live as you drag, with a persistent on-map readout.
+- **Named-region zones**: search a place ("Juhu", "Versova", "Switzerland") and add its
+  real boundary as a zone via OpenStreetMap Nominatim (falls back to a bounding box when
+  OSM has no polygon). Add several to combine them into the play area (`turf.union`).
+- **"Questions" terminology**: the eliminations/layers panel is now "Questions"; each
+  question can be given a custom name (✏️), shown in the list instead of the auto label.
+- **Directions tab**: a dedicated tool to route from current location / a tapped point /
+  a searched place to a destination, with transit / walking / driving modes.
+
 ## Phase 6 — History & polish
 - **Game history browser** (`src/games.js`): list saved games with date / zone / step
   summary; open, rename, duplicate, and delete.

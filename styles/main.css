@@ -385,6 +385,27 @@ textarea.field { resize: vertical; }
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* Persistent measure readout (shown while measuring) */
+#measure-readout {
+  position: fixed;
+  z-index: 8;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(50px + var(--safe-top));
+  max-width: 90vw;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(4, 24, 28, 0.95);
+  border: 1px solid var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#measure-readout.show { opacity: 1; }
+
 #install-btn {
   position: absolute;
   z-index: 6;

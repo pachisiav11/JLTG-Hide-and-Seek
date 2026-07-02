@@ -2,7 +2,8 @@
 //  - Transit layer toggle
 //  - "Directions here" on long-press (transit / walking, via Directions API)
 //  - Distance between two taps (straight-line + walking time via Distance Matrix)
-import { contextMenu, toast, formatDistance } from "./ui.js";
+import { contextMenu, toast, formatDistance, openSheet, escapeHtml } from "./ui.js";
+import { searchText } from "./places.js";
 import * as store from "./store.js";
 
 export class MapFeatures {
@@ -54,8 +55,8 @@ export class MapFeatures {
     ]);
   }
 
-  async directionsTo(destination, travelMode) {
-    const origin = await this._getOrigin();
+  async directionsTo(destination, travelMode, originOverride) {
+    const origin = originOverride || (await this._getOrigin());
     if (!origin) {
       toast("Location unavailable — allow location access to get directions.");
       return;
@@ -88,57 +89,152 @@ export class MapFeatures {
     });
   }
 
-  // ---- Measure (distance between two taps) ----
+  // ---- Measure (draggable two-point distance) ----
   toggleMeasure() {
     this.measure.active = !this.measure.active;
     if (!this.measure.active) this._clearMeasure();
-    else toast("Measure: tap two points on the map.");
+    else toast("Measure: tap two points, then drag them to adjust.");
     return this.measure.active;
   }
 
   _onClick(latLng) {
     if (!this.measure.active) return;
     if (this.measure.pts.length >= 2) this._clearMeasure();
-    this.measure.pts.push(latLng);
-    this.measure.markers.push(
-      new google.maps.Marker({ position: latLng, map: this.map, label: `${this.measure.pts.length}` })
-    );
-    if (this.measure.pts.length === 2) this._computeMeasure();
+    const idx = this.measure.pts.length;
+    this.measure.pts.push(latLng.toJSON());
+    const marker = new google.maps.Marker({
+      position: latLng,
+      map: this.map,
+      label: `${idx + 1}`,
+      draggable: true,
+      title: "Drag to move",
+    });
+    const onMove = () => { this.measure.pts[idx] = marker.getPosition().toJSON(); this._recomputeMeasure(); };
+    marker.addListener("drag", onMove);
+    marker.addListener("dragend", onMove);
+    this.measure.markers.push(marker);
+    this._recomputeMeasure();
   }
 
-  _computeMeasure() {
+  _recomputeMeasure() {
+    if (this.measure.line) { this.measure.line.setMap(null); this.measure.line = null; }
+    if (this.measure.pts.length < 2) return;
     const [a, b] = this.measure.pts;
     this.measure.line = new google.maps.Polyline({
-      path: [a, b],
-      geodesic: true,
-      strokeColor: "#f2c14e",
-      strokeWeight: 3,
-      map: this.map,
+      path: [a, b], geodesic: true, strokeColor: "#f2c14e", strokeWeight: 3, map: this.map,
     });
     const meters = google.maps.geometry.spherical.computeDistanceBetween(a, b);
     const units = store.getCurrent()?.settings?.units || "metric";
     const straight = formatDistance(meters, units);
+    this._setReadout(`📏 Straight line: ${straight}`);
     const mode = store.getCurrent()?.settings?.distanceMode || "straight-line";
-    if (mode === "straight-line") {
-      toast(`Straight line: ${straight}`, 6000);
-      return;
-    }
+    if (mode === "straight-line") return;
     const travelMode = mode === "transit" ? google.maps.TravelMode.TRANSIT : google.maps.TravelMode.WALKING;
-    toast(`Straight line: ${straight} · fetching ${mode} time…`, 6000);
-    this.matrix.getDistanceMatrix(
-      { origins: [a], destinations: [b], travelMode },
-      (res, status) => {
-        const el = res?.rows?.[0]?.elements?.[0];
-        if (status === "OK" && el?.status === "OK") {
-          toast(`Straight line: ${straight} · ${mode}: ${el.distance.text}, ${el.duration.text}`, 7000);
-        }
-      }
-    );
+    this.matrix.getDistanceMatrix({ origins: [a], destinations: [b], travelMode }, (res, status) => {
+      const el = res?.rows?.[0]?.elements?.[0];
+      if (status === "OK" && el?.status === "OK") this._setReadout(`📏 ${straight} · ${mode}: ${el.duration.text}`);
+    });
+  }
+
+  _setReadout(text) {
+    let el = document.getElementById("measure-readout");
+    if (!el) { el = document.createElement("div"); el.id = "measure-readout"; document.body.appendChild(el); }
+    el.textContent = text;
+    el.classList.add("show");
   }
 
   _clearMeasure() {
     this.measure.markers.forEach((m) => m.setMap(null));
     this.measure.line?.setMap(null);
     this.measure = { active: this.measure.active, pts: [], markers: [], line: null };
+    document.getElementById("measure-readout")?.classList.remove("show");
+  }
+
+  // ---- Directions tab (to a point, from current location / picked / searched) ----
+  // The panel is rebuilt from `state` each time so map-picks (which close sheets)
+  // can reopen it without losing the user's choices.
+  openDirections(layers, state) {
+    state = state || { origin: null, originMode: "me", destination: null, mode: "TRANSIT" };
+    const fmt = (p) => (p?.name ? p.name : p ? `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}` : "Not set");
+    const checked = (v) => (state.mode === v ? "checked" : "");
+    const s = openSheet({
+      title: "Directions",
+      bodyHTML: `
+        <label class="fieldlbl">From</label>
+        <div class="row">
+          <button id="o-me" class="btn ${state.originMode === "me" ? "btn-primary" : ""}">🧭 My location</button>
+          <button id="o-tap" class="btn">📍 Tap</button>
+          <button id="o-search" class="btn">🔎 Search</button>
+        </div>
+        <p class="muted">Origin: <strong id="d-orig">${state.originMode === "me" ? "My location" : escapeHtml(fmt(state.origin))}</strong></p>
+        <label class="fieldlbl">To</label>
+        <div class="row">
+          <button id="d-tap" class="btn">📍 Tap</button>
+          <button id="d-search" class="btn">🔎 Search</button>
+        </div>
+        <p class="muted">Destination: <strong id="d-dest">${escapeHtml(fmt(state.destination))}</strong></p>
+        <label class="fieldlbl">Mode</label>
+        <div class="seg">
+          <label><input type="radio" name="d-mode" value="TRANSIT" ${checked("TRANSIT")}/> 🚆 Transit</label>
+          <label><input type="radio" name="d-mode" value="WALKING" ${checked("WALKING")}/> 🚶 Walking</label>
+          <label><input type="radio" name="d-mode" value="DRIVING" ${checked("DRIVING")}/> 🚗 Driving</label>
+        </div>
+        <div class="sheet-actions">
+          <button id="d-clear" class="btn btn-ghost">Clear route</button>
+          <button id="d-go" class="btn btn-primary">Get directions</button>
+        </div>
+        <p id="d-status" class="muted"></p>`,
+    });
+    s.qa('input[name="d-mode"]').forEach((r) => (r.onchange = () => (state.mode = r.value)));
+    s.q("#o-me").onclick = () => { state.originMode = "me"; state.origin = null; s.q("#d-orig").textContent = "My location"; s.q("#o-me").classList.add("btn-primary"); };
+    s.q("#o-tap").onclick = async () => { s.close(); const p = await layers.pick(1, "Tap the origin."); if (p) { state.origin = p[0]; state.originMode = "point"; } this.openDirections(layers, state); };
+    s.q("#o-search").onclick = async () => { const p = await this._placeSearch("Search origin…"); if (p) { state.origin = p; state.originMode = "point"; } this.openDirections(layers, state); };
+    s.q("#d-tap").onclick = async () => { s.close(); const p = await layers.pick(1, "Tap the destination."); if (p) state.destination = p[0]; this.openDirections(layers, state); };
+    s.q("#d-search").onclick = async () => { const p = await this._placeSearch("Search destination…"); if (p) state.destination = p; this.openDirections(layers, state); };
+    s.q("#d-clear").onclick = () => { this.clearDirections(); s.q("#d-status").textContent = "Route cleared."; };
+    s.q("#d-go").onclick = async () => {
+      if (!state.destination) { s.q("#d-status").textContent = "Set a destination first."; return; }
+      s.q("#d-status").textContent = "Routing…";
+      const origin = state.originMode === "me" ? await this._getOrigin() : state.origin;
+      if (!origin) { s.q("#d-status").textContent = "Origin unavailable — allow location or pick one."; return; }
+      s.close();
+      this.directionsTo(state.destination, google.maps.TravelMode[state.mode] || google.maps.TravelMode.TRANSIT, origin);
+    };
+  }
+
+  _placeSearch(prompt) {
+    return new Promise((resolve) => {
+      let done = false;
+      const s = openSheet({
+        title: "Search place",
+        bodyHTML: `
+          <input id="ps-q" class="field" placeholder="${escapeHtml(prompt)}" />
+          <div class="sheet-actions">
+            <button id="ps-cancel" class="btn btn-ghost">Cancel</button>
+            <button id="ps-go" class="btn btn-primary">Search</button>
+          </div>
+          <ul id="ps-res" class="list"></ul>`,
+        onClose: () => { if (!done) resolve(null); },
+      });
+      s.q("#ps-q").focus();
+      const run = async () => {
+        const q = s.q("#ps-q").value.trim();
+        if (!q) return;
+        s.q("#ps-res").innerHTML = '<li class="muted">Searching…</li>';
+        try {
+          const r = await searchText(this.map, q);
+          if (!r.length) { s.q("#ps-res").innerHTML = '<li class="muted">No results.</li>'; return; }
+          s.q("#ps-res").innerHTML = r.slice(0, 8)
+            .map((x, i) => `<li><button class="btn btn-ghost btn-sm" data-i="${i}" style="text-align:left">${escapeHtml(x.name)}<br><span class="muted">${escapeHtml(x.address)}</span></button></li>`)
+            .join("");
+          s.qa("[data-i]").forEach((b) => (b.onclick = () => { done = true; s.close(); resolve(r[parseInt(b.dataset.i, 10)]); }));
+        } catch (e) {
+          s.q("#ps-res").innerHTML = `<li class="muted">${escapeHtml(e.message)}</li>`;
+        }
+      };
+      s.q("#ps-go").onclick = run;
+      s.q("#ps-q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+      s.q("#ps-cancel").onclick = () => s.close();
+    });
   }
 }
