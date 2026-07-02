@@ -77,6 +77,10 @@ html, body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
+.guide ul { margin: 4px 0 6px; padding-left: 20px; }
+.guide li { margin: 4px 0; font-size: 14px; line-height: 1.45; }
+.guide code { background: var(--bg); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+
 .menu-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .menu-list .btn { text-align: left; }
 .game-row { align-items: flex-start; }

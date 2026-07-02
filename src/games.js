@@ -166,11 +166,16 @@ export class Games {
           ${radio("units", "metric", st.units, "Metric (m / km)")}
           ${radio("units", "imperial", st.units, "Imperial (ft / mi)")}
         </div>
+        <h3 class="sub">Help</h3>
+        <div class="row">
+          <button id="st-help" class="btn">📖 Instructions</button>
+        </div>
         <div class="sheet-actions">
           <button id="st-cancel" class="btn btn-ghost">Cancel</button>
           <button id="st-save" class="btn btn-primary">Save</button>
         </div>`,
     });
+    s.q("#st-help").onclick = () => { s.close(); this.openInstructions(); };
     s.q("#st-cancel").onclick = () => s.close();
     s.q("#st-save").onclick = () => {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
@@ -179,5 +184,54 @@ export class Games {
       s.close();
       toast("Settings saved.");
     };
+  }
+
+  // ---- Instructions / user guide ----
+  openInstructions() {
+    const s = openSheet({
+      title: "How to play",
+      bodyHTML: `
+        <div class="guide">
+          <p class="muted">A digital board for <em>Jet Lag: The Game</em> Hide &amp; Seek. Build a play area, then add the questions seekers ask to shade the map down to where the hider is.</p>
+
+          <h3 class="sub">1 · Build the play area — 🗺️ Zones</h3>
+          <ul>
+            <li><strong>Add named region</strong> — type a place (Juhu, Versova, Switzerland) to drop its real boundary.</li>
+            <li><strong>Draw</strong> — tap points on the map, then Finish.</li>
+            <li><strong>Import</strong> — paste GeoJSON or a <code>lat,lng</code> list.</li>
+            <li>Add several — they combine into one play area. Saved zones go to your reusable library.</li>
+          </ul>
+
+          <h3 class="sub">2 · Ask questions — ❓ Questions</h3>
+          <p class="muted">Each question shades out where the hider <em>isn't</em>. Green outline = still-possible area.</p>
+          <ul>
+            <li><strong>◎ Radar</strong> — “Within X of this point?” Tap a centre, set the radius, pick Yes/No.</li>
+            <li><strong>🌡 Thermometer</strong> — moving A→B, hotter or colder? Tap A then B.</li>
+            <li><strong>🧭 Matching</strong> — “Is your nearest ___ the same as mine?” Keeps/shades that region.</li>
+            <li><strong>🐙 Tentacles</strong> — “Which of these are you closest to?” Keeps that one’s region.</li>
+            <li><strong>📐 Measuring</strong> — within/beyond a distance of a coastline, rail, or nearest place.</li>
+            <li><strong>Undo / Redo</strong>, toggle any question on/off, and ✏️ rename it to the real question asked.</li>
+          </ul>
+
+          <h3 class="sub">3 · The hider — 🎯 Hider</h3>
+          <p class="muted">Set the hiding-zone centre and radius; everything outside the radius is shaded. The radius is per game.</p>
+
+          <h3 class="sub">Map tools</h3>
+          <ul>
+            <li><strong>🧭 Route</strong> — directions from your location / a tapped or searched place.</li>
+            <li><strong>🚆 Transit</strong> — toggle the transit layer.</li>
+            <li><strong>📏 Measure</strong> — tap two points (drag to adjust) for distance + travel time.</li>
+            <li><strong>⤢ Fit</strong> — recentre on your zones. Long-press the map for quick “Directions here”.</li>
+          </ul>
+
+          <h3 class="sub">Games &amp; saving</h3>
+          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON). Distance mode &amp; units live in Settings.</p>
+
+          <div class="sheet-actions">
+            <button id="hlp-close" class="btn btn-primary">Got it</button>
+          </div>
+        </div>`,
+    });
+    s.q("#hlp-close").onclick = () => s.close();
   }
 }
