@@ -9,7 +9,7 @@ window.JLTG_CONFIG = {
   // Google Maps Platform API key.
   GOOGLE_MAPS_API_KEY: "YOUR_API_KEY_HERE",
 
-  // Map defaults — Mumbai / Juhu area (adjust to your play region).
-  DEFAULT_CENTER: { lat: 19.099, lng: 72.826 },
-  DEFAULT_ZOOM: 13,
+  // Map defaults — Singapore / Marina Bay area (adjust to your play region).
+  DEFAULT_CENTER: { lat: 1.2830, lng: 103.8590 },
+  DEFAULT_ZOOM: 12,
 };

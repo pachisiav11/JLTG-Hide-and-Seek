@@ -1,4 +1,4 @@
-// Named-region boundary lookup for building play zones (e.g. "Juhu", "Versova",
+// Named-region boundary lookup for building play zones (e.g. "Singapore",
 // "Switzerland"). Uses OpenStreetMap Nominatim, which — unlike Google's geocoder —
 // returns real administrative-boundary polygons (polygon_geojson=1), not just a
 // bounding box. Falls back to the bounding box when no polygon exists.

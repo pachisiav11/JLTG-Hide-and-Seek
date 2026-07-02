@@ -15,7 +15,7 @@ const bootCard = boot?.querySelector(".boot-card");
 const gameNameEl = document.getElementById("game-name");
 
 const LS_API_KEY = "jltg.apiKey";
-const DEFAULTS = { center: { lat: 19.099, lng: 72.826 }, zoom: 13 };
+const DEFAULTS = { center: { lat: 1.2830, lng: 103.8590 }, zoom: 12 };
 
 function setBoot(msg, detail = "", isError = false) {
   if (bootMsg) bootMsg.textContent = msg;

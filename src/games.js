@@ -72,7 +72,7 @@ export class Games {
 
   // ---- Actions ----
   async newGame() {
-    const name = await promptText({ title: "New game", label: "Name", placeholder: "e.g. Sunday Mumbai run", cta: "Create" });
+    const name = await promptText({ title: "New game", label: "Name", placeholder: "e.g. Sunday Singapore run", cta: "Create" });
     if (name === null) return;
     await store.newGame(name ? { name } : {});
     this.zones?.fitToArea();
@@ -196,7 +196,7 @@ export class Games {
 
           <h3 class="sub">1 · Build the play area — 🗺️ Zones</h3>
           <ul>
-            <li><strong>Add named region</strong> — type a place (Juhu, Versova, Switzerland) to drop its real boundary.</li>
+            <li><strong>Add named region</strong> — type a place (Singapore, Switzerland) to drop its real boundary.</li>
             <li><strong>Draw</strong> — tap points on the map, then Finish.</li>
             <li><strong>Import</strong> — paste GeoJSON or a <code>lat,lng</code> list.</li>
             <li>Add several — they combine into one play area. Saved zones go to your reusable library.</li>

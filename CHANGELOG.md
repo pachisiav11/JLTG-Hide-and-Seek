@@ -11,7 +11,7 @@ Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, push
   The centre + radius persist per game and save immediately.
 - **Draggable measure points**: the two Measure points are now draggable; distance +
   travel time recompute live as you drag, with a persistent on-map readout.
-- **Named-region zones**: search a place ("Juhu", "Versova", "Switzerland") and add its
+- **Named-region zones**: search a place ("Singapore", "Switzerland") and add its
   real boundary as a zone via OpenStreetMap Nominatim (falls back to a bounding box when
   OSM has no polygon). Add several to combine them into the play area (`turf.union`).
 - **"Questions" terminology**: the eliminations/layers panel is now "Questions"; each

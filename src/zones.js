@@ -217,14 +217,14 @@ export class Zones {
     };
   }
 
-  // Search a named region (Juhu, Versova, Switzerland…) and add its real boundary
+  // Search a named region (Singapore, Switzerland…) and add its real boundary
   // as a zone. Add several to combine them into one game area (turf.union).
   _openRegionSearch() {
     const s = openSheet({
       title: "Add named region",
       bodyHTML: `
         <p class="muted">Type a place — neighbourhood, city, state, or country. Add several to combine them into the play area.</p>
-        <input id="rg-q" class="field" placeholder="e.g. Juhu, Versova, Switzerland" />
+        <input id="rg-q" class="field" placeholder="e.g. Singapore, Switzerland" />
         <div class="sheet-actions">
           <button id="rg-cancel" class="btn btn-ghost">Cancel</button>
           <button id="rg-go" class="btn btn-primary">Search</button>
@@ -314,7 +314,7 @@ function promptZoneName(initial) {
     const s = openSheet({
       title: "Name this zone",
       bodyHTML: `
-        <input id="zn-name" class="field" type="text" placeholder="e.g. Juhu" value="${escapeHtml(initial)}" />
+        <input id="zn-name" class="field" type="text" placeholder="e.g. Marina Bay" value="${escapeHtml(initial)}" />
         <div class="sheet-actions">
           <button id="zn-cancel" class="btn btn-ghost">Cancel</button>
           <button id="zn-save" class="btn btn-primary">Save zone</button>

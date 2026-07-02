@@ -32,7 +32,7 @@ the map.
 | Surface | **Mobile web app + PWA** | Most complete Maps overlay surface; testable during build; opens as a URL and "Add to Home Screen" behaves like an app. A native-app overlay *on top of* Google Maps is not possible — Google exposes no such hook. |
 | Map engine | **Google Maps JavaScript API** | Native custom overlays (circles/polygons), Transit layer, tilt/zoom. |
 | Geometry | **Turf.js** | Voronoi, perpendicular bisectors, buffers, polygon union/intersection/difference — the exact primitives every tool needs. |
-| Data provider | **Google Maps Platform (real API key)** | Accurate transit timings & Places (important for Mumbai). Stays inside the free tier for personal use. |
+| Data provider | **Google Maps Platform (real API key)** | Accurate transit timings & Places (important for Singapore). Stays inside the free tier for personal use. |
 | Storage | **IndexedDB (local, on-device)** | Every game stored permanently and re-openable. No server, no account. |
 
 **Not a native overlay.** The app renders its *own* Google Map. It is not injected
@@ -69,17 +69,17 @@ serves them through APIs (Directions, Distance Matrix, Places, Transit layer).
 ## 4. The Zone Model
 
 The play area is a **set of named zones** rather than a single boundary. Examples:
-`Juhu + Santacruz West`, `Maharashtra + Gujarat`.
+`Marina Bay + Chinatown`, `Singapore + Switzerland`.
 
 **Data shape (per game):**
 ```jsonc
 {
   "id": "game_2026-07-02_1",
-  "name": "Sunday Mumbai run",
+  "name": "Sunday Singapore run",
   "createdAt": 1751...,
   "zones": [
-    { "id": "juhu",     "name": "Juhu",            "polygon": [[lat,lng], ...] },
-    { "id": "santacruz","name": "Santacruz West",  "polygon": [[lat,lng], ...] }
+    { "id": "marina-bay","name": "Marina Bay", "polygon": [[lat,lng], ...] },
+    { "id": "chinatown", "name": "Chinatown",  "polygon": [[lat,lng], ...] }
   ],
   "gameArea": "<union of all zone polygons, precomputed with turf.union>",
   "hiderLock": { "locked": false, "point": null, "stationName": null },
@@ -92,7 +92,7 @@ The play area is a **set of named zones** rather than a single boundary. Example
 - `gameArea` = `turf.union(...zones)`; all elimination tools clip against it so nothing
   is ever shaded outside the play area.
 - A **zone picker** lets you build a game from a saved library of reusable zones
-  (so "Juhu" is defined once and reused across games).
+  (so "Marina Bay" is defined once and reused across games).
 
 ---
 
