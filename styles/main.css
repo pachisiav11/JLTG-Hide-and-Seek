@@ -282,6 +282,27 @@ textarea.field { resize: vertical; }
 .btn-primary { background: var(--teal); border-color: var(--teal); color: #04252a; }
 .btn-ghost { background: transparent; }
 .btn-sm { padding: 7px 11px; font-size: 13px; }
+.btn:disabled { opacity: 0.4; }
+
+.fieldlbl { display: block; font-size: 13px; color: var(--text-dim); margin: 8px 0 4px; }
+
+/* Segmented yes/no answer control */
+.seg { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.seg label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  font-size: 15px;
+}
+.seg input { accent-color: var(--teal); width: 18px; height: 18px; }
+
+/* Layer list toggles */
+.li-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
+.li-name.off { color: var(--text-dim); text-decoration: line-through; }
 
 /* Context menu (long-press actions) */
 .ctx-menu {

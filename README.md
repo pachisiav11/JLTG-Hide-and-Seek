@@ -18,6 +18,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Draw zones (custom click-to-draw tool) and import zones (GeoJSON or coordinate lists).
   - Reusable zone library; assemble the game area with `turf.union`.
   - Native features: transit-layer toggle, "Directions here" on long-press, distance-between-taps.
+- **Phase 2 — Core tools** ✅
+  - **Radar** (centre + radius circle) and **Thermometer** (perpendicular bisector).
+  - Toggleable shaded elimination layers; `activeArea` recomputed as game area minus enabled eliminations.
+  - Backtracking: undo / redo and per-layer enable/disable.
 
 ## Run it locally
 

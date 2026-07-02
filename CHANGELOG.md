@@ -2,6 +2,20 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 2 — Core tools
+- **Radar** (centre + radius circle): "Yes/inside" keeps the circle, "No/outside" removes it.
+- **Thermometer** (perpendicular bisector of A→B): hotter keeps B's half, colder keeps A's.
+  Built in a local equirectangular projection (lng scaled by cos·lat) so the bisector is
+  correctly equidistant at city scale — great-circle `destination` over ~200 km displaced
+  the line by roughly the size of the play area and gave wrong results.
+- **Elimination engine** (`src/tools.js`): pure functions compute each step's eliminated
+  region from its inputs; `activeArea = gameArea − union(enabled eliminations)`, computed
+  order-independently so toggling any layer recomputes correctly.
+- **Layers** (`src/layers.js`): red shaded overlays per enabled step + a green active-area
+  outline, tool guides (circle outline, A→B line, endpoint markers), and a bottom-sheet
+  panel with map point-picking for tool inputs.
+- **Backtracking**: undo / redo (walks enabled steps) and per-layer enable/disable toggle.
+
 ## Phase 1 — Zones & map basics
 - Custom **draw-zone** tool (tap to add vertices → Finish). *Deviation from guide:* the
   Maps JS `DrawingManager` was removed in API v3.65, so drawing is implemented directly

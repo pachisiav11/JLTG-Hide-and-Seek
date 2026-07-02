@@ -3,6 +3,7 @@ import { loadGoogleMaps, createMap } from "./maps.js";
 import * as store from "./store.js";
 import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
+import { Layers } from "./layers.js";
 import { toast } from "./ui.js";
 
 const boot = document.getElementById("boot");
@@ -119,10 +120,12 @@ async function main() {
   try {
     const zones = new Zones(map);
     const features = new MapFeatures(map);
+    const layers = new Layers(map);
     await Promise.all([zones.init(), features.init()]);
-    wireToolbar(zones, features);
+    layers.init();
+    wireToolbar(zones, features, layers);
     zones.fitToArea();
-    window.__jltg = { zones, features, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
@@ -136,7 +139,7 @@ function reflectGame(game) {
 }
 
 // Wire the floating toolbar to zone + feature actions.
-function wireToolbar(zones, features) {
+function wireToolbar(zones, features, layers) {
   const bar = document.getElementById("toolbar");
   if (!bar) return;
   const setActive = (act, on) =>
@@ -147,6 +150,7 @@ function wireToolbar(zones, features) {
     if (!btn) return;
     const act = btn.dataset.act;
     if (act === "zones") zones.openPanel();
+    else if (act === "layers") layers.openPanel();
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());
     else if (act === "locate") {
