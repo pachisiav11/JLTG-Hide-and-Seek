@@ -2,6 +2,16 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 5 — Hider lock & auto-answer
+- **Hider lock** (`src/hider.js`): pin the hider's true location by tapping the map or
+  using current location; rendered as an "H" marker and persisted with the game.
+- **Auto-answer** (`autoAnswer` in `src/tools.js`): when locked, each tool computes its
+  own correct answer — radar inside/outside, thermometer hotter/colder, nearest Voronoi
+  cell for Matching/Tentacles, and within/beyond for Measuring.
+- Each tool's input sheet shows a "🔒 Auto-answer from hider lock" checkbox (on by default
+  when a lock is set) that overrides the manual answer at commit time.
+- Toolbar made horizontally scrollable to fit the added Lock tool on narrow phones.
+
 ## Phase 4 — Measuring
 - **Measuring** tool: `turf.buffer` a reference feature by a distance, then keep the
   "within" side (inside the buffer) or the "beyond" side (outside). Verified the two

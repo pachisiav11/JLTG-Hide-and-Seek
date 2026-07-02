@@ -192,6 +192,32 @@ export function computeActiveArea(gameArea, steps) {
   return safeDiff(gameArea, removed);
 }
 
+// --- Auto-answer from the hider lock (guide §6.1) ------------------------
+// Given a tool's inputs and the locked hider point, compute what the true answer
+// must be, so the hider's device (or testing) can auto-fill it.
+function refDistanceMeters(geom, lock) {
+  const L = [lock.lng, lock.lat];
+  if (!geom) return Infinity;
+  if (geom.type === "MultiPoint") return Math.min(...geom.coordinates.map((c) => T().distance(L, c, { units: "meters" })));
+  if (geom.type === "Point") return T().distance(L, geom.coordinates, { units: "meters" });
+  if (geom.type === "LineString") return T().pointToLineDistance(T().point(L), T().lineString(geom.coordinates), { units: "meters" });
+  return Infinity;
+}
+
+export function autoAnswer(tool, inputs, lock) {
+  const L = [lock.lng, lock.lat];
+  const dist = (p) => T().distance(L, [p.lng, p.lat], { units: "meters" });
+  if (tool === "radar") return { side: dist(inputs.center) <= inputs.radius ? "in" : "out" };
+  if (tool === "thermometer") return { side: dist(inputs.b) < dist(inputs.a) ? "hotter" : "colder" };
+  if (tool === "matching" || tool === "tentacles") {
+    let best = 0, bd = Infinity;
+    (inputs.features || []).forEach((f, i) => { const d = dist(f); if (d < bd) { bd = d; best = i; } });
+    return { featureIndex: best, keep: true };
+  }
+  if (tool === "measuring") return { side: refDistanceMeters(inputs.refGeometry, lock) <= inputs.distance ? "in" : "out" };
+  return {};
+}
+
 // Short human-readable summary for the layers list.
 export function describeStep(step) {
   if (step.tool === "radar") {

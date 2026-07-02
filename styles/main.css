@@ -143,21 +143,26 @@ html, body {
   transform: translateX(-50%);
   bottom: calc(14px + var(--safe-bottom));
   display: flex;
-  gap: 6px;
+  gap: 4px;
   padding: 6px;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  scrollbar-width: none;
   background: rgba(9, 39, 46, 0.92);
   border: 1px solid var(--panel-2);
   border-radius: 16px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
 }
+#toolbar::-webkit-scrollbar { display: none; }
 #toolbar button {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  min-width: 60px;
-  padding: 8px 6px;
+  min-width: 54px;
+  flex: 0 0 auto;
+  padding: 8px 5px;
   border: none;
   border-radius: 11px;
   background: transparent;
@@ -303,6 +308,20 @@ textarea.field { resize: vertical; }
 .li-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
 .li-name.off { color: var(--text-dim); text-decoration: line-through; }
+
+/* Auto-answer-from-lock checkbox */
+.auto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--teal-dim);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--text);
+}
+.auto input { accent-color: var(--teal); width: 18px; height: 18px; }
 
 /* Context menu (long-press actions) */
 .ctx-menu {
