@@ -31,10 +31,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Buffer a reference feature by a distance; keep the "within" or "beyond" side.
   - Reference can be a Places category (point set) or a bundled linear feature.
   - Ships approximate Mumbai coastline + Western Railway GeoJSON (`src/data/linear.js`).
-- **Phase 5 — Hider lock & auto-answer** ✅
-  - Lock the hider's true point (tap or current location); persists with the game.
-  - Every tool can auto-answer its own question from the lock (radar in/out, thermometer
-    hotter/colder, nearest Voronoi cell, measuring within/beyond).
+- **Phase 5 — Hiding zone** ✅
+  - Set the hider's zone centre (tap or current location) and a per-game radius;
+    everything outside the radius is shaded out. Persists with the game.
+  - (Auto-answer was later removed — all questions are answered manually.)
 - **Phase 6 — History & polish** ✅
   - Game history browser (open / rename / duplicate / delete), export & import as JSON.
   - Settings: distance mode (straight-line / walking / transit) and units (metric / imperial).

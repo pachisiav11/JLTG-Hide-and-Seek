@@ -1,9 +1,7 @@
-// Hider lock (guide §6.1): pin the hider's true location so the elimination tools
-// can auto-answer their own questions. Persists with the game as
-// hiderLock = { locked, point:{lat,lng}, stationName, radius }.
-//
-// Optionally shades everything OUTSIDE a "hider radius" (the hiding zone) around
-// the lock — set per game, since the allowed hiding radius changes each game.
+// Hiding zone: set a centre point and a "hider radius"; everything OUTSIDE the
+// radius is shaded out. The radius is per game (it changes each game). Persists as
+// hiderLock = { locked, point:{lat,lng}, stationName, radius } — here `locked`
+// simply means a zone centre has been placed.
 import * as store from "./store.js";
 import { geojsonToPaths } from "./geo.js";
 import { openSheet, toast } from "./ui.js";
@@ -34,8 +32,8 @@ export class Hider {
       const radius = g.hiderLock?.radius || null; // keep any existing radius
       g.hiderLock = { locked: true, point, stationName, radius };
     });
-    store.saveNow(); // persist immediately (a quick app-close shouldn't lose the lock)
-    toast("Hider lock set — tools can now auto-answer.");
+    store.saveNow(); // persist immediately (a quick app-close shouldn't lose it)
+    toast("Hider centre set.");
   }
   setRadius(radius) {
     store.update((g) => {
@@ -47,7 +45,7 @@ export class Hider {
   clear() {
     store.update((g) => (g.hiderLock = { locked: false, point: null, stationName: null, radius: null }));
     store.saveNow();
-    toast("Hider lock cleared.");
+    toast("Hiding zone cleared.");
   }
 
   render() {
@@ -103,12 +101,12 @@ export class Hider {
     const locked = this.isLocked();
     const pt = lock.point;
     const s = openSheet({
-      title: "Hider lock",
+      title: "Hiding zone",
       bodyHTML: `
-        <p class="muted">Lock the hider's true location so each tool can auto-answer its own question (great for the hider's phone, or for testing).</p>
-        <p>Status: <strong>${locked ? "Locked" : "Not set"}</strong>${locked && pt ? ` · ${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}` : ""}</p>
+        <p class="muted">Set the hider's zone centre and radius. Everything outside the radius is shaded out.</p>
+        <p>Centre: <strong>${locked && pt ? `${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}` : "Not set"}</strong></p>
         <div class="row">
-          <button id="h-tap" class="btn btn-primary">📍 Set by tapping</button>
+          <button id="h-tap" class="btn btn-primary">📍 Set centre by tapping</button>
           <button id="h-loc" class="btn">🧭 My location</button>
         </div>
         <label class="fieldlbl">Hider radius (metres) — shades everything outside this zone</label>
@@ -118,12 +116,12 @@ export class Hider {
           <button id="h-nozone" class="btn">No zone</button>
         </div>
         <div class="row">
-          <button id="h-clear" class="btn btn-ghost" ${locked ? "" : "disabled"}>Clear lock</button>
+          <button id="h-clear" class="btn btn-ghost" ${locked ? "" : "disabled"}>Clear zone</button>
         </div>`,
     });
     s.q("#h-tap").onclick = async () => {
       s.close();
-      const pts = await layers.pick(1, "Tap the hider's location on the map.");
+      const pts = await layers.pick(1, "Tap the hiding-zone centre on the map.");
       if (pts) this.setLock(pts[0]);
     };
     s.q("#h-loc").onclick = () => {
@@ -135,7 +133,7 @@ export class Hider {
       );
     };
     s.q("#h-apply").onclick = () => {
-      if (!locked) return toast("Set the hider lock first.");
+      if (!locked) return toast("Set the zone centre first.");
       const r = Math.max(0, parseFloat(s.q("#h-radius").value) || 0);
       this.setRadius(r);
       s.close();

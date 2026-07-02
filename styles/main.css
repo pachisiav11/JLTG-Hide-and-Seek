@@ -328,19 +328,6 @@ textarea.field { resize: vertical; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
 .li-name.off { color: var(--text-dim); text-decoration: line-through; }
 
-/* Auto-answer-from-lock checkbox */
-.auto {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 0 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--teal-dim);
-  border-radius: 12px;
-  font-size: 14px;
-  color: var(--text);
-}
-.auto input { accent-color: var(--teal); width: 18px; height: 18px; }
 
 /* Context menu (long-press actions) */
 .ctx-menu {

@@ -5,7 +5,7 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPaths } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep, autoAnswer } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
 import { CATEGORIES, searchCategory } from "./places.js";
 import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
@@ -26,18 +26,6 @@ export class Layers {
   init() {
     store.subscribe(() => this.render());
     this.render();
-  }
-
-  // The locked hider point, or null. Used to auto-answer tool questions.
-  _lock() {
-    const g = store.getCurrent();
-    return g?.hiderLock?.locked ? g.hiderLock.point : null;
-  }
-  // HTML for the "auto-answer from lock" checkbox, shown only when locked.
-  _autoHtml() {
-    return this._lock()
-      ? `<label class="auto"><input type="checkbox" id="auto" checked/> 🔒 Auto-answer from hider lock</label>`
-      : "";
   }
 
   // ---- History operations ----
@@ -230,7 +218,6 @@ export class Layers {
           <label><input type="radio" name="r-side" value="in" checked /> Yes — inside</label>
           <label><input type="radio" name="r-side" value="out" /> No — outside</label>
         </div>
-        ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="r-cancel" class="btn btn-ghost">Cancel</button>
           <button id="r-add" class="btn btn-primary">Add question</button>
@@ -239,12 +226,8 @@ export class Layers {
     s.q("#r-cancel").onclick = () => s.close();
     s.q("#r-add").onclick = () => {
       const radius = Math.max(10, parseFloat(s.q("#r-radius").value) || 0);
-      const inputs = { center, radius };
-      const lock = this._lock();
-      const answer = lock && s.q("#auto")?.checked
-        ? autoAnswer("radar", inputs, lock)
-        : { side: s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in" };
-      this.addStep("radar", inputs, answer);
+      const side = s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in";
+      this.addStep("radar", { center, radius }, { side });
       s.close();
       toast("Radar question added.");
     };
@@ -263,7 +246,6 @@ export class Layers {
           <label><input type="radio" name="th-side" value="hotter" checked /> Hotter (closer to B)</label>
           <label><input type="radio" name="th-side" value="colder" /> Colder (closer to A)</label>
         </div>
-        ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="th-cancel" class="btn btn-ghost">Cancel</button>
           <button id="th-add" class="btn btn-primary">Add question</button>
@@ -271,12 +253,8 @@ export class Layers {
     });
     s.q("#th-cancel").onclick = () => s.close();
     s.q("#th-add").onclick = () => {
-      const inputs = { a, b };
-      const lock = this._lock();
-      const answer = lock && s.q("#auto")?.checked
-        ? autoAnswer("thermometer", inputs, lock)
-        : { side: s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter" };
-      this.addStep("thermometer", inputs, answer);
+      const side = s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter";
+      this.addStep("thermometer", { a, b }, { side });
       s.close();
       toast("Thermometer question added.");
     };
@@ -355,7 +333,6 @@ export class Layers {
         <p class="muted">${prompt} (${features.length} found)</p>
         <div class="seg">${list}</div>
         ${matchingExtra}
-        ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="v-cancel2" class="btn btn-ghost">Cancel</button>
           <button id="v-add" class="btn btn-primary">Add question</button>
@@ -364,19 +341,11 @@ export class Layers {
     });
     s.q("#v-cancel2").onclick = () => s.close();
     s.q("#v-add").onclick = () => {
-      const inputs = { category: cat.id, categoryLabel: cat.label, features };
-      const lock = this._lock();
-      let answer;
-      if (lock && s.q("#auto")?.checked) {
-        answer = autoAnswer(kind, inputs, lock);
-      } else {
-        const featureIndex = parseInt(s.qa('input[name="v-feat"]').find((r) => r.checked)?.value ?? "0", 10);
-        const keep = kind === "matching"
-          ? s.qa('input[name="v-ans"]').find((r) => r.checked)?.value === "yes"
-          : true; // Tentacles always keeps the revealed-closest cell
-        answer = { featureIndex, keep };
-      }
-      this.addStep(kind, inputs, answer);
+      const featureIndex = parseInt(s.qa('input[name="v-feat"]').find((r) => r.checked)?.value ?? "0", 10);
+      const keep = kind === "matching"
+        ? s.qa('input[name="v-ans"]').find((r) => r.checked)?.value === "yes"
+        : true; // Tentacles always keeps the revealed-closest cell
+      this.addStep(kind, { category: cat.id, categoryLabel: cat.label, features }, { featureIndex, keep });
       s.close();
       toast(`${kind === "matching" ? "Matching" : "Tentacles"} question added.`);
     };
@@ -403,7 +372,6 @@ export class Layers {
           <label><input type="radio" name="m-side" value="in" checked/> Within (Yes / closer)</label>
           <label><input type="radio" name="m-side" value="out"/> Beyond (No / farther)</label>
         </div>
-        ${this._autoHtml()}
         <div class="sheet-actions">
           <button id="m-cancel" class="btn btn-ghost">Cancel</button>
           <button id="m-add" class="btn btn-primary">Add question</button>
@@ -442,11 +410,8 @@ export class Layers {
           distance,
         };
       }
-      const lock = this._lock();
-      const answer = lock && s.q("#auto")?.checked
-        ? autoAnswer("measuring", inputs, lock)
-        : { side: s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in" };
-      this.addStep("measuring", inputs, answer);
+      const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
+      this.addStep("measuring", inputs, { side });
       s.close();
       toast("Measuring question added.");
     };
