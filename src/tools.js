@@ -138,12 +138,39 @@ function geojsonRings(geom) {
   return rings;
 }
 
+// --- Measuring: buffer of a reference geometry ---------------------------
+// "Within d of X" keeps inside the buffer (side "in"); "beyond d" keeps outside
+// (side "out"). Reference is a Places point set (MultiPoint) or a bundled line.
+function bufferGeometry(geom, meters) {
+  try {
+    const b = T().buffer(feat(geom), meters, { units: "meters" });
+    return b ? b.geometry : null;
+  } catch (e) { console.warn("buffer failed", e); return null; }
+}
+
+function measuring(step, gameArea) {
+  const { refGeometry, refFeatures, distance } = step.inputs;
+  const side = step.answer?.side; // "in" (within/closer) | "out" (beyond/farther)
+  const guides = [];
+  // Reference visuals.
+  if (refGeometry?.type === "LineString") guides.push({ type: "polyline", coords: refGeometry.coordinates.map(([lng, lat]) => ({ lat, lng })) });
+  for (const f of refFeatures || []) guides.push({ type: "point", lat: f.lat, lng: f.lng });
+
+  const buffer = refGeometry ? bufferGeometry(refGeometry, distance) : null;
+  if (!buffer || !gameArea) return { eliminated: null, guides };
+  for (const ring of geojsonRings(buffer)) guides.push({ type: "outline", ring });
+
+  const eliminated = side === "in" ? safeDiff(gameArea, buffer) : safeIntersect(buffer, gameArea);
+  return { eliminated, guides };
+}
+
 export function computeElimination(step, gameArea) {
   switch (step.tool) {
     case "radar": return radar(step, gameArea);
     case "thermometer": return thermometer(step, gameArea);
     case "matching":
     case "tentacles": return voronoiTool(step, gameArea);
+    case "measuring": return measuring(step, gameArea);
     default: return { eliminated: null, guides: [] };
   }
 }
@@ -182,6 +209,12 @@ export function describeStep(step) {
     const label = step.tool === "matching" ? "Matching" : "Tentacles";
     const verb = step.answer?.keep ? "keep" : "shade";
     return `${label} · ${cat} · ${verb} “${sel?.name || "?"}”`;
+  }
+  if (step.tool === "measuring") {
+    const d = step.inputs.distance;
+    const dTxt = d >= 1000 ? `${(d / 1000).toFixed(d % 1000 ? 1 : 0)} km` : `${Math.round(d)} m`;
+    const rel = step.answer?.side === "in" ? "within" : "beyond";
+    return `Measuring · ${rel} ${dTxt} of ${step.inputs.refLabel || "reference"}`;
   }
   return step.tool;
 }

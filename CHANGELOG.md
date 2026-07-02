@@ -2,6 +2,17 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 4 — Measuring
+- **Measuring** tool: `turf.buffer` a reference feature by a distance, then keep the
+  "within" side (inside the buffer) or the "beyond" side (outside). Verified the two
+  sides are complementary (sum to the game area).
+- Reference can be a **Places category** (buffered point set / MultiPoint) or a
+  **bundled linear feature**.
+- Ships approximate Mumbai west coastline + Western Railway polylines
+  (`src/data/linear.js`), clearly marked as non-survey-accurate and editable.
+- Reference geometry (and Places feature set) is stored in the step for deterministic
+  recomputation.
+
 ## Phase 3 — Voronoi tools
 - **Matching** ("is your nearest X the same as mine?") and **Tentacles** ("which of these
   are you closest to?") on a shared `turf.voronoi` engine (`voronoiCells` in `src/tools.js`).

@@ -7,6 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPaths } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
 import { CATEGORIES, searchCategory } from "./places.js";
+import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
 import { openSheet, closeSheet, toast, escapeHtml } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
@@ -100,6 +101,8 @@ export class Layers {
         this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
       } else if (gd.type === "outline") {
         this.overlays.push(new google.maps.Polygon({ paths: gd.ring, strokeColor: "#94a3b8", strokeOpacity: 0.5, strokeWeight: 1, fillOpacity: 0, clickable: false, map: this.map }));
+      } else if (gd.type === "polyline") {
+        this.overlays.push(new google.maps.Polyline({ path: gd.coords, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 3, clickable: false, map: this.map }));
       }
     }
   }
@@ -169,6 +172,9 @@ export class Layers {
           <button id="t-tent" class="btn btn-primary">🐙 Tentacles</button>
         </div>
         <div class="row">
+          <button id="t-measure" class="btn btn-primary">📐 Measuring</button>
+        </div>
+        <div class="row">
           <button id="t-undo" class="btn">↶ Undo</button>
           <button id="t-redo" class="btn" ${canRedo ? "" : "disabled"}>↷ Redo</button>
         </div>
@@ -180,6 +186,7 @@ export class Layers {
     s.q("#t-thermo").onclick = () => this.startThermometer();
     s.q("#t-match").onclick = () => this.startVoronoi("matching");
     s.q("#t-tent").onclick = () => this.startVoronoi("tentacles");
+    s.q("#t-measure").onclick = () => this.startMeasuring();
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
     s.qa("[data-toggle]").forEach((c) => (c.onchange = () => this.toggle(c.dataset.toggle)));
@@ -331,6 +338,72 @@ export class Layers {
       this.addStep(kind, { category: cat.id, categoryLabel: cat.label, features }, { featureIndex, keep });
       s.close();
       toast(`${kind === "matching" ? "Matching" : "Tentacles"} elimination added.`);
+    };
+  }
+
+  // ---- Measuring (buffer of a reference: bundled line or Places points) ----
+  startMeasuring() {
+    const g = store.getCurrent();
+    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    const lineOpts = LINEAR_FEATURES.map((f) => `<option value="line:${f.id}">${escapeHtml(f.name)}</option>`).join("");
+    const placeOpts = CATEGORIES.map((c) => `<option value="places:${c.id}">Nearest ${escapeHtml(c.label.toLowerCase())}</option>`).join("");
+    const s = openSheet({
+      title: "Measuring",
+      bodyHTML: `
+        <p class="muted">Buffer a reference feature by a distance, then keep the matching side.</p>
+        <label class="fieldlbl">Reference</label>
+        <select id="m-ref" class="field">
+          <optgroup label="Bundled linear features">${lineOpts}</optgroup>
+          <optgroup label="Nearest place (Places API)">${placeOpts}</optgroup>
+        </select>
+        <label class="fieldlbl">Distance (metres)</label>
+        <input id="m-dist" class="field" type="number" inputmode="numeric" value="500" min="10" step="10" />
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="m-side" value="in" checked/> Within (Yes / closer)</label>
+          <label><input type="radio" name="m-side" value="out"/> Beyond (No / farther)</label>
+        </div>
+        <div class="sheet-actions">
+          <button id="m-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="m-add" class="btn btn-primary">Add elimination</button>
+        </div>
+        <p id="m-status" class="muted"></p>`,
+    });
+    s.q("#m-cancel").onclick = () => s.close();
+    s.q("#m-add").onclick = async () => {
+      const ref = s.q("#m-ref").value;
+      const distance = Math.max(10, parseFloat(s.q("#m-dist").value) || 0);
+      const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
+      let inputs;
+      if (ref.startsWith("line:")) {
+        const lf = findLinearFeature(ref.slice(5));
+        if (!lf) return;
+        inputs = { refType: "line", refGeometry: lf.geojson, refLabel: lf.name, distance };
+      } else {
+        const cat = CATEGORIES.find((c) => c.id === ref.slice(7));
+        const { center, radius } = this._searchParams(g.gameArea);
+        s.q("#m-status").textContent = "Searching places…";
+        let feats = [];
+        try {
+          feats = await searchCategory(this.map, { center, radius, type: cat.type });
+        } catch (e) {
+          s.q("#m-status").textContent = e.message;
+          return;
+        }
+        if (!feats.length) {
+          s.q("#m-status").textContent = "No places found for that reference.";
+          return;
+        }
+        inputs = {
+          refType: "places",
+          refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
+          refFeatures: feats,
+          refLabel: cat.label,
+          distance,
+        };
+      }
+      this.addStep("measuring", inputs, { side });
+      s.close();
+      toast("Measuring elimination added.");
     };
   }
 }
