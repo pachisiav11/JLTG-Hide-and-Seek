@@ -13,6 +13,9 @@
   <link rel="stylesheet" href="styles/main.css" />
   <title>Jet Lag: Hide &amp; Seek — Map Companion</title>
 
+  <!-- Geometry engine (vendored, offline-cacheable). Exposes global `turf`. -->
+  <script src="vendor/turf.min.js"></script>
+
   <!-- Local, git-ignored config (API key + map defaults). Loaded before the app. -->
   <script src="config.js"></script>
 </head>
@@ -34,6 +37,14 @@
       <div id="boot-detail" class="boot-detail"></div>
     </div>
   </div>
+
+  <!-- Floating tool bar -->
+  <nav id="toolbar" aria-label="Tools">
+    <button data-act="zones" title="Zones"><span class="ic">▦</span><span class="lb">Zones</span></button>
+    <button data-act="transit" title="Transit layer"><span class="ic">🚆</span><span class="lb">Transit</span></button>
+    <button data-act="measure" title="Measure distance"><span class="ic">📏</span><span class="lb">Measure</span></button>
+    <button data-act="locate" title="Fit to zones"><span class="ic">⤢</span><span class="lb">Fit</span></button>
+  </nav>
 
   <!-- Bottom install hint (shown when installable) -->
   <button id="install-btn" hidden>Add to Home Screen</button>

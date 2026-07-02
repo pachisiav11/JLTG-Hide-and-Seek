@@ -1,6 +1,9 @@
 // App bootstrap: wire config -> DB/store -> Google Map -> PWA install.
 import { loadGoogleMaps, createMap } from "./maps.js";
 import * as store from "./store.js";
+import { Zones } from "./zones.js";
+import { MapFeatures } from "./features.js";
+import { toast } from "./ui.js";
 
 const boot = document.getElementById("boot");
 const bootMsg = document.getElementById("boot-msg");
@@ -35,6 +38,7 @@ function resolveConfig() {
       : localStorage.getItem(LS_API_KEY) || null;
   return {
     key,
+    keyFromStorage: !(fileKey && fileKey !== "YOUR_API_KEY_HERE") && !!key,
     center: file.DEFAULT_CENTER || DEFAULTS.center,
     zoom: file.DEFAULT_ZOOM || DEFAULTS.zoom,
   };
@@ -89,26 +93,67 @@ async function main() {
     return;
   }
 
-  // 3) Google Maps.
+  // 3) Google Maps (key-critical — a failure here usually means a bad key).
   setBoot("Loading map…");
+  let map;
   try {
     await loadGoogleMaps(cfg.key);
-    const map = await createMap(document.getElementById("map"), {
+    map = await createMap(document.getElementById("map"), {
       center: cfg.center,
       zoom: cfg.zoom,
     });
     window.__jltgMap = map; // handy for debugging / later phases
-    hideBoot();
   } catch (e) {
     console.error(e);
-    // A bad key is the most common cause — offer to re-enter it.
-    localStorage.removeItem(LS_API_KEY);
-    setBoot("Map failed to load", String(e.message || e) + " — reload to re-enter your key.", true);
+    // Only a device-entered key is worth discarding; a config.js key stays put.
+    if (cfg.keyFromStorage) {
+      localStorage.removeItem(LS_API_KEY);
+      setBoot("Map failed to load", String(e.message || e) + " — reload to re-enter your key.", true);
+    } else {
+      setBoot("Map failed to load", String(e.message || e), true);
+    }
+    return;
   }
+
+  // 4) Zones + native map features. A failure here must NOT block the map or key.
+  try {
+    const zones = new Zones(map);
+    const features = new MapFeatures(map);
+    await Promise.all([zones.init(), features.init()]);
+    wireToolbar(zones, features);
+    zones.fitToArea();
+    window.__jltg = { zones, features, store }; // debug / testing handle
+  } catch (e) {
+    console.error("tool init failed", e);
+    toast("Some map tools failed to load — see console.");
+  }
+
+  hideBoot();
 }
 
 function reflectGame(game) {
   if (gameNameEl && game) gameNameEl.textContent = game.name || "";
+}
+
+// Wire the floating toolbar to zone + feature actions.
+function wireToolbar(zones, features) {
+  const bar = document.getElementById("toolbar");
+  if (!bar) return;
+  const setActive = (act, on) =>
+    bar.querySelector(`[data-act="${act}"]`)?.classList.toggle("active", on);
+
+  bar.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === "zones") zones.openPanel();
+    else if (act === "transit") setActive("transit", features.toggleTransit());
+    else if (act === "measure") setActive("measure", features.toggleMeasure());
+    else if (act === "locate") {
+      if (store.getCurrent()?.zones?.length) zones.fitToArea();
+      else toast("No zones yet — add one from the Zones tool.");
+    }
+  });
 }
 
 // --- PWA: service worker + install prompt ---------------------------------

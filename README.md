@@ -5,12 +5,19 @@ A mobile web app (PWA) that renders a full Google Map and layers on the deductiv
 
 See [`GUIDE.md`](GUIDE.md) for the full vision, data model, and phased roadmap.
 
+**Live demo (auto-deploys from `main`):** https://pachisiav11.github.io/JLTG-Hide-and-Seek/
+On a new device it asks once for your Maps API key (stored only on that device).
+
 ## Status
 
 - **Phase 0 — Foundations** ✅
   - App skeleton + Google Maps JS API loading (maps, places, geometry, drawing, marker, visualization).
   - PWA: web manifest, service worker (offline shell), home-screen install.
   - IndexedDB storage (`jltg` DB) + Game data model + debounced autosave.
+- **Phase 1 — Zones & map basics** ✅
+  - Draw zones (custom click-to-draw tool) and import zones (GeoJSON or coordinate lists).
+  - Reusable zone library; assemble the game area with `turf.union`.
+  - Native features: transit-layer toggle, "Directions here" on long-press, distance-between-taps.
 
 ## Run it locally
 

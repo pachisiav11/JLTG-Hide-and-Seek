@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v1";
+const CACHE_VERSION = "jltg-shell-v4";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -8,11 +8,16 @@ const SHELL_ASSETS = [
   "./index.html",
   "./manifest.webmanifest",
   "./styles/main.css",
+  "./vendor/turf.min.js",
   "./src/app.js",
   "./src/maps.js",
   "./src/db.js",
   "./src/model.js",
   "./src/store.js",
+  "./src/geo.js",
+  "./src/ui.js",
+  "./src/zones.js",
+  "./src/features.js",
   "./icons/icon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -43,17 +48,19 @@ self.addEventListener("fetch", (event) => {
   const isConfig = url.pathname.endsWith("/config.js");
   if (isGoogle || isConfig) return; // let the network handle it
 
-  // Same-origin shell: cache-first, fall back to network and populate cache.
+  // Same-origin shell: NETWORK-FIRST so an online device always gets the latest
+  // build (each pushed phase), updating the cache as it goes; fall back to the
+  // cache only when offline. This keeps the app installable/offline-capable
+  // without ever serving a stale shell while connected.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((resp) => {
+      fetch(request)
+        .then((resp) => {
           const copy = resp.clone();
           caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
           return resp;
-        }).catch(() => cached);
-      })
+        })
+        .catch(() => caches.match(request).then((c) => c || caches.match("./index.html")))
     );
   }
 });

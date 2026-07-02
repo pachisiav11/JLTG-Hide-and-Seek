@@ -1,0 +1,115 @@
+// Geometry + coordinate helpers.
+// Game polygons are stored as [[lat, lng], ...] (guide §4). GeoJSON and Turf use
+// [lng, lat]. This module centralizes every conversion so the rest of the app
+// never has to think about axis order.
+
+function T() {
+  if (!window.turf) throw new Error("Turf.js not loaded.");
+  return window.turf;
+}
+
+// [[lat,lng],...] ring -> Turf polygon feature (auto-closed).
+export function ringToTurf(latlngs) {
+  const ring = latlngs.map(([lat, lng]) => [lng, lat]);
+  if (ring.length) {
+    const a = ring[0], b = ring[ring.length - 1];
+    if (a[0] !== b[0] || a[1] !== b[1]) ring.push([a[0], a[1]]);
+  }
+  return T().polygon([ring]);
+}
+
+// Google Maps path (MVCArray of LatLng) -> [[lat,lng],...].
+export function pathToRing(path) {
+  const out = [];
+  path.forEach((ll) => out.push([ll.lat(), ll.lng()]));
+  return out;
+}
+
+// GeoJSON Polygon/MultiPolygon geometry -> array of Google paths ([{lat,lng},...]).
+export function geojsonToPaths(geom) {
+  if (!geom) return [];
+  let polys = [];
+  if (geom.type === "MultiPolygon") polys = geom.coordinates;
+  else if (geom.type === "Polygon") polys = [geom.coordinates];
+  const paths = [];
+  for (const poly of polys) {
+    for (const ring of poly) {
+      paths.push(ring.map(([lng, lat]) => ({ lat, lng })));
+    }
+  }
+  return paths;
+}
+
+// Union of many [[lat,lng]] rings -> single GeoJSON geometry (Polygon/MultiPolygon), or null.
+export function unionRings(rings) {
+  const polys = (rings || []).filter((r) => r && r.length >= 3).map(ringToTurf);
+  if (!polys.length) return null;
+  if (polys.length === 1) return polys[0].geometry;
+  try {
+    const u = T().union(T().featureCollection(polys));
+    return u ? u.geometry : null;
+  } catch (e) {
+    console.warn("union failed", e);
+    return null;
+  }
+}
+
+// Parse pasted zone input: a GeoJSON Feature/FeatureCollection/geometry, OR a raw
+// coordinate list. Returns an array of { name, ring:[[lat,lng],...] }.
+export function parseZoneInput(text) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return [];
+  // Try GeoJSON first.
+  try {
+    const obj = JSON.parse(trimmed);
+    return geojsonToZones(obj);
+  } catch (_) {
+    // Fall through to coordinate parsing.
+  }
+  const ring = parseCoordList(trimmed);
+  return ring.length >= 3 ? [{ name: "", ring }] : [];
+}
+
+function geojsonToZones(obj) {
+  const zones = [];
+  const pushGeom = (geom, name) => {
+    for (const path of geojsonToPaths(geom)) {
+      const ring = path.map((p) => [p.lat, p.lng]);
+      // Drop the closing duplicate vertex for storage.
+      if (ring.length > 1) {
+        const a = ring[0], b = ring[ring.length - 1];
+        if (a[0] === b[0] && a[1] === b[1]) ring.pop();
+      }
+      if (ring.length >= 3) zones.push({ name: name || "", ring });
+    }
+  };
+  if (obj.type === "FeatureCollection") {
+    for (const f of obj.features || []) pushGeom(f.geometry, f.properties?.name);
+  } else if (obj.type === "Feature") {
+    pushGeom(obj.geometry, obj.properties?.name);
+  } else if (obj.type === "Polygon" || obj.type === "MultiPolygon") {
+    pushGeom(obj, "");
+  }
+  return zones;
+}
+
+// Accept "lat,lng lat,lng" or "lat,lng; lat,lng" or newline-separated pairs.
+function parseCoordList(text) {
+  const nums = text.split(/[;\n]|\)\s*,?\s*\(|\s{2,}/).map((s) => s.trim()).filter(Boolean);
+  const pairs = [];
+  for (const chunk of nums) {
+    const m = chunk.match(/-?\d+(\.\d+)?/g);
+    if (m && m.length >= 2) pairs.push([parseFloat(m[0]), parseFloat(m[1])]);
+  }
+  return pairs;
+}
+
+export function centroidOfRing(ring) {
+  try {
+    const c = T().centroid(ringToTurf(ring));
+    const [lng, lat] = c.geometry.coordinates;
+    return { lat, lng };
+  } catch (_) {
+    return null;
+  }
+}
