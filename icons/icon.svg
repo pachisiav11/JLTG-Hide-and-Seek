@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="JLTG radar">
+  <rect width="512" height="512" fill="#072129"/>
+  <g fill="none" stroke="#2dd4bf" stroke-width="10">
+    <circle cx="256" cy="256" r="80"/>
+    <circle cx="256" cy="256" r="145"/>
+    <circle cx="256" cy="256" r="210"/>
+  </g>
+  <g stroke="#2dd4bf" stroke-width="8">
+    <line x1="256" y1="36" x2="256" y2="476"/>
+    <line x1="36" y1="256" x2="476" y2="256"/>
+  </g>
+  <circle cx="256" cy="256" r="26" fill="#b2f5ea"/>
+</svg>

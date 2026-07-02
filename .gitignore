@@ -1,0 +1,16 @@
+# Local secrets — never commit the real Maps API key.
+config.js
+
+# Node / tooling
+node_modules/
+npm-debug.log*
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local dev/preview tooling
+.claude/

@@ -1,0 +1,111 @@
+:root {
+  --bg: #072129;
+  --panel: #0e2f38;
+  --panel-2: #12414c;
+  --teal: #2dd4bf;
+  --teal-dim: #1b8f82;
+  --text: #e6f4f1;
+  --text-dim: #8fb3ad;
+  --danger: #f87171;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+#topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(8px + var(--safe-top)) 14px 8px;
+  background: linear-gradient(180deg, rgba(7,33,41,0.92), rgba(7,33,41,0));
+  pointer-events: none;
+}
+
+#app-title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 15px;
+  color: var(--text);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+
+#game-name {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Boot / status overlay */
+#boot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(120% 120% at 50% 30%, #0b2d34, var(--bg));
+  transition: opacity 0.4s ease;
+}
+#boot.hidden { opacity: 0; pointer-events: none; }
+
+.boot-card {
+  text-align: center;
+  padding: 28px 34px;
+}
+.boot-logo {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 18px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle, var(--teal) 0 6%, transparent 7%),
+    repeating-radial-gradient(circle, transparent 0 14px, var(--teal-dim) 15px 17px);
+  background-color: var(--bg);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+#boot-msg { font-size: 16px; font-weight: 600; }
+.boot-detail { margin-top: 8px; font-size: 13px; color: var(--text-dim); max-width: 280px; }
+.boot-detail.error { color: var(--danger); }
+
+#install-btn {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(18px + var(--safe-bottom));
+  padding: 12px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #04252a;
+  font-weight: 700;
+  font-size: 15px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+}

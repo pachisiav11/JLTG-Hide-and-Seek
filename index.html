@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#072129" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="JLTG H&S" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles/main.css" />
+  <title>Jet Lag: Hide &amp; Seek — Map Companion</title>
+
+  <!-- Local, git-ignored config (API key + map defaults). Loaded before the app. -->
+  <script src="config.js"></script>
+</head>
+<body>
+  <!-- Full-screen Google Map -->
+  <div id="map" aria-label="Game map"></div>
+
+  <!-- Top status bar -->
+  <header id="topbar">
+    <span id="app-title">JLTG · Hide &amp; Seek</span>
+    <span id="game-name" title="Current game"></span>
+  </header>
+
+  <!-- Boot / status overlay (hidden once the map is ready) -->
+  <div id="boot" role="status" aria-live="polite">
+    <div class="boot-card">
+      <div class="boot-logo" aria-hidden="true"></div>
+      <div id="boot-msg">Starting…</div>
+      <div id="boot-detail" class="boot-detail"></div>
+    </div>
+  </div>
+
+  <!-- Bottom install hint (shown when installable) -->
+  <button id="install-btn" hidden>Add to Home Screen</button>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
