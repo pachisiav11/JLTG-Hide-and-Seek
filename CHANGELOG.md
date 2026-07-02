@@ -3,6 +3,11 @@
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
 ## Post-roadmap enhancements
+- **Hider radius / hiding zone**: the lock can now shade everything OUTSIDE a per-game
+  radius around the hider (a purple boundary circle + dark mask over the rest of the game
+  area). Set/clear the radius in the Lock panel; it persists with the game. Lock and radius
+  changes now save immediately (not just on the debounced autosave) so a quick app-close
+  can't lose them.
 - **Draggable measure points**: the two Measure points are now draggable; distance +
   travel time recompute live as you drag, with a persistent on-map readout.
 - **Named-region zones**: search a place ("Juhu", "Versova", "Switzerland") and add its
