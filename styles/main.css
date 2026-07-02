@@ -94,6 +94,47 @@ html, body {
 .boot-detail { margin-top: 8px; font-size: 13px; color: var(--text-dim); max-width: 280px; }
 .boot-detail.error { color: var(--danger); }
 
+/* First-run API key entry (hosted/phone builds) */
+.setup {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 18px;
+  width: min(88vw, 320px);
+}
+.setup-hint {
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.setup input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-2);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 16px; /* 16px avoids iOS zoom-on-focus */
+  outline: none;
+}
+.setup input:focus { border-color: var(--teal); }
+.setup button {
+  padding: 12px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--teal);
+  color: #04252a;
+  font-weight: 700;
+  font-size: 15px;
+}
+.setup-help {
+  font-size: 13px;
+  color: var(--teal);
+  text-decoration: none;
+  align-self: center;
+}
+
 #install-btn {
   position: absolute;
   z-index: 6;
