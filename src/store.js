@@ -111,8 +111,10 @@ export async function deleteGame(id) {
 }
 
 // Export the current (or given) game as a JSON string for backup/sharing.
+// Prefer the in-memory current game so a fresh export never lags the debounced
+// autosave; only read the DB for a different, non-current game.
 export async function exportGame(id) {
-  const g = id ? await db.get("games", id) : current;
+  const g = !id || (current && id === current.id) ? current : await db.get("games", id);
   return JSON.stringify(g, null, 2);
 }
 

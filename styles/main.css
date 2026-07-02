@@ -57,11 +57,30 @@ html, body {
   font-size: 13px;
   color: var(--text-dim);
   text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-  max-width: 45%;
+  max-width: 40%;
+  margin-left: auto;
+  margin-right: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+#menu-btn {
+  pointer-events: auto;
+  border: 1px solid var(--panel-2);
+  background: rgba(9, 39, 46, 0.9);
+  color: var(--text);
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.menu-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.menu-list .btn { text-align: left; }
+.game-row { align-items: flex-start; }
+.game-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 
 /* Boot / status overlay */
 #boot {

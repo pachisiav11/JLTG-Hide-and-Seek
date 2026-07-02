@@ -35,6 +35,12 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Lock the hider's true point (tap or current location); persists with the game.
   - Every tool can auto-answer its own question from the lock (radar in/out, thermometer
     hotter/colder, nearest Voronoi cell, measuring within/beyond).
+- **Phase 6 — History & polish** ✅
+  - Game history browser (open / rename / duplicate / delete), export & import as JSON.
+  - Settings: distance mode (straight-line / walking / transit) and units (metric / imperial).
+  - Top-bar menu; offline app shell via the service worker.
+
+**All roadmap phases (0–6) are complete.**
 
 ## Run it locally
 

@@ -5,6 +5,7 @@ import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Hider } from "./hider.js";
+import { Games } from "./games.js";
 import { toast } from "./ui.js";
 
 const boot = document.getElementById("boot");
@@ -124,11 +125,13 @@ async function main() {
     const layers = new Layers(map);
     const hider = new Hider(map);
     await Promise.all([zones.init(), features.init()]);
+    const games = new Games(zones);
     layers.init();
     hider.init();
     wireToolbar(zones, features, layers, hider);
+    document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, hider, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, hider, games, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

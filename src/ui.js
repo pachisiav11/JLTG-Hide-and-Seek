@@ -107,6 +107,39 @@ export function contextMenu(x, y, items) {
   return menu;
 }
 
+// Format a distance for display honouring the units setting.
+export function formatDistance(meters, units = "metric") {
+  if (units === "imperial") {
+    const ft = meters * 3.28084;
+    return ft >= 5280 ? `${(ft / 5280).toFixed(2)} mi` : `${Math.round(ft)} ft`;
+  }
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`;
+}
+
+// A small single-field text prompt as a bottom sheet. Resolves to the string or null.
+export function promptText({ title, label = "", value = "", placeholder = "", cta = "Save" } = {}) {
+  return new Promise((resolve) => {
+    let done = false;
+    const s = openSheet({
+      title,
+      bodyHTML: `
+        ${label ? `<label class="fieldlbl">${escapeHtml(label)}</label>` : ""}
+        <input id="pt-input" class="field" type="text" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" />
+        <div class="sheet-actions">
+          <button id="pt-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="pt-ok" class="btn btn-primary">${escapeHtml(cta)}</button>
+        </div>`,
+      onClose: () => { if (!done) resolve(null); },
+    });
+    const input = s.q("#pt-input");
+    input.focus();
+    input.select?.();
+    s.q("#pt-ok").onclick = () => { done = true; const v = input.value.trim(); s.close(); resolve(v); };
+    s.q("#pt-cancel").onclick = () => s.close();
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") s.q("#pt-ok").click(); });
+  });
+}
+
 export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])

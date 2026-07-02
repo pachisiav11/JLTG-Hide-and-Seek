@@ -2,7 +2,8 @@
 //  - Transit layer toggle
 //  - "Directions here" on long-press (transit / walking, via Directions API)
 //  - Distance between two taps (straight-line + walking time via Distance Matrix)
-import { contextMenu, toast } from "./ui.js";
+import { contextMenu, toast, formatDistance } from "./ui.js";
+import * as store from "./store.js";
 
 export class MapFeatures {
   constructor(map) {
@@ -115,14 +116,21 @@ export class MapFeatures {
       map: this.map,
     });
     const meters = google.maps.geometry.spherical.computeDistanceBetween(a, b);
-    const straight = meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`;
-    toast(`Straight line: ${straight} · fetching walking time…`, 6000);
+    const units = store.getCurrent()?.settings?.units || "metric";
+    const straight = formatDistance(meters, units);
+    const mode = store.getCurrent()?.settings?.distanceMode || "straight-line";
+    if (mode === "straight-line") {
+      toast(`Straight line: ${straight}`, 6000);
+      return;
+    }
+    const travelMode = mode === "transit" ? google.maps.TravelMode.TRANSIT : google.maps.TravelMode.WALKING;
+    toast(`Straight line: ${straight} · fetching ${mode} time…`, 6000);
     this.matrix.getDistanceMatrix(
-      { origins: [a], destinations: [b], travelMode: google.maps.TravelMode.WALKING },
+      { origins: [a], destinations: [b], travelMode },
       (res, status) => {
         const el = res?.rows?.[0]?.elements?.[0];
         if (status === "OK" && el?.status === "OK") {
-          toast(`Straight line: ${straight} · Walk: ${el.distance.text}, ${el.duration.text}`, 7000);
+          toast(`Straight line: ${straight} · ${mode}: ${el.distance.text}, ${el.duration.text}`, 7000);
         }
       }
     );

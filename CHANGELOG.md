@@ -2,6 +2,16 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 6 — History & polish
+- **Game history browser** (`src/games.js`): list saved games with date / zone / step
+  summary; open, rename, duplicate, and delete.
+- **Export / import** a game as JSON (file download or paste); import opens the game.
+- **Settings**: distance mode (straight-line / walking / transit) drives Measure travel
+  time and directions; units (metric / imperial) drive distance readouts.
+- Top-bar **☰ menu** hosts new game, history, rename, duplicate, export, import, settings.
+- Fixed `exportGame` to use the in-memory current game so a fresh export never lags the
+  debounced autosave.
+
 ## Phase 5 — Hider lock & auto-answer
 - **Hider lock** (`src/hider.js`): pin the hider's true location by tapping the map or
   using current location; rendered as an "H" marker and persisted with the game.
