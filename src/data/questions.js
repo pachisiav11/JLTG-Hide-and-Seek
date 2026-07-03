@@ -26,3 +26,37 @@ export const TENTACLES = [
 export function findTentacle(id) {
   return TENTACLES.find((c) => c.id === id) || null;
 }
+
+// ---- Matching -----------------------------------------------------------
+// "Is your nearest ___ (or your ___) the same as mine?" Reveal the hider's
+// value; the app keeps the region that matches it. Each card has a `mode`:
+//   nearest     — nearest-of-a-category (Voronoi over Google Places points).
+//   nameLength  — nearest transit station, grouped by name letter-count.
+//   nearestLine — nearest of several lines/paths you draw (no Google geometry).
+//   region      — which drawn region (admin division / landmass) you're inside.
+export const MATCHING = [
+  { id: "airport", label: "Commercial Airport", mode: "nearest", type: "airport" },
+  { id: "transit_line", label: "Transit Line", mode: "nearestLine" },
+  { id: "name_length", label: "Station's Name Length", mode: "nameLength", type: "transit_station" },
+  { id: "street", label: "Street or Path", mode: "nearestLine" },
+  { id: "admin1", label: "1st Admin. Division", mode: "region" },
+  { id: "admin2", label: "2nd Admin. Division", mode: "region" },
+  { id: "admin3", label: "3rd Admin. Division", mode: "region" },
+  { id: "admin4", label: "4th Admin. Division", mode: "region" },
+  { id: "mountain", label: "Mountain", mode: "nearest", keyword: "mountain" },
+  { id: "landmass", label: "Landmass", mode: "region" },
+  { id: "park", label: "Park", mode: "nearest", type: "park" },
+  { id: "amusement_park", label: "Amusement Park", mode: "nearest", type: "amusement_park" },
+  { id: "zoo", label: "Zoo", mode: "nearest", type: "zoo" },
+  { id: "aquarium", label: "Aquarium", mode: "nearest", type: "aquarium" },
+  { id: "golf", label: "Golf Course", mode: "nearest", keyword: "golf course" },
+  { id: "museum", label: "Museum", mode: "nearest", type: "museum" },
+  { id: "movie_theater", label: "Movie Theater", mode: "nearest", type: "movie_theater" },
+  { id: "hospital", label: "Hospital", mode: "nearest", type: "hospital" },
+  { id: "library", label: "Library", mode: "nearest", type: "library" },
+  { id: "consulate", label: "Foreign Consulate", mode: "nearest", keyword: "consulate" },
+];
+
+export function findMatching(id) {
+  return MATCHING.find((c) => c.id === id) || null;
+}

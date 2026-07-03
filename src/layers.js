@@ -8,7 +8,7 @@ import { geojsonToPaths } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
 import { CATEGORIES, searchCategory } from "./places.js";
 import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
-import { TENTACLES, findTentacle } from "./data/questions.js";
+import { TENTACLES, findTentacle, MATCHING, findMatching } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
@@ -146,6 +146,64 @@ export class Layers {
     });
   }
 
+  // Draw a line/path (minPts 2) or region outline (minPts 3) by tapping the map.
+  // Resolves to [{lat,lng}, ...] or null if cancelled.
+  _drawShape(minPts, hint) {
+    return new Promise((resolve) => {
+      closeSheet();
+      const pts = [];
+      const markers = [];
+      let preview = null;
+      const bar = document.createElement("div");
+      bar.className = "draw-bar";
+      bar.innerHTML = `<span class="draw-count">${escapeHtml(hint)} · 0</span>
+        <button class="btn btn-ghost btn-sm" data-undo>Undo</button>
+        <button class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+        <button class="btn btn-primary btn-sm" data-finish>Finish</button>`;
+      document.body.appendChild(bar);
+
+      const setCount = () => { const c = bar.querySelector(".draw-count"); if (c) c.textContent = `${hint} · ${pts.length}`; };
+      const redraw = () => {
+        if (preview) { preview.setMap(null); preview = null; }
+        if (pts.length >= 2) preview = new google.maps.Polyline({ path: pts, strokeColor: "#38bdf8", strokeWeight: 3, map: this.map, clickable: false });
+      };
+      const cleanup = () => {
+        google.maps.event.removeListener(listener);
+        if (preview) preview.setMap(null);
+        markers.forEach((m) => m.setMap(null));
+        bar.remove();
+        this.map.setOptions({ draggableCursor: null });
+      };
+      const listener = this.map.addListener("click", (e) => {
+        pts.push({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+        markers.push(new google.maps.Marker({ position: e.latLng, label: `${pts.length}`, map: this.map }));
+        setCount(); redraw();
+      });
+      bar.querySelector("[data-undo]").onclick = () => { pts.pop(); const m = markers.pop(); if (m) m.setMap(null); setCount(); redraw(); };
+      bar.querySelector("[data-cancel]").onclick = () => { cleanup(); resolve(null); };
+      bar.querySelector("[data-finish]").onclick = () => {
+        if (pts.length < minPts) { toast(`Add at least ${minPts} points.`); return; }
+        cleanup(); resolve(pts.slice());
+      };
+      this.map.setOptions({ draggableCursor: "crosshair" });
+    });
+  }
+
+  // Minimal yes/no confirm sheet. Resolves true (Yes) / false (No or dismiss).
+  _confirm(msg) {
+    return new Promise((resolve) => {
+      let done = false;
+      const s = openSheet({
+        title: "Confirm",
+        bodyHTML: `<p>${escapeHtml(msg)}</p>
+          <div class="sheet-actions"><button id="cf-no" class="btn btn-ghost">No</button><button id="cf-yes" class="btn btn-primary">Yes</button></div>`,
+        onClose: () => { if (!done) resolve(false); },
+      });
+      s.q("#cf-no").onclick = () => { done = true; s.close(); resolve(false); };
+      s.q("#cf-yes").onclick = () => { done = true; s.close(); resolve(true); };
+    });
+  }
+
   // ---- Panel ----
   openPanel() {
     const g = store.getCurrent();
@@ -188,7 +246,7 @@ export class Layers {
 
     s.q("#t-radar").onclick = () => this.startRadar();
     s.q("#t-thermo").onclick = () => this.startThermometer();
-    s.q("#t-match").onclick = () => this.startVoronoi("matching");
+    s.q("#t-match").onclick = () => this.startMatching();
     s.q("#t-tent").onclick = () => this.startTentacles();
     s.q("#t-measure").onclick = () => this.startMeasuring();
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
@@ -270,85 +328,145 @@ export class Layers {
     return { center: { lat: c[1], lng: c[0] }, radius: Math.min(50000, Math.max(500, (diag / 2) * 1.2)) };
   }
 
-  async startVoronoi(kind) {
+  // ---- Matching (only the game's cards; reveal hider's value, keep region) ----
+  async startMatching() {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
-    const title = "Matching";
-    const catOpts = CATEGORIES.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
+    const opts = MATCHING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
     const s = openSheet({
-      title,
+      title: "Matching",
       bodyHTML: `
-        <label class="fieldlbl">Category</label>
-        <select id="v-cat" class="field">${catOpts}</select>
-        <label class="fieldlbl">Keyword (optional)</label>
-        <input id="v-kw" class="field" placeholder="e.g. McDonald's" />
+        <p class="muted">“Is your nearest ___ (or your ___) the same as mine?” Reveal the hider's answer; the app keeps the matching region.</p>
+        <label class="fieldlbl">Question</label>
+        <select id="mt-cat" class="field">${opts}</select>
         <div class="sheet-actions">
-          <button id="v-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="v-find" class="btn btn-primary">Find places</button>
+          <button id="mt-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="mt-next" class="btn btn-primary">Next</button>
         </div>
-        <p id="v-status" class="muted"></p>`,
+        <p id="mt-status" class="muted"></p>`,
     });
-    s.q("#v-cancel").onclick = () => s.close();
-    s.q("#v-find").onclick = async () => {
-      const cat = CATEGORIES.find((c) => c.id === s.q("#v-cat").value);
-      const keyword = s.q("#v-kw").value.trim();
-      const { center, radius } = this._searchParams(g.gameArea);
-      s.q("#v-status").textContent = "Searching…";
-      let features = [];
-      try {
-        features = await searchCategory(this.map, { center, radius, type: cat.type, keyword });
-      } catch (e) {
-        s.q("#v-status").textContent = e.message;
-        return;
-      }
-      features = features.slice(0, 20);
-      if (features.length < 2) {
-        s.q("#v-status").textContent = `Found ${features.length}. Need at least 2 to partition.`;
-        return;
-      }
-      s.close();
-      this._chooseFeature(kind, cat, features);
+    s.q("#mt-cancel").onclick = () => s.close();
+    s.q("#mt-next").onclick = async () => {
+      const card = findMatching(s.q("#mt-cat").value);
+      if (card.mode === "nearest") return this._matchNearest(card, s);
+      if (card.mode === "nameLength") return this._matchNameLength(card, s);
+      if (card.mode === "nearestLine") { s.close(); return this._matchNearestLine(card); }
+      if (card.mode === "region") { s.close(); return this._matchRegion(card); }
     };
   }
 
-  _chooseFeature(kind, cat, features) {
-    const temp = features.map((f, i) =>
-      new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
-    );
-    const list = features
-      .map((f, i) => `<label><input type="radio" name="v-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
-      .join("");
-    const matchingExtra = kind === "matching"
-      ? `<h3 class="sub">Answer</h3>
-         <div class="seg">
-           <label><input type="radio" name="v-ans" value="yes" checked/> Yes — same nearest (keep this cell)</label>
-           <label><input type="radio" name="v-ans" value="no"/> No — different (shade this cell)</label>
-         </div>`
-      : "";
-    const prompt = kind === "matching"
-      ? "Which is the hider’s nearest one?"
-      : "Which one is the hider closest to? (keeps that cell)";
-    const s = openSheet({
-      title: kind === "matching" ? "Matching" : "Tentacles",
+  // Nearest-of-a-category via Places → keep the hider's Voronoi cell.
+  async _matchNearest(card, s) {
+    const g = store.getCurrent();
+    const { center, radius } = this._searchParams(g.gameArea);
+    s.q("#mt-status").textContent = "Searching…";
+    let feats = [];
+    try {
+      feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+    } catch (e) { s.q("#mt-status").textContent = e.message; return; }
+    feats = feats.slice(0, 20);
+    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length}. Need at least 2 to partition.`; return; }
+    s.close();
+    const temp = feats.map((f, i) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map }));
+    const list = feats.map((f, i) => `<label><input type="radio" name="mt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`).join("");
+    const s2 = openSheet({
+      title: card.label,
       bodyHTML: `
-        <p class="muted">${prompt} (${features.length} found)</p>
+        <p class="muted">Which is the hider's nearest ${escapeHtml(card.label.toLowerCase())}? (keeps that region)</p>
         <div class="seg">${list}</div>
-        ${matchingExtra}
-        <div class="sheet-actions">
-          <button id="v-cancel2" class="btn btn-ghost">Cancel</button>
-          <button id="v-add" class="btn btn-primary">Add question</button>
-        </div>`,
+        <div class="sheet-actions"><button id="mt-cancel2" class="btn btn-ghost">Cancel</button><button id="mt-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
-    s.q("#v-cancel2").onclick = () => s.close();
-    s.q("#v-add").onclick = () => {
-      const featureIndex = parseInt(s.qa('input[name="v-feat"]').find((r) => r.checked)?.value ?? "0", 10);
-      const keep = kind === "matching"
-        ? s.qa('input[name="v-ans"]').find((r) => r.checked)?.value === "yes"
-        : true; // Tentacles always keeps the revealed-closest cell
-      this.addStep(kind, { category: cat.id, categoryLabel: cat.label, features }, { featureIndex, keep });
+    s2.q("#mt-cancel2").onclick = () => s2.close();
+    s2.q("#mt-add").onclick = () => {
+      const featureIndex = parseInt(s2.qa('input[name="mt-feat"]').find((r) => r.checked)?.value ?? "0", 10);
+      this.addStep("matching", { mode: "nearest", category: card.id, categoryLabel: card.label, features: feats }, { featureIndex, keep: true });
+      s2.close();
+      toast("Matching question added.");
+    };
+  }
+
+  // Nearest transit station grouped by name letter-count.
+  async _matchNameLength(card, s) {
+    const g = store.getCurrent();
+    const { center, radius } = this._searchParams(g.gameArea);
+    s.q("#mt-status").textContent = "Searching stations…";
+    let feats = [];
+    try {
+      feats = await searchCategory(this.map, { center, radius, type: card.type });
+    } catch (e) { s.q("#mt-status").textContent = e.message; return; }
+    feats = feats.slice(0, 20).map((f) => ({ ...f, len: (f.name.match(/\p{L}/gu) || []).length }));
+    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations. Need at least 2.`; return; }
+    s.close();
+    const temp = feats.map((f) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${f.len}`, map: this.map }));
+    const lengths = [...new Set(feats.map((f) => f.len))].sort((a, b) => a - b);
+    const list = lengths.map((L, i) => `<label><input type="radio" name="nl" value="${L}" ${i === 0 ? "checked" : ""}/> ${L} letters (${feats.filter((f) => f.len === L).length} station${feats.filter((f) => f.len === L).length === 1 ? "" : "s"})</label>`).join("");
+    const s2 = openSheet({
+      title: "Station's Name Length",
+      bodyHTML: `
+        <p class="muted">Nearest-station regions grouped by name length. Pick the hider's station name length; all matching regions are kept.</p>
+        <div class="seg">${list}</div>
+        <div class="sheet-actions"><button id="nl-cancel" class="btn btn-ghost">Cancel</button><button id="nl-add" class="btn btn-primary">Add question</button></div>`,
+      onClose: () => temp.forEach((m) => m.setMap(null)),
+    });
+    s2.q("#nl-cancel").onclick = () => s2.close();
+    s2.q("#nl-add").onclick = () => {
+      const L = parseInt(s2.qa('input[name="nl"]').find((r) => r.checked)?.value ?? `${lengths[0]}`, 10);
+      this.addStep("matching", { mode: "nameLength", category: card.id, categoryLabel: "station name length", features: feats }, { length: L });
+      s2.close();
+      toast("Matching question added.");
+    };
+  }
+
+  // Nearest of several hand-drawn lines/paths (Transit Line, Street or Path).
+  async _matchNearestLine(card) {
+    const lines = [];
+    for (;;) {
+      const coords = await this._drawShape(2, `Draw ${card.label} #${lines.length + 1} — tap along it`);
+      if (!coords) { if (!lines.length) return this.openPanel(); break; }
+      const label = await promptText({ title: "Name this line", label: "Label", value: `${card.label} ${lines.length + 1}`, cta: "Save" });
+      lines.push({ id: `ln_${lines.length}_${Date.now().toString(36)}`, label: label || `${card.label} ${lines.length + 1}`, coords });
+      if (!(await this._confirm(`Added ${lines.length}. Draw another ${card.label.toLowerCase()}?`))) break;
+    }
+    if (lines.length < 1) return this.openPanel();
+    const list = lines.map((l, i) => `<label><input type="radio" name="ln" value="${l.id}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(l.label)}</label>`).join("");
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} is the hider nearest to? (keeps that one's region)</p>
+        <div class="seg">${list}</div>
+        <div class="sheet-actions"><button id="ln-cancel" class="btn btn-ghost">Cancel</button><button id="ln-add" class="btn btn-primary">Add question</button></div>`,
+    });
+    s.q("#ln-cancel").onclick = () => s.close();
+    s.q("#ln-add").onclick = () => {
+      const lineId = s.qa('input[name="ln"]').find((r) => r.checked)?.value ?? lines[0].id;
+      this.addStep("matching", { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines }, { lineId });
       s.close();
-      toast(`${kind === "matching" ? "Matching" : "Tentacles"} question added.`);
+      toast("Matching question added.");
+    };
+  }
+
+  // Which drawn region the hider is inside (admin divisions, landmass).
+  async _matchRegion(card) {
+    const pts = await this._drawShape(3, `Outline the ${card.label} the hider is in`);
+    if (!pts) return this.openPanel();
+    const ring = pts.map((p) => [p.lat, p.lng]);
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Keep the side the hider is on.</p>
+        <div class="seg">
+          <label><input type="radio" name="rg" value="in" checked/> Hider is inside (keep inside)</label>
+          <label><input type="radio" name="rg" value="out"/> Hider is outside (keep outside)</label>
+        </div>
+        <div class="sheet-actions"><button id="rg-cancel" class="btn btn-ghost">Cancel</button><button id="rg-add" class="btn btn-primary">Add question</button></div>`,
+    });
+    s.q("#rg-cancel").onclick = () => s.close();
+    s.q("#rg-add").onclick = () => {
+      const inside = (s.qa('input[name="rg"]').find((r) => r.checked)?.value ?? "in") === "in";
+      this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
+      s.close();
+      toast("Matching question added.");
     };
   }
 

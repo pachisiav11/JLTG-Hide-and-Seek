@@ -87,12 +87,28 @@ function thermometer(step, gameArea) {
   };
 }
 
+// turf.voronoi returns a NULL cell for any point that exactly coincides with
+// another input point (e.g. Places sometimes lists two venues at one coordinate).
+// Nudge each coincident point ~0.6 m apart so every input gets a valid, still
+// index-aligned cell. Sub-metre offsets don't affect the elimination at map scale.
+function dejitter(coords) {
+  const seen = new Map();
+  return coords.map(([lng, lat]) => {
+    const key = lng.toFixed(6) + "," + lat.toFixed(6);
+    const n = seen.get(key) || 0;
+    seen.set(key, n + 1);
+    if (!n) return [lng, lat];
+    const d = n * 6e-6; // ~0.6 m per prior collision
+    return [lng + d, lat + d];
+  });
+}
+
 // --- Voronoi cells shared by Matching & Tentacles ------------------------
 // Returns { cells } where cells[i] is the clipped Voronoi cell geometry for
 // features[i] (or null). The partition is computed over a bbox that contains both
 // the features and the game area, then each cell is clipped to the game area.
 function voronoiCells(features, gameArea) {
-  const pts = features.map((f) => T().point([f.lng, f.lat]));
+  const pts = dejitter(features.map((f) => [f.lng, f.lat])).map((c) => T().point(c));
   const collection = T().featureCollection([...pts, feat(gameArea)]);
   let bbox = T().bbox(collection);
   // Pad the bbox so edge cells are unbounded-safe.
@@ -125,6 +141,93 @@ function voronoiTool(step, gameArea) {
   const selected = cells[featureIndex];
   if (!selected) return { eliminated: null, guides };
   const eliminated = keep ? safeDiff(gameArea, selected) : selected;
+  return { eliminated, guides };
+}
+
+// [lat,lng] ring -> closed GeoJSON polygon geometry (Turf axis order).
+function ringToPoly(ring) {
+  const r = ring.map(([lat, lng]) => [lng, lat]);
+  const a = r[0], b = r[r.length - 1];
+  if (a[0] !== b[0] || a[1] !== b[1]) r.push([a[0], a[1]]);
+  return T().polygon([r]).geometry;
+}
+
+// Sample a drawn line ({lat,lng}[]) into GeoJSON points every ~stepMeters.
+function densifyLine(coords, stepMeters) {
+  const turf = T();
+  const line = turf.lineString(coords.map((c) => [c.lng, c.lat]));
+  const total = turf.length(line, { units: "meters" });
+  const n = Math.max(1, Math.floor(total / stepMeters));
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    pts.push(turf.along(line, (total * i) / n, { units: "meters" }).geometry.coordinates);
+  }
+  return pts;
+}
+
+// --- Matching dispatch: nearest / nameLength / nearestLine / region -------
+function matching(step, gameArea) {
+  switch (step.inputs?.mode) {
+    case "nameLength": return matchingNameLength(step, gameArea);
+    case "nearestLine": return matchingNearestLine(step, gameArea);
+    case "region": return matchingRegion(step, gameArea);
+    default: return voronoiTool(step, gameArea); // "nearest"
+  }
+}
+
+// Nearest transit station, grouped by station-name letter count: keep the union
+// of Voronoi cells whose station name has the revealed number of letters.
+function matchingNameLength(step, gameArea) {
+  const { features } = step.inputs;
+  const { length } = step.answer || {};
+  const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${f.len}` }));
+  if (!gameArea || !features || features.length < 2 || length == null) return { eliminated: null, guides };
+  const { cells } = voronoiCells(features, gameArea);
+  for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
+  let keep = null;
+  cells.forEach((c, i) => { if (c && features[i].len === length) keep = keep ? safeUnion(keep, c) : c; });
+  if (!keep) return { eliminated: null, guides };
+  return { eliminated: safeDiff(gameArea, keep), guides };
+}
+
+// Nearest of several hand-drawn lines/paths: densify every line to points, take
+// the point Voronoi, then keep the union of cells belonging to the chosen line.
+function matchingNearestLine(step, gameArea) {
+  const { lines } = step.inputs;
+  const { lineId } = step.answer || {};
+  const guides = (lines || []).map((ln) => ({ type: "polyline", coords: ln.coords }));
+  if (!gameArea || !lines || !lines.length || lineId == null) return { eliminated: null, guides };
+  const turf = T();
+  const rawCoords = [], owner = [];
+  lines.forEach((ln, idx) => {
+    if ((ln.coords || []).length >= 2) for (const c of densifyLine(ln.coords, 400)) { rawCoords.push(c); owner.push(idx); }
+  });
+  if (rawCoords.length < 2) return { eliminated: null, guides };
+  const allPts = dejitter(rawCoords).map((c) => turf.point(c));
+  let bbox = turf.bbox(turf.featureCollection([...allPts, feat(gameArea)]));
+  const padX = (bbox[2] - bbox[0]) * 0.15 || 0.05, padY = (bbox[3] - bbox[1]) * 0.15 || 0.05;
+  bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
+  let raw;
+  try { raw = turf.voronoi(turf.featureCollection(allPts), { bbox }); }
+  catch (e) { console.warn("nearestLine voronoi failed", e); return { eliminated: null, guides }; }
+  const chosen = lines.findIndex((l) => l.id === lineId);
+  let keep = null;
+  (raw.features || []).forEach((cell, i) => {
+    if (cell && owner[i] === chosen) { const clip = safeIntersect(cell, gameArea); if (clip) keep = keep ? safeUnion(keep, clip) : clip; }
+  });
+  if (!keep) return { eliminated: null, guides };
+  return { eliminated: safeDiff(gameArea, keep), guides };
+}
+
+// Which drawn region (admin division / landmass) the hider is inside: keep that
+// side. answer.inside === false keeps the OUTSIDE instead.
+function matchingRegion(step, gameArea) {
+  const { ring } = step.inputs;
+  const inside = step.answer?.inside !== false;
+  const guides = ring ? [{ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) }] : [];
+  if (!gameArea || !ring || ring.length < 3) return { eliminated: null, guides };
+  const poly = ringToPoly(ring);
+  const eliminated = inside ? safeDiff(gameArea, poly) : safeIntersect(poly, gameArea);
   return { eliminated, guides };
 }
 
@@ -239,7 +342,7 @@ export function computeElimination(step, gameArea) {
   switch (step.tool) {
     case "radar": return radar(step, gameArea);
     case "thermometer": return thermometer(step, gameArea);
-    case "matching": return voronoiTool(step, gameArea);
+    case "matching": return matching(step, gameArea);
     case "tentacles": return tentacles(step, gameArea);
     case "measuring": return measuring(step, gameArea);
     default: return { eliminated: null, guides: [] };
@@ -274,11 +377,16 @@ export function describeStep(step) {
     return `Thermometer · ${step.answer?.side === "hotter" ? "hotter (→B)" : "colder (→A)"}`;
   }
   if (step.tool === "matching") {
-    const feats = step.inputs.features || [];
-    const sel = feats[step.answer?.featureIndex];
     const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
-    const verb = step.answer?.keep ? "keep" : "shade";
-    return `Matching · ${cat} · ${verb} “${sel?.name || "?"}”`;
+    const mode = step.inputs.mode;
+    if (mode === "nameLength") return `Matching · station name length ${step.answer?.length}`;
+    if (mode === "region") return `Matching · ${cat} · ${step.answer?.inside === false ? "outside" : "inside"}`;
+    if (mode === "nearestLine") {
+      const ln = (step.inputs.lines || []).find((l) => l.id === step.answer?.lineId);
+      return `Matching · ${cat} · “${ln?.label || "?"}”`;
+    }
+    const sel = (step.inputs.features || [])[step.answer?.featureIndex];
+    return `Matching · ${cat} · “${sel?.name || "?"}”`;
   }
   if (step.tool === "tentacles") {
     const cat = step.inputs.categoryLabel || step.inputs.category || "places";
