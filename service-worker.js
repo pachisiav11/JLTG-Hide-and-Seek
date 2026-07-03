@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v17";
+const CACHE_VERSION = "jltg-shell-v18";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -63,8 +63,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+          // Only cache successful, complete responses. Caching a transient 404
+          // (e.g. a module fetched mid-deploy) or an opaque/partial response
+          // could otherwise brick a later offline load.
+          if (resp.ok && resp.status === 200) {
+            const copy = resp.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+          }
           return resp;
         })
         .catch(() => caches.match(request).then((c) => c || caches.match("./index.html")))

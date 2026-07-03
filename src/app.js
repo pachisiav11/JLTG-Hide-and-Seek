@@ -6,7 +6,6 @@ import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Hider } from "./hider.js";
 import { Games } from "./games.js";
-import { Boundaries } from "./boundaries.js";
 import { toast } from "./ui.js";
 
 const boot = document.getElementById("boot");
@@ -131,7 +130,15 @@ async function main() {
 
   // 4) Zones + native map features. A failure here must NOT block the map or key.
   try {
-    const boundaries = new Boundaries(map, { ddsAvailable: !!cfg.mapId });
+    // Region-boundary overlays are optional; load them non-fatally so a problem
+    // with this one module can never block the whole app from booting.
+    let boundaries = null;
+    try {
+      const { Boundaries } = await import("./boundaries.js");
+      boundaries = new Boundaries(map, { ddsAvailable: !!cfg.mapId });
+    } catch (e) {
+      console.warn("Region-boundary overlays unavailable:", e);
+    }
     const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
     const layers = new Layers(map);
