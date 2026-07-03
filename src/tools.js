@@ -110,7 +110,7 @@ function voronoiCells(features, gameArea) {
   return { cells };
 }
 
-// Matching & Tentacles: keep OR shade the selected feature's cell.
+// Matching: keep OR shade the selected feature's Voronoi cell.
 function voronoiTool(step, gameArea) {
   const { features } = step.inputs;
   const { featureIndex, keep } = step.answer || {};
@@ -126,6 +126,77 @@ function voronoiTool(step, gameArea) {
   if (!selected) return { eliminated: null, guides };
   const eliminated = keep ? safeDiff(gameArea, selected) : selected;
   return { eliminated, guides };
+}
+
+// --- Tentacles: fixed-radius "which of these are you closest to?" --------
+// A tentacle card has a FIXED radius R. Two answers:
+//  • closest = feature P  → the hider is within R of P AND closer to P than any
+//    other listed place, so KEEP P's Voronoi cell ∩ circle(P,R); eliminate the rest.
+//  • none in range        → the hider is within R of NONE of them, so eliminate the
+//    UNION of every circle(P,R) (a radar-"outside" over all the places).
+// Candidate features are pre-filtered (in the flow) to those whose R-circle can
+// actually reach the play area, so far-off places never distort the partition.
+function tentacles(step, gameArea) {
+  const { features, radius } = step.inputs;
+  const { featureIndex, none } = step.answer || {};
+  const R = radius; // metres
+  const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${i + 1}` }));
+  if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
+
+  const circleOf = (f) => T().circle([f.lng, f.lat], R / 1000, { units: "kilometers", steps: 64 });
+
+  // "None in range" → eliminate everything within R of any listed place.
+  if (none) {
+    let union = null;
+    for (const f of features) {
+      guides.push({ type: "circle", center: { lat: f.lat, lng: f.lng }, radius: R });
+      union = union ? safeUnion(union, circleOf(f).geometry) : circleOf(f).geometry;
+    }
+    const eliminated = union ? safeIntersect(union, gameArea) : null;
+    return { eliminated, guides };
+  }
+
+  if (featureIndex == null) return { eliminated: null, guides };
+  const P = features[featureIndex];
+  if (!P) return { eliminated: null, guides };
+  const circle = circleOf(P);
+  guides.push({ type: "circle", center: { lat: P.lat, lng: P.lng }, radius: R });
+
+  // Keep = closest-to-P region ∩ its radius. With a single candidate the whole
+  // area is P's cell, so keep is just the area ∩ circle.
+  let cell = gameArea;
+  if (features.length >= 2) {
+    const { cells } = voronoiCells(features, gameArea);
+    for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
+    cell = cells[featureIndex] || null;
+  }
+  const keepRegion = cell ? safeIntersect(cell, circle.geometry) : safeIntersect(gameArea, circle.geometry);
+  if (!keepRegion) return { eliminated: null, guides };
+  const eliminated = safeDiff(gameArea, keepRegion);
+  return { eliminated, guides };
+}
+
+// Straight-line distance (metres) from a point to a game-area polygon: 0 if the
+// point is inside, else the distance to the nearest boundary edge. Used to bound
+// which candidate places are relevant to a tentacle radius.
+export function distancePointToArea(pt, area) {
+  const turf = T();
+  const p = turf.point([pt.lng, pt.lat]);
+  try {
+    const poly = feat(area);
+    if (turf.booleanPointInPolygon(p, poly)) return 0;
+    const lines = turf.polygonToLine(poly);
+    let best = Infinity;
+    const consider = (lineFeat) => {
+      try { best = Math.min(best, turf.pointToLineDistance(p, lineFeat, { units: "meters" })); } catch (_) {}
+    };
+    if (lines.type === "FeatureCollection") lines.features.forEach(consider);
+    else consider(lines);
+    return best;
+  } catch (e) {
+    console.warn("distancePointToArea failed", e);
+    return Infinity;
+  }
 }
 
 // Extract outer rings of a geometry as arrays of {lat,lng} for guide drawing.
@@ -168,8 +239,8 @@ export function computeElimination(step, gameArea) {
   switch (step.tool) {
     case "radar": return radar(step, gameArea);
     case "thermometer": return thermometer(step, gameArea);
-    case "matching":
-    case "tentacles": return voronoiTool(step, gameArea);
+    case "matching": return voronoiTool(step, gameArea);
+    case "tentacles": return tentacles(step, gameArea);
     case "measuring": return measuring(step, gameArea);
     default: return { eliminated: null, guides: [] };
   }
@@ -202,13 +273,20 @@ export function describeStep(step) {
   if (step.tool === "thermometer") {
     return `Thermometer · ${step.answer?.side === "hotter" ? "hotter (→B)" : "colder (→A)"}`;
   }
-  if (step.tool === "matching" || step.tool === "tentacles") {
+  if (step.tool === "matching") {
     const feats = step.inputs.features || [];
     const sel = feats[step.answer?.featureIndex];
     const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
-    const label = step.tool === "matching" ? "Matching" : "Tentacles";
     const verb = step.answer?.keep ? "keep" : "shade";
-    return `${label} · ${cat} · ${verb} “${sel?.name || "?"}”`;
+    return `Matching · ${cat} · ${verb} “${sel?.name || "?"}”`;
+  }
+  if (step.tool === "tentacles") {
+    const cat = step.inputs.categoryLabel || step.inputs.category || "places";
+    const R = step.inputs.radius || 0;
+    const rTxt = R >= 1000 ? `${R / 1000} km` : `${Math.round(R)} m`;
+    if (step.answer?.none) return `Tentacles · ${cat} · none within ${rTxt}`;
+    const sel = (step.inputs.features || [])[step.answer?.featureIndex];
+    return `Tentacles · ${cat} · closest “${sel?.name || "?"}” (${rTxt})`;
   }
   if (step.tool === "measuring") {
     const d = step.inputs.distance;

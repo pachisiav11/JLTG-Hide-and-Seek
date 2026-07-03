@@ -5,9 +5,10 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPaths } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
 import { CATEGORIES, searchCategory } from "./places.js";
 import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
+import { TENTACLES, findTentacle } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
@@ -188,7 +189,7 @@ export class Layers {
     s.q("#t-radar").onclick = () => this.startRadar();
     s.q("#t-thermo").onclick = () => this.startThermometer();
     s.q("#t-match").onclick = () => this.startVoronoi("matching");
-    s.q("#t-tent").onclick = () => this.startVoronoi("tentacles");
+    s.q("#t-tent").onclick = () => this.startTentacles();
     s.q("#t-measure").onclick = () => this.startMeasuring();
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
@@ -272,7 +273,7 @@ export class Layers {
   async startVoronoi(kind) {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
-    const title = kind === "matching" ? "Matching" : "Tentacles";
+    const title = "Matching";
     const catOpts = CATEGORIES.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
     const s = openSheet({
       title,
@@ -348,6 +349,81 @@ export class Layers {
       this.addStep(kind, { category: cat.id, categoryLabel: cat.label, features }, { featureIndex, keep });
       s.close();
       toast(`${kind === "matching" ? "Matching" : "Tentacles"} question added.`);
+    };
+  }
+
+  // ---- Tentacles (fixed-radius "which are you closest to?") ----
+  async startTentacles() {
+    const g = store.getCurrent();
+    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    const rTxt = (r) => (r >= 1000 ? `${r / 1000} km` : `${r} m`);
+    const opts = TENTACLES.map((c) =>
+      `<option value="${c.id}">${escapeHtml(c.label)} · ${rTxt(c.radius)}${c.approx ? ` (${escapeHtml(c.approx)})` : ""}</option>`
+    ).join("");
+    const s = openSheet({
+      title: "Tentacles",
+      bodyHTML: `
+        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one; the app finds those places near your play area.</p>
+        <label class="fieldlbl">Card</label>
+        <select id="tt-cat" class="field">${opts}</select>
+        <div class="sheet-actions">
+          <button id="tt-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="tt-find" class="btn btn-primary">Find places</button>
+        </div>
+        <p id="tt-status" class="muted"></p>`,
+    });
+    s.q("#tt-cancel").onclick = () => s.close();
+    s.q("#tt-find").onclick = async () => {
+      const cat = findTentacle(s.q("#tt-cat").value);
+      const { center, radius } = this._searchParams(g.gameArea);
+      const searchRadius = Math.min(50000, radius + cat.radius); // cover R around the area
+      s.q("#tt-status").textContent = "Searching…";
+      let feats = [];
+      try {
+        feats = await searchCategory(this.map, { center, radius: searchRadius, type: cat.type });
+      } catch (e) {
+        s.q("#tt-status").textContent = e.message;
+        return;
+      }
+      // Distance bound: keep only places whose radius circle can reach the area.
+      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius).slice(0, 20);
+      if (!feats.length) {
+        s.q("#tt-status").textContent = `No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of your area.`;
+        return;
+      }
+      s.close();
+      this._chooseTentacle(cat, feats);
+    };
+  }
+
+  _chooseTentacle(cat, features) {
+    const rTxt = cat.radius >= 1000 ? `${cat.radius / 1000} km` : `${cat.radius} m`;
+    const temp = features.map((f, i) =>
+      new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
+    );
+    const list = features
+      .map((f, i) => `<label><input type="radio" name="tt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
+      .join("");
+    const s = openSheet({
+      title: "Tentacles",
+      bodyHTML: `
+        <p class="muted">${escapeHtml(cat.label)} within ${rTxt}. Which is the hider closest to?</p>
+        <div class="seg">${list}</div>
+        <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None within ${rTxt} (hider is outside all)</label></div>
+        <div class="sheet-actions">
+          <button id="tt-cancel2" class="btn btn-ghost">Cancel</button>
+          <button id="tt-add" class="btn btn-primary">Add question</button>
+        </div>`,
+      onClose: () => temp.forEach((m) => m.setMap(null)),
+    });
+    s.q("#tt-cancel2").onclick = () => s.close();
+    s.q("#tt-add").onclick = () => {
+      const val = s.qa('input[name="tt-feat"]').find((r) => r.checked)?.value ?? "0";
+      const inputs = { category: cat.id, categoryLabel: cat.label, radius: cat.radius, features };
+      const answer = val === "none" ? { none: true } : { featureIndex: parseInt(val, 10) };
+      this.addStep("tentacles", inputs, answer);
+      s.close();
+      toast("Tentacles question added.");
     };
   }
 

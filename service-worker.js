@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v18";
+const CACHE_VERSION = "jltg-shell-v19";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -23,6 +23,7 @@ const SHELL_ASSETS = [
   "./src/places.js",
   "./src/boundaries.js",
   "./src/data/linear.js",
+  "./src/data/questions.js",
   "./src/hider.js",
   "./src/games.js",
   "./icons/icon.svg",

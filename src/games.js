@@ -222,7 +222,7 @@ export class Games {
             <li><strong>◎ Radar</strong> — “Within X of this point?” Tap a centre, set the radius, pick Yes/No.</li>
             <li><strong>🌡 Thermometer</strong> — moving A→B, hotter or colder? Tap A then B.</li>
             <li><strong>🧭 Matching</strong> — “Is your nearest ___ the same as mine?” Keeps/shades that region.</li>
-            <li><strong>🐙 Tentacles</strong> — “Which of these are you closest to?” Keeps that one’s region.</li>
+            <li><strong>🐙 Tentacles</strong> — a fixed-radius card (2 km: museums, libraries, movie theaters, hospitals · 25 km: metro lines, zoos, aquariums, amusement parks). Pick the one the hider is closest to (keeps its cell within that radius), or “none in range” (shades everything within that radius of them all).</li>
             <li><strong>📐 Measuring</strong> — within/beyond a distance of a coastline, rail, or nearest place.</li>
             <li><strong>Undo / Redo</strong>, toggle any question on/off, and ✏️ rename it to the real question asked.</li>
           </ul>

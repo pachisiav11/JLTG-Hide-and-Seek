@@ -3,6 +3,16 @@
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
 ## Post-roadmap enhancements
+- **Question bank → real Jet Lag cards (Tentacles first).** The question tools are
+  being rebuilt to offer *only* the cards from the game (`docs/jetlag_questions.md`),
+  each with its true mechanics. **Tentacles** now uses the fixed-radius cards — 2 km
+  (museums, libraries, movie theaters, hospitals) and 25 km (metro lines, zoos,
+  aquariums, amusement parks) — sourced automatically from Google Places (metro
+  lines via metro stations). Candidate places are distance-bounded to those whose
+  radius can reach the play area. Answers: the closest in-range place (keep its
+  Voronoi cell ∩ its radius circle) or **none in range** (eliminate the union of all
+  radius circles — a radar-"outside" over every listed place). Matching/Measuring
+  rebuilds to follow.
 - **Region boundaries → official Google reference overlay.** Replaced the OpenStreetMap
   (Nominatim) named-region zones with an **official-Google-boundary reference layer**: search
   a place ("Singapore", "Switzerland") and its real administrative boundary is overlaid on the
