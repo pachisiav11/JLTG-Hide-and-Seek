@@ -5,15 +5,15 @@ import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
 import { geojsonToPaths, unionRings, parseZoneInput } from "./geo.js";
-import { searchRegions, regionToRings } from "./regions.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 
 const ZONE_STYLE = { strokeColor: "#2dd4bf", strokeOpacity: 0.95, strokeWeight: 1.5, fillColor: "#2dd4bf", fillOpacity: 0.12 };
 const AREA_STYLE = { strokeColor: "#f2c14e", strokeOpacity: 0.95, strokeWeight: 3, fillOpacity: 0 };
 
 export class Zones {
-  constructor(map) {
+  constructor(map, boundaries = null) {
     this.map = map;
+    this.boundaries = boundaries; // official-boundary reference overlays
     this.zonePolys = [];
     this.areaPolys = [];
     this._draw = null; // active drawing session
@@ -172,7 +172,7 @@ export class Zones {
       title: "Zones",
       bodyHTML: `
         <div class="row">
-          <button id="z-region" class="btn btn-primary">🌍 Add named region</button>
+          <button id="z-region" class="btn btn-primary">🌍 Region boundary (reference)</button>
         </div>
         <div class="row">
           <button id="z-draw" class="btn">✎ Draw zone</button>
@@ -217,16 +217,19 @@ export class Zones {
     };
   }
 
-  // Search a named region (Singapore, Switzerland…) and add its real boundary
-  // as a zone. Add several to combine them into one game area (turf.union).
+  // Search a place (Singapore, Switzerland…) and overlay its OFFICIAL Google
+  // boundary as a REFERENCE only — it is never added as a zone. The user then
+  // hand-plots their own points with ✎ Draw. Searching again leaves any drawn
+  // zones untouched; overlays are a separate, purely-visual layer.
   _openRegionSearch() {
+    if (!this.boundaries) { toast("Boundary reference isn’t available."); return; }
     const s = openSheet({
-      title: "Add named region",
+      title: "Region boundary",
       bodyHTML: `
-        <p class="muted">Type a place — neighbourhood, city, state, or country. Add several to combine them into the play area.</p>
+        <p class="muted">Overlay a place's <strong>official Google boundary</strong> as a reference. It is <em>not</em> added as a zone — use ✎ Draw to hand-plot your own points along it. Your drawn zones stay put when you search again.</p>
         <input id="rg-q" class="field" placeholder="e.g. Singapore, Switzerland" />
         <div class="sheet-actions">
-          <button id="rg-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="rg-clear" class="btn btn-ghost">Clear overlays</button>
           <button id="rg-go" class="btn btn-primary">Search</button>
         </div>
         <ul id="rg-res" class="list"></ul>`,
@@ -238,39 +241,38 @@ export class Zones {
       s.q("#rg-res").innerHTML = '<li class="muted">Searching…</li>';
       let results = [];
       try {
-        results = await searchRegions(q);
+        results = await this.boundaries.search(q);
       } catch (e) {
         s.q("#rg-res").innerHTML = `<li class="muted">${escapeHtml(e.message)}</li>`;
         return;
       }
       if (!results.length) {
-        s.q("#rg-res").innerHTML = '<li class="muted">No matching regions.</li>';
+        s.q("#rg-res").innerHTML = '<li class="muted">No matching places.</li>';
         return;
       }
       this._regionResults = results;
       s.q("#rg-res").innerHTML = results
         .map((r, i) => {
-          const hasPoly = r.geojson && (r.geojson.type === "Polygon" || r.geojson.type === "MultiPolygon");
+          const primary = (r.types || [])[0]?.replace(/_/g, " ") || "place";
           return `<li>
             <div class="game-meta">
-              <span class="li-name">${escapeHtml(r.shortName)}</span>
-              <span class="muted">${escapeHtml(r.kind)}${hasPoly ? "" : " · box only"}</span>
+              <span class="li-name">${escapeHtml(r.formatted_address || "")}</span>
+              <span class="muted">${escapeHtml(primary)}</span>
             </div>
-            <button class="btn btn-ghost btn-sm" data-add="${i}">Add</button>
+            <button class="btn btn-ghost btn-sm" data-show="${i}">Show</button>
           </li>`;
         })
         .join("");
-      s.qa("[data-add]").forEach((b) => (b.onclick = async () => {
-        const r = this._regionResults[parseInt(b.dataset.add, 10)];
-        const rings = regionToRings(r);
-        if (!rings.length) { toast("No boundary available for that result."); return; }
-        for (let i = 0; i < rings.length; i++) {
-          await this.addZone(rings.length > 1 ? `${r.shortName} (${i + 1})` : r.shortName, rings[i], { toLibrary: true });
-        }
+      s.qa("[data-show]").forEach((b) => (b.onclick = () => {
+        const r = this._regionResults[parseInt(b.dataset.show, 10)];
+        const { mode } = this.boundaries.show(r);
         s.close();
+        toast(mode === "exact"
+          ? "Boundary overlaid — trace it with ✎ Draw."
+          : "Approx extent shown (add a Map ID in Settings for the exact boundary).");
       }));
     };
-    s.q("#rg-cancel").onclick = () => s.close();
+    s.q("#rg-clear").onclick = () => { this.boundaries.clear(); toast("Reference overlays cleared."); };
     s.q("#rg-go").onclick = run;
     s.q("#rg-q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
   }

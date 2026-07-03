@@ -88,7 +88,9 @@ The play area is a **set of named zones** rather than a single boundary. Example
 }
 ```
 
-- Zones can be drawn by hand (Drawing library) **or** imported (GeoJSON / paste coordinates).
+- Zones can be drawn by hand (custom click-to-draw) **or** imported (GeoJSON / paste coordinates).
+  To help hand-drawing, **🌍 Region boundary** overlays a place's official Google boundary
+  (Data-driven styling, or an approximate viewport box) as a *reference only* — never a zone.
 - `gameArea` = `turf.union(...zones)`; all elimination tools clip against it so nothing
   is ever shaded outside the play area.
 - A **zone picker** lets you build a game from a saved library of reusable zones

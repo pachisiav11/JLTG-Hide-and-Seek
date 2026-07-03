@@ -6,6 +6,7 @@ import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Hider } from "./hider.js";
 import { Games } from "./games.js";
+import { Boundaries } from "./boundaries.js";
 import { toast } from "./ui.js";
 
 const boot = document.getElementById("boot");
@@ -15,6 +16,7 @@ const bootCard = boot?.querySelector(".boot-card");
 const gameNameEl = document.getElementById("game-name");
 
 const LS_API_KEY = "jltg.apiKey";
+const LS_MAP_ID = "jltg.mapId";
 const DEFAULTS = { center: { lat: 1.2830, lng: 103.8590 }, zoom: 12 };
 
 function setBoot(msg, detail = "", isError = false) {
@@ -39,9 +41,17 @@ function resolveConfig() {
     fileKey && fileKey !== "YOUR_API_KEY_HERE"
       ? fileKey
       : localStorage.getItem(LS_API_KEY) || null;
+  // Optional vector Map ID (for official DDS region boundaries): config first,
+  // else this device's Settings-entered value.
+  const fileMapId = file.MAP_ID;
+  const mapId =
+    (fileMapId && fileMapId !== "YOUR_MAP_ID_HERE" && fileMapId) ||
+    localStorage.getItem(LS_MAP_ID) ||
+    null;
   return {
     key,
     keyFromStorage: !(fileKey && fileKey !== "YOUR_API_KEY_HERE") && !!key,
+    mapId,
     center: file.DEFAULT_CENTER || DEFAULTS.center,
     zoom: file.DEFAULT_ZOOM || DEFAULTS.zoom,
   };
@@ -104,6 +114,7 @@ async function main() {
     map = await createMap(document.getElementById("map"), {
       center: cfg.center,
       zoom: cfg.zoom,
+      mapId: cfg.mapId,
     });
     window.__jltgMap = map; // handy for debugging / later phases
   } catch (e) {
@@ -120,7 +131,8 @@ async function main() {
 
   // 4) Zones + native map features. A failure here must NOT block the map or key.
   try {
-    const zones = new Zones(map);
+    const boundaries = new Boundaries(map, { ddsAvailable: !!cfg.mapId });
+    const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
     const layers = new Layers(map);
     const hider = new Hider(map);
@@ -131,7 +143,7 @@ async function main() {
     wireToolbar(zones, features, layers, hider);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, hider, games, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, hider, games, boundaries, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

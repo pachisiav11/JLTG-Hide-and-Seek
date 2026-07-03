@@ -3,6 +3,14 @@
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
 ## Post-roadmap enhancements
+- **Region boundaries → official Google reference overlay.** Replaced the OpenStreetMap
+  (Nominatim) named-region zones with an **official-Google-boundary reference layer**: search
+  a place ("Singapore", "Switzerland") and its real administrative boundary is overlaid on the
+  map for reference only — it is **not** added as a zone, so you hand-plot your own points along
+  it with Draw, and searching another place leaves drawn zones untouched. Exact boundaries use
+  Google **Data-driven styling** (set a vector Map ID in Settings); without a Map ID it falls
+  back to the geocoder's official viewport rectangle. Removed `src/regions.js` and the Nominatim
+  dependency.
 - **Removed auto-answer entirely.** The hider feature is now purely a **Hiding zone**:
   set a centre point + radius and everything outside the radius is shaded (dark mask +
   purple boundary circle, clipped to the game area). No more placing the hider's location

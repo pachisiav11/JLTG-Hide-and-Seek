@@ -166,6 +166,10 @@ export class Games {
           ${radio("units", "metric", st.units, "Metric (m / km)")}
           ${radio("units", "imperial", st.units, "Imperial (ft / mi)")}
         </div>
+        <h3 class="sub">Region boundaries (advanced)</h3>
+        <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
+        <input id="st-mapid" class="field" type="text" autocomplete="off" spellcheck="false" placeholder="Map ID (optional)" value="${escapeHtml(localStorage.getItem("jltg.mapId") || "")}" />
+
         <h3 class="sub">Help</h3>
         <div class="row">
           <button id="st-help" class="btn">📖 Instructions</button>
@@ -181,8 +185,18 @@ export class Games {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
       store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units }));
+      // Map ID lives on the device (localStorage), applied on next reload since
+      // it is immutable once the map is created.
+      const mapId = s.q("#st-mapid").value.trim();
+      const prevMapId = localStorage.getItem("jltg.mapId") || "";
+      let reload = false;
+      if (mapId !== prevMapId) {
+        if (mapId) localStorage.setItem("jltg.mapId", mapId);
+        else localStorage.removeItem("jltg.mapId");
+        reload = true;
+      }
       s.close();
-      toast("Settings saved.");
+      toast(reload ? "Saved — reload to apply the Map ID." : "Settings saved.");
     };
   }
 
@@ -196,7 +210,7 @@ export class Games {
 
           <h3 class="sub">1 · Build the play area — 🗺️ Zones</h3>
           <ul>
-            <li><strong>Add named region</strong> — type a place (Singapore, Switzerland) to drop its real boundary.</li>
+            <li><strong>Region boundary</strong> — search a place (Singapore, Switzerland) to overlay its official Google boundary as a <em>reference</em>, then trace your own points along it with Draw.</li>
             <li><strong>Draw</strong> — tap points on the map, then Finish.</li>
             <li><strong>Import</strong> — paste GeoJSON or a <code>lat,lng</code> list.</li>
             <li>Add several — they combine into one play area. Saved zones go to your reusable library.</li>

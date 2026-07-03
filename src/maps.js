@@ -46,9 +46,11 @@ export function loadGoogleMaps(apiKey) {
 }
 
 // Create the base map into the given element.
-export async function createMap(element, { center, zoom }) {
+// A vector `mapId` (optional) enables Data-driven styling for official region
+// boundaries; without one the app falls back to approximate viewport extents.
+export async function createMap(element, { center, zoom, mapId }) {
   const { Map } = await google.maps.importLibrary("maps");
-  const map = new Map(element, {
+  const opts = {
     center,
     zoom,
     disableDefaultUI: false,
@@ -58,7 +60,8 @@ export async function createMap(element, { center, zoom }) {
     fullscreenControl: false,
     clickableIcons: false,
     gestureHandling: "greedy",
-    // A Map ID is required for Advanced Markers; without one we fall back fine.
-  });
+  };
+  if (mapId) opts.mapId = mapId;
+  const map = new Map(element, opts);
   return map;
 }
