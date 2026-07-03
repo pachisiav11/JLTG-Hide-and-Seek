@@ -58,6 +58,8 @@ function resolveConfig() {
 }
 
 // One-time key-entry screen shown when no key is present (e.g. first run on a phone).
+// Also offers an OPTIONAL Map ID field (for exact region boundaries) on the same
+// screen — it's not required to continue, and can be added/changed later in Settings.
 function promptForKey() {
   return new Promise((resolve) => {
     if (!bootCard) return resolve(null);
@@ -66,17 +68,23 @@ function promptForKey() {
     form.className = "setup";
     form.innerHTML = `
       <p class="setup-hint">Paste your Google Maps Platform API key. It is stored only on this device.</p>
-      <input type="text" inputmode="text" autocomplete="off" autocapitalize="off"
+      <input id="setup-key" type="text" inputmode="text" autocomplete="off" autocapitalize="off"
              spellcheck="false" placeholder="AIza…" aria-label="API key" />
+      <p class="setup-hint">Optional — a vector Map ID for exact region boundaries (🌍 Region boundary). Leave blank for an approximate box; you can add/change this later in Settings.</p>
+      <input id="setup-mapid" type="text" inputmode="text" autocomplete="off" autocapitalize="off"
+             spellcheck="false" placeholder="Map ID (optional)" aria-label="Map ID (optional)" />
       <button type="submit">Save &amp; continue</button>
       <a class="setup-help" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Get a key ↗</a>
     `;
-    const input = form.querySelector("input");
+    const input = form.querySelector("#setup-key");
+    const mapIdInput = form.querySelector("#setup-mapid");
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       const val = input.value.trim();
       if (!val) return;
       localStorage.setItem(LS_API_KEY, val);
+      const mapId = mapIdInput.value.trim();
+      if (mapId) localStorage.setItem(LS_MAP_ID, mapId);
       form.remove();
       resolve(val);
     });
