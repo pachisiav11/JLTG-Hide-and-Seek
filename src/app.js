@@ -40,8 +40,9 @@ function resolveConfig() {
     fileKey && fileKey !== "YOUR_API_KEY_HERE"
       ? fileKey
       : localStorage.getItem(LS_API_KEY) || null;
-  // Optional vector Map ID (for official DDS region boundaries): config first,
-  // else this device's Settings-entered value.
+  // Optional vector Map ID (for official DDS region boundaries): git-ignored
+  // config.js, else this device's Settings-entered value. Not committed to git
+  // — each device supplies its own, same as the API key.
   const fileMapId = file.MAP_ID;
   const mapId =
     (fileMapId && fileMapId !== "YOUR_MAP_ID_HERE" && fileMapId) ||
