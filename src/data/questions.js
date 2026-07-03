@@ -60,3 +60,42 @@ export const MATCHING = [
 export function findMatching(id) {
   return MATCHING.find((c) => c.id === id) || null;
 }
+
+// ---- Measuring ----------------------------------------------------------
+// "Am I within / beyond D of the nearest ___?" Reveal a distance D and a side;
+// the app buffers the reference by D and keeps the inside (within) or outside
+// (beyond). Each card has a `ref` describing where the reference geometry comes
+// from — the source is fully automatic where Google can provide it, else a
+// manual on-map draw (per the game's non-point features):
+//   points — nearest-of-a-category buffered (Google Places point set).
+//   line   — a hand-drawn reference line, buffered (no Google line geometry:
+//            high-speed rail, coastline, international / admin-division borders).
+//   area   — a hand-drawn polygon (a body of water), buffered from its shore.
+//   region — Sea Level: elevation isn't derivable from map geometry, so draw the
+//            region above/below the revealed level and keep that side (no buffer).
+export const MEASURING = [
+  { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
+  { id: "hs_train", label: "High Speed Train Line", ref: "line" },
+  { id: "rail_station", label: "Rail Station", ref: "points", type: "train_station" },
+  { id: "intl_border", label: "International Border", ref: "line" },
+  { id: "admin1_border", label: "1st Admin. Division Border", ref: "line" },
+  { id: "admin2_border", label: "2nd Admin. Division Border", ref: "line" },
+  { id: "sea_level", label: "Sea Level", ref: "region" },
+  { id: "water", label: "Body of Water", ref: "area" },
+  { id: "coastline", label: "Coastline", ref: "line" },
+  { id: "mountain", label: "Mountain", ref: "points", keyword: "mountain" },
+  { id: "park", label: "Park", ref: "points", type: "park" },
+  { id: "amusement_park", label: "Amusement Park", ref: "points", type: "amusement_park" },
+  { id: "zoo", label: "Zoo", ref: "points", type: "zoo" },
+  { id: "aquarium", label: "Aquarium", ref: "points", type: "aquarium" },
+  { id: "golf", label: "Golf Course", ref: "points", keyword: "golf course" },
+  { id: "museum", label: "Museum", ref: "points", type: "museum" },
+  { id: "movie_theater", label: "Movie Theater", ref: "points", type: "movie_theater" },
+  { id: "hospital", label: "Hospital", ref: "points", type: "hospital" },
+  { id: "library", label: "Library", ref: "points", type: "library" },
+  { id: "consulate", label: "Foreign Consulate", ref: "points", keyword: "consulate" },
+];
+
+export function findMeasuring(id) {
+  return MEASURING.find((c) => c.id === id) || null;
+}

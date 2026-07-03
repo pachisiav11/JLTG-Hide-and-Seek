@@ -221,9 +221,9 @@ export class Games {
           <ul>
             <li><strong>◎ Radar</strong> — “Within X of this point?” Tap a centre, set the radius, pick Yes/No.</li>
             <li><strong>🌡 Thermometer</strong> — moving A→B, hotter or colder? Tap A then B.</li>
-            <li><strong>🧭 Matching</strong> — “Is your nearest ___ the same as mine?” Keeps/shades that region.</li>
+            <li><strong>🧭 Matching</strong> — one of the game's 20 cards. Reveal the hider's value and the app keeps the matching region: nearest-place cards (airport, park, museum, …) partition automatically; transit line / street are drawn as lines; admin divisions & landmass are drawn regions; station-name-length groups nearest-station regions by letter count.</li>
             <li><strong>🐙 Tentacles</strong> — a fixed-radius card (2 km: museums, libraries, movie theaters, hospitals · 25 km: metro lines, zoos, aquariums, amusement parks). Pick the one the hider is closest to (keeps its cell within that radius), or “none in range” (shades everything within that radius of them all).</li>
-            <li><strong>📐 Measuring</strong> — within/beyond a distance of a coastline, rail, or nearest place.</li>
+            <li><strong>📐 Measuring</strong> — one of the game's 20 cards: reveal the hider's distance and within/beyond. Nearest-place cards buffer automatically; high-speed rail, coastline and borders are drawn as lines; a body of water is a drawn area; sea level is a drawn region (elevation has no map geometry).</li>
             <li><strong>Undo / Redo</strong>, toggle any question on/off, and ✏️ rename it to the real question asked.</li>
           </ul>
 

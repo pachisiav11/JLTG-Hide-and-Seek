@@ -6,9 +6,8 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPaths } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
-import { CATEGORIES, searchCategory } from "./places.js";
-import { LINEAR_FEATURES, findLinearFeature } from "./data/linear.js";
-import { TENTACLES, findTentacle, MATCHING, findMatching } from "./data/questions.js";
+import { searchCategory } from "./places.js";
+import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 
 const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
@@ -545,21 +544,42 @@ export class Layers {
     };
   }
 
-  // ---- Measuring (buffer of a reference: bundled line or Places points) ----
-  startMeasuring() {
+  // ---- Measuring (only the game's 20 cards; buffer a reference, keep a side) ----
+  // Point cards source the reference automatically from Places; line / area / region
+  // cards fall back to an on-map draw because Google exposes no such geometry.
+  async startMeasuring() {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
-    const lineOpts = LINEAR_FEATURES.map((f) => `<option value="line:${f.id}">${escapeHtml(f.name)}</option>`).join("");
-    const placeOpts = CATEGORIES.map((c) => `<option value="places:${c.id}">Nearest ${escapeHtml(c.label.toLowerCase())}</option>`).join("");
+    const opts = MEASURING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
     const s = openSheet({
       title: "Measuring",
       bodyHTML: `
-        <p class="muted">Buffer a reference feature by a distance, then keep the matching side.</p>
-        <label class="fieldlbl">Reference</label>
-        <select id="m-ref" class="field">
-          <optgroup label="Bundled linear features">${lineOpts}</optgroup>
-          <optgroup label="Nearest place (Places API)">${placeOpts}</optgroup>
-        </select>
+        <p class="muted">“Am I within / beyond a distance of the nearest ___?” Pick a card; reveal the hider's distance and side.</p>
+        <label class="fieldlbl">Question</label>
+        <select id="m-cat" class="field">${opts}</select>
+        <div class="sheet-actions">
+          <button id="m-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="m-next" class="btn btn-primary">Next</button>
+        </div>
+        <p id="m-status" class="muted"></p>`,
+    });
+    s.q("#m-cancel").onclick = () => s.close();
+    s.q("#m-next").onclick = async () => {
+      const card = findMeasuring(s.q("#m-cat").value);
+      if (card.ref === "points") return this._measurePoints(card, s);
+      s.close();
+      if (card.ref === "line") return this._measureLine(card);
+      if (card.ref === "area") return this._measureArea(card);
+      if (card.ref === "region") return this._measureRegion(card);
+    };
+  }
+
+  // Distance + within/beyond controls, shared by the buffer-based measuring cards.
+  _distanceSheet(card, addInputs) {
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Buffer the ${escapeHtml(card.label.toLowerCase())} by the hider's distance, then keep the matching side.</p>
         <label class="fieldlbl">Distance (metres)</label>
         <input id="m-dist" class="field" type="number" inputmode="numeric" value="500" min="10" step="10" />
         <div class="seg" role="radiogroup">
@@ -567,45 +587,90 @@ export class Layers {
           <label><input type="radio" name="m-side" value="out"/> Beyond (No / farther)</label>
         </div>
         <div class="sheet-actions">
-          <button id="m-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="m-cancel2" class="btn btn-ghost">Cancel</button>
           <button id="m-add" class="btn btn-primary">Add question</button>
-        </div>
-        <p id="m-status" class="muted"></p>`,
+        </div>`,
     });
-    s.q("#m-cancel").onclick = () => s.close();
-    s.q("#m-add").onclick = async () => {
-      const ref = s.q("#m-ref").value;
+    s.q("#m-cancel2").onclick = () => s.close();
+    s.q("#m-add").onclick = () => {
       const distance = Math.max(10, parseFloat(s.q("#m-dist").value) || 0);
-      let inputs;
-      if (ref.startsWith("line:")) {
-        const lf = findLinearFeature(ref.slice(5));
-        if (!lf) return;
-        inputs = { refType: "line", refGeometry: lf.geojson, refLabel: lf.name, distance };
-      } else {
-        const cat = CATEGORIES.find((c) => c.id === ref.slice(7));
-        const { center, radius } = this._searchParams(g.gameArea);
-        s.q("#m-status").textContent = "Searching places…";
-        let feats = [];
-        try {
-          feats = await searchCategory(this.map, { center, radius, type: cat.type });
-        } catch (e) {
-          s.q("#m-status").textContent = e.message;
-          return;
-        }
-        if (!feats.length) {
-          s.q("#m-status").textContent = "No places found for that reference.";
-          return;
-        }
-        inputs = {
-          refType: "places",
-          refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
-          refFeatures: feats,
-          refLabel: cat.label,
-          distance,
-        };
-      }
       const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
-      this.addStep("measuring", inputs, { side });
+      this.addStep("measuring", { ...addInputs, distance }, { side });
+      s.close();
+      toast("Measuring question added.");
+    };
+  }
+
+  // Nearest-of-a-category buffered: source points from Places (fall back to a
+  // single hand-marked point if none are found nearby).
+  async _measurePoints(card, s) {
+    const g = store.getCurrent();
+    const { center, radius } = this._searchParams(g.gameArea);
+    s.q("#m-status").textContent = "Searching…";
+    let feats = [];
+    try {
+      feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+    } catch (e) { s.q("#m-status").textContent = e.message; return; }
+    if (!feats.length) {
+      s.close();
+      const pts = await this._drawShape(1, `No ${card.label.toLowerCase()} found nearby — tap the nearest one on the map`);
+      if (!pts) return this.openPanel();
+      return this._distanceSheet(card, {
+        refType: "points", refLabel: card.label,
+        refGeometry: { type: "Point", coordinates: [pts[0].lng, pts[0].lat] },
+        refFeatures: [{ ...pts[0], name: card.label }],
+      });
+    }
+    s.close();
+    this._distanceSheet(card, {
+      refType: "points", refLabel: card.label,
+      refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
+      refFeatures: feats,
+    });
+  }
+
+  // A hand-drawn reference line (high-speed rail, coastline, borders): buffer it.
+  async _measureLine(card) {
+    const coords = await this._drawShape(2, `Draw the ${card.label} — tap along it`);
+    if (!coords) return this.openPanel();
+    this._distanceSheet(card, {
+      refType: "line", refLabel: card.label,
+      refGeometry: { type: "LineString", coordinates: coords.map((c) => [c.lng, c.lat]) },
+    });
+  }
+
+  // A hand-drawn polygon (a body of water): buffer outward from its shore.
+  async _measureArea(card) {
+    const pts = await this._drawShape(3, `Outline the ${card.label} on the map`);
+    if (!pts) return this.openPanel();
+    const ring = pts.map((p) => [p.lng, p.lat]);
+    ring.push([ring[0][0], ring[0][1]]);
+    this._distanceSheet(card, {
+      refType: "area", refLabel: card.label,
+      refGeometry: { type: "Polygon", coordinates: [ring] },
+    });
+  }
+
+  // Sea Level: elevation has no map geometry, so draw the region above/below the
+  // revealed level and keep that side (no distance buffer).
+  async _measureRegion(card) {
+    const pts = await this._drawShape(3, `Outline the ${card.label} region the hider is in`);
+    if (!pts) return this.openPanel();
+    const ring = pts.map((p) => [p.lat, p.lng]);
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Draw the region matching the hider's revealed ${escapeHtml(card.label.toLowerCase())}, then keep their side.</p>
+        <div class="seg">
+          <label><input type="radio" name="m-rg" value="in" checked/> Hider is inside (keep inside)</label>
+          <label><input type="radio" name="m-rg" value="out"/> Hider is outside (keep outside)</label>
+        </div>
+        <div class="sheet-actions"><button id="m-rgc" class="btn btn-ghost">Cancel</button><button id="m-rga" class="btn btn-primary">Add question</button></div>`,
+    });
+    s.q("#m-rgc").onclick = () => s.close();
+    s.q("#m-rga").onclick = () => {
+      const inside = (s.qa('input[name="m-rg"]').find((r) => r.checked)?.value ?? "in") === "in";
+      this.addStep("measuring", { refType: "region", refLabel: card.label, ring }, { inside });
       s.close();
       toast("Measuring question added.");
     };

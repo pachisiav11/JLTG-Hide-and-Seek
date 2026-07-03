@@ -323,16 +323,30 @@ function bufferGeometry(geom, meters) {
 }
 
 function measuring(step, gameArea) {
-  const { refGeometry, refFeatures, distance } = step.inputs;
+  const { refType, refGeometry, refFeatures, ring, distance } = step.inputs;
   const side = step.answer?.side; // "in" (within/closer) | "out" (beyond/farther)
   const guides = [];
-  // Reference visuals.
+
+  // Region mode (Sea Level): elevation can't be derived from map geometry, so the
+  // hider's revealed level is drawn as a region and we simply keep that side — no
+  // distance buffer. answer.inside === false keeps the outside instead.
+  if (refType === "region") {
+    if (ring) guides.push({ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) });
+    const inside = step.answer?.inside !== false;
+    if (!gameArea || !ring || ring.length < 3) return { eliminated: null, guides };
+    const poly = ringToPoly(ring);
+    const eliminated = inside ? safeDiff(gameArea, poly) : safeIntersect(poly, gameArea);
+    return { eliminated, guides };
+  }
+
+  // Reference visuals for the buffer modes (points / line / area).
   if (refGeometry?.type === "LineString") guides.push({ type: "polyline", coords: refGeometry.coordinates.map(([lng, lat]) => ({ lat, lng })) });
+  if (refGeometry?.type === "Polygon") for (const r of geojsonRings(refGeometry)) guides.push({ type: "outline", ring: r });
   for (const f of refFeatures || []) guides.push({ type: "point", lat: f.lat, lng: f.lng });
 
   const buffer = refGeometry ? bufferGeometry(refGeometry, distance) : null;
   if (!buffer || !gameArea) return { eliminated: null, guides };
-  for (const ring of geojsonRings(buffer)) guides.push({ type: "outline", ring });
+  for (const r of geojsonRings(buffer)) guides.push({ type: "outline", ring: r });
 
   const eliminated = side === "in" ? safeDiff(gameArea, buffer) : safeIntersect(buffer, gameArea);
   return { eliminated, guides };
@@ -397,10 +411,14 @@ export function describeStep(step) {
     return `Tentacles · ${cat} · closest “${sel?.name || "?"}” (${rTxt})`;
   }
   if (step.tool === "measuring") {
+    const ref = step.inputs.refLabel || "reference";
+    if (step.inputs.refType === "region") {
+      return `Measuring · ${ref} · ${step.answer?.inside === false ? "outside" : "inside"}`;
+    }
     const d = step.inputs.distance;
     const dTxt = d >= 1000 ? `${(d / 1000).toFixed(d % 1000 ? 1 : 0)} km` : `${Math.round(d)} m`;
     const rel = step.answer?.side === "in" ? "within" : "beyond";
-    return `Measuring · ${rel} ${dTxt} of ${step.inputs.refLabel || "reference"}`;
+    return `Measuring · ${rel} ${dTxt} of ${ref}`;
   }
   return step.tool;
 }
