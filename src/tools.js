@@ -146,9 +146,11 @@ function voronoiCells(features, gameArea) {
 function voronoiTool(step, gameArea) {
   const { features } = step.inputs;
   const { featureIndex, keep } = step.answer || {};
-  const guides = [
-    ...(features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${i + 1}` })),
-  ];
+  // No per-candidate point markers persist after the question: they clutter the
+  // map ("rogue points") once the answer is recorded. The candidates are shown
+  // live via temporary markers during selection; here only the cell outlines +
+  // resulting shaded region remain.
+  const guides = [];
   if (!gameArea || !features || features.length < 2 || featureIndex == null) {
     return { eliminated: null, guides };
   }
@@ -199,7 +201,7 @@ function matchingNameLength(step, gameArea) {
   const { features } = step.inputs;
   const { length, match } = step.answer || {};
   const keepMatch = match !== false; // default true = backward-compat "same"
-  const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${f.len}` }));
+  const guides = []; // candidate points don't persist (see voronoiTool)
   if (!gameArea || !features || features.length < 2 || length == null) return { eliminated: null, guides };
   const { cells } = voronoiCells(features, gameArea);
   for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
@@ -276,7 +278,9 @@ function tentacles(step, gameArea) {
   // plain nearest-cell partition (routed through voronoiTool). Recompute those
   // with the old behavior so old saved/imported games still eliminate correctly.
   if (radius == null) return voronoiTool(step, gameArea);
-  const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${i + 1}` }));
+  // Candidate points don't persist (see voronoiTool); the radius circle(s) below
+  // are the meaningful reference that stays on the map.
+  const guides = [];
   if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
 
   const circleOf = (f) => T().circle([f.lng, f.lat], R / 1000, { units: "kilometers", steps: 64 });
@@ -360,7 +364,7 @@ function bufferGeometry(geom, meters) {
 }
 
 function measuring(step, gameArea) {
-  const { refType, refGeometry, refFeatures, ring, distance } = step.inputs;
+  const { refType, refGeometry, ring, distance } = step.inputs;
   const side = step.answer?.side; // "in" (within/closer) | "out" (beyond/farther)
   const guides = [];
 
@@ -373,10 +377,11 @@ function measuring(step, gameArea) {
     return { eliminated: keepRegionSide(gameArea, ring, inside), guides };
   }
 
-  // Reference visuals for the buffer modes (points / line / area).
+  // Reference visuals for the buffer modes (line / area). Per-candidate points
+  // don't persist (see voronoiTool); the buffer outline below is the reference
+  // that stays on the map for point-set cards.
   if (refGeometry?.type === "LineString") guides.push({ type: "polyline", coords: refGeometry.coordinates.map(([lng, lat]) => ({ lat, lng })) });
   if (refGeometry?.type === "Polygon") for (const r of geojsonRings(refGeometry)) guides.push({ type: "outline", ring: r });
-  for (const f of refFeatures || []) guides.push({ type: "point", lat: f.lat, lng: f.lng });
 
   const buffer = refGeometry ? bufferGeometry(refGeometry, distance) : null;
   if (!buffer || !gameArea) return { eliminated: null, guides };
