@@ -33,7 +33,8 @@ export class Hider {
       g.hiderLock = { locked: true, point, stationName, radius };
     });
     store.saveNow(); // persist immediately (a quick app-close shouldn't lose it)
-    toast("Hider centre set.");
+    // Shading needs a radius; nudge the user if one isn't set yet.
+    toast(store.getCurrent()?.hiderLock?.radius ? "Hider centre set." : "Hider centre set — add a radius to shade the zone.");
   }
   setRadius(radius) {
     store.update((g) => {
@@ -63,21 +64,27 @@ export class Hider {
       zIndex: 9999,
     }));
 
-    // Hiding-zone mask: shade everything outside the radius.
+    // Hiding-zone mask: shade EVERYTHING outside the radius, so the hiding zone
+    // reads as the one clear spot on the map.
     if (lock.radius && lock.radius > 0 && window.turf) {
       const turf = window.turf;
-      const circle = turf.circle([lock.point.lng, lock.point.lat], lock.radius / 1000, { units: "kilometers", steps: 72 });
-      // Base to subtract from: the game area if defined, else a large box.
-      let base;
-      if (g.gameArea) {
-        base = turf.feature(g.gameArea);
-      } else {
-        const d = 0.6, p = lock.point;
-        base = turf.polygon([[[p.lng - d, p.lat - d], [p.lng + d, p.lat - d], [p.lng + d, p.lat + d], [p.lng - d, p.lat + d], [p.lng - d, p.lat - d]]]);
-      }
+      const p = lock.point;
+      const circle = turf.circle([p.lng, p.lat], lock.radius / 1000, { units: "kilometers", steps: 72 });
+      // Subtract the circle from a large-but-LOCAL rectangle around it — not the
+      // game area (a blank board would then shade only a tiny box, leaving most of
+      // the view bright) and not a near-global rect (Google Maps mis-fills those
+      // and darkens the hole instead). Scale the pad with the radius but keep it
+      // local; the circle stays a true hole. Mirrors layers.js maskOutside. Where a
+      // game area exists, the play-area mask (layers.js) already darkens anything
+      // outside it, so the net clear region is still the zone ∩ play area.
+      const rKm = lock.radius / 1000;
+      const pad = Math.min(40, Math.max(8, (rKm / 111) * 6)); // ≥ ~880 km, never near-global
+      const minX = Math.max(-179.9, p.lng - pad), maxX = Math.min(179.9, p.lng + pad);
+      const minY = Math.max(-85, p.lat - pad), maxY = Math.min(85, p.lat + pad);
+      const rect = turf.polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]);
       let mask = null;
       try {
-        const diff = turf.difference(turf.featureCollection([base, circle]));
+        const diff = turf.difference(turf.featureCollection([rect, circle]));
         mask = diff ? diff.geometry : null;
       } catch (e) { console.warn("hider mask failed", e); }
       if (mask) {
