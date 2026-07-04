@@ -359,7 +359,7 @@ export class Layers {
     const s = openSheet({
       title: "Matching",
       bodyHTML: `
-        <p class="muted">“Is your nearest ___ (or your ___) the same as mine?” Reveal the hider's answer; the app keeps the matching region.</p>
+        <p class="muted">You (the seeker) ask “is your nearest ___ the same as mine?” Enter <em>your</em> answer, then tap Yes (hider matches) or No (hider differs) — the app keeps or removes your region accordingly.</p>
         <label class="fieldlbl">Question</label>
         <select id="mt-cat" class="field">${opts}</select>
         <div class="sheet-actions">
@@ -395,15 +395,21 @@ export class Layers {
     const s2 = openSheet({
       title: card.label,
       bodyHTML: `
-        <p class="muted">Which is the hider's nearest ${escapeHtml(card.label.toLowerCase())}? (keeps that region)</p>
+        <p class="muted">Which is <strong>your</strong> nearest ${escapeHtml(card.label.toLowerCase())}?</p>
         <div class="seg">${list}</div>
+        <label class="fieldlbl">Did the hider answer the same?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="mt-match" value="yes" checked/> Yes — same (keep this region)</label>
+          <label><input type="radio" name="mt-match" value="no"/> No — different (remove this region)</label>
+        </div>
         <div class="sheet-actions"><button id="mt-cancel2" class="btn btn-ghost">Cancel</button><button id="mt-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
     s2.q("#mt-cancel2").onclick = () => s2.close();
     s2.q("#mt-add").onclick = () => {
       const featureIndex = parseInt(s2.qa('input[name="mt-feat"]').find((r) => r.checked)?.value ?? "0", 10);
-      this.addStep("matching", { mode: "nearest", category: card.id, categoryLabel: card.label, features: feats }, { featureIndex, keep: true });
+      const keep = (s2.qa('input[name="mt-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
+      this.addStep("matching", { mode: "nearest", category: card.id, categoryLabel: card.label, features: feats }, { featureIndex, keep });
       s2.close();
       toast("Matching question added.");
     };
@@ -431,15 +437,21 @@ export class Layers {
     const s2 = openSheet({
       title: "Station's Name Length",
       bodyHTML: `
-        <p class="muted">Nearest-station regions grouped by name length. Pick the hider's station name length; all matching regions are kept.</p>
+        <p class="muted">Nearest-station regions grouped by name length. Pick <strong>your</strong> nearest-station name length.</p>
         <div class="seg">${list}</div>
+        <label class="fieldlbl">Did the hider answer the same length?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="nl-match" value="yes" checked/> Yes — same (keep those regions)</label>
+          <label><input type="radio" name="nl-match" value="no"/> No — different (remove those regions)</label>
+        </div>
         <div class="sheet-actions"><button id="nl-cancel" class="btn btn-ghost">Cancel</button><button id="nl-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
     s2.q("#nl-cancel").onclick = () => s2.close();
     s2.q("#nl-add").onclick = () => {
       const L = parseInt(s2.qa('input[name="nl"]').find((r) => r.checked)?.value ?? `${lengths[0]}`, 10);
-      this.addStep("matching", { mode: "nameLength", category: card.id, categoryLabel: "station name length", features: feats }, { length: L });
+      const match = (s2.qa('input[name="nl-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
+      this.addStep("matching", { mode: "nameLength", category: card.id, categoryLabel: "station name length", features: feats }, { length: L, match });
       s2.close();
       toast("Matching question added.");
     };
@@ -466,15 +478,21 @@ export class Layers {
     const s = openSheet({
       title: card.label,
       bodyHTML: `
-        <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} is the hider nearest to? (keeps that one's region)</p>
+        <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} are <strong>you</strong> nearest to?</p>
         <div class="seg">${list}</div>
+        <label class="fieldlbl">Did the hider answer the same one?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="ln-match" value="yes" checked/> Yes — same (keep that region)</label>
+          <label><input type="radio" name="ln-match" value="no"/> No — different (remove that region)</label>
+        </div>
         <div class="sheet-actions"><button id="ln-cancel" class="btn btn-ghost">Cancel</button><button id="ln-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => clearOverlays(),
     });
     s.q("#ln-cancel").onclick = () => s.close();
     s.q("#ln-add").onclick = () => {
       const lineId = s.qa('input[name="ln"]').find((r) => r.checked)?.value ?? lines[0].id;
-      this.addStep("matching", { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines }, { lineId });
+      const match = (s.qa('input[name="ln-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
+      this.addStep("matching", { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines }, { lineId, match });
       s.close();
       toast("Matching question added.");
     };
@@ -491,9 +509,10 @@ export class Layers {
       title,
       bodyHTML: `
         <p class="muted">${intro}</p>
-        <div class="seg">
-          <label><input type="radio" name="rg" value="in" checked/> Hider is inside (keep inside)</label>
-          <label><input type="radio" name="rg" value="out"/> Hider is outside (keep outside)</label>
+        <label class="fieldlbl">Did the hider answer the same?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="rg" value="in" checked/> Yes — same (keep inside this region)</label>
+          <label><input type="radio" name="rg" value="out"/> No — different (keep outside)</label>
         </div>
         <div class="sheet-actions"><button id="rg-cancel" class="btn btn-ghost">Cancel</button><button id="rg-add" class="btn btn-primary">Add question</button></div>`,
     });
@@ -508,7 +527,7 @@ export class Layers {
   // Which drawn region the hider is inside (admin divisions, landmass).
   _matchRegion(card) {
     return this._regionSideSheet(
-      { drawHint: `Outline the ${card.label} the hider is in`, title: card.label, intro: "Keep the side the hider is on." },
+      { drawHint: `Outline the ${card.label} you (the seeker) are in`, title: card.label, intro: `Draw the ${card.label.toLowerCase()} you're in, then answer whether the hider is in the same one.` },
       (ring, inside) => {
         this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
         toast("Matching question added.");
@@ -601,7 +620,7 @@ export class Layers {
     const s = openSheet({
       title: "Measuring",
       bodyHTML: `
-        <p class="muted">“Am I within / beyond a distance of the nearest ___?” Pick a card; reveal the hider's distance and side.</p>
+        <p class="muted">You (the seeker) ask “are you closer to / farther from the nearest ___ than me?” Enter <em>your</em> distance, then tap the hider's answer.</p>
         <label class="fieldlbl">Question</label>
         <select id="m-cat" class="field">${opts}</select>
         <div class="sheet-actions">
@@ -626,12 +645,13 @@ export class Layers {
     const s = openSheet({
       title: card.label,
       bodyHTML: `
-        <p class="muted">Buffer the ${escapeHtml(card.label.toLowerCase())} by the hider's distance, then keep the matching side.</p>
-        <label class="fieldlbl">Distance (metres)</label>
+        <p class="muted"><strong>Your</strong> distance to the nearest ${escapeHtml(card.label.toLowerCase())}. The app buffers by this distance, then keeps the side matching the hider's answer.</p>
+        <label class="fieldlbl">Your distance (metres)</label>
         <input id="m-dist" class="field" type="number" inputmode="numeric" value="500" min="10" step="10" />
+        <label class="fieldlbl">The hider is…</label>
         <div class="seg" role="radiogroup">
-          <label><input type="radio" name="m-side" value="in" checked/> Within (Yes / closer)</label>
-          <label><input type="radio" name="m-side" value="out"/> Beyond (No / farther)</label>
+          <label><input type="radio" name="m-side" value="in" checked/> Closer than me (within — keep inside)</label>
+          <label><input type="radio" name="m-side" value="out"/> Farther than me (beyond — keep outside)</label>
         </div>
         <div class="sheet-actions">
           <button id="m-cancel2" class="btn btn-ghost">Cancel</button>
@@ -703,9 +723,9 @@ export class Layers {
   _measureRegion(card) {
     return this._regionSideSheet(
       {
-        drawHint: `Outline the ${card.label} region the hider is in`,
+        drawHint: `Outline your side of the ${card.label} boundary`,
         title: card.label,
-        intro: `Draw the region matching the hider's revealed ${escapeHtml(card.label.toLowerCase())}, then keep their side.`,
+        intro: `Draw the region on <strong>your</strong> side of the ${escapeHtml(card.label.toLowerCase())} boundary, then answer whether the hider is on the same side.`,
       },
       (ring, inside) => {
         this.addStep("measuring", { refType: "region", refLabel: card.label, ring }, { inside });

@@ -177,26 +177,32 @@ function matching(step, gameArea) {
   }
 }
 
-// Nearest transit station, grouped by station-name letter count: keep the union
-// of Voronoi cells whose station name has the revealed number of letters.
+// Nearest transit station, grouped by station-name letter count. The SEEKER's
+// nearest-station name length is `length`; the hider answered whether theirs
+// matches (`match !== false`). Match → the hider shares one of those cells, so
+// keep their union; no-match → the hider is in NONE of them, so eliminate the union.
 function matchingNameLength(step, gameArea) {
   const { features } = step.inputs;
-  const { length } = step.answer || {};
+  const { length, match } = step.answer || {};
+  const keepMatch = match !== false; // default true = backward-compat "same"
   const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${f.len}` }));
   if (!gameArea || !features || features.length < 2 || length == null) return { eliminated: null, guides };
   const { cells } = voronoiCells(features, gameArea);
   for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
-  let keep = null;
-  cells.forEach((c, i) => { if (c && features[i].len === length) keep = keep ? safeUnion(keep, c) : c; });
-  if (!keep) return { eliminated: null, guides };
-  return { eliminated: safeDiff(gameArea, keep), guides };
+  let union = null;
+  cells.forEach((c, i) => { if (c && features[i].len === length) union = union ? safeUnion(union, c) : c; });
+  if (!union) return { eliminated: null, guides };
+  // Match → keep those cells (remove the rest); no-match → remove those cells.
+  return { eliminated: keepMatch ? safeDiff(gameArea, union) : union, guides };
 }
 
 // Nearest of several hand-drawn lines/paths: densify every line to points, take
-// the point Voronoi, then keep the union of cells belonging to the chosen line.
+// the point Voronoi, then keep OR eliminate the union of cells belonging to the
+// SEEKER's chosen line, depending on whether the hider answered "same" (`match`).
 function matchingNearestLine(step, gameArea) {
   const { lines } = step.inputs;
-  const { lineId } = step.answer || {};
+  const { lineId, match } = step.answer || {};
+  const keepMatch = match !== false; // default true = backward-compat "same"
   const guides = (lines || []).map((ln) => ({ type: "polyline", coords: ln.coords }));
   if (!gameArea || !lines || !lines.length || lineId == null) return { eliminated: null, guides };
   const turf = T();
@@ -218,7 +224,8 @@ function matchingNearestLine(step, gameArea) {
     if (cell && owner[i] === chosen) { const clip = safeIntersect(cell, gameArea); if (clip) keep = keep ? safeUnion(keep, clip) : clip; }
   });
   if (!keep) return { eliminated: null, guides };
-  return { eliminated: safeDiff(gameArea, keep), guides };
+  // Match → keep the chosen line's region; no-match → eliminate it.
+  return { eliminated: keepMatch ? safeDiff(gameArea, keep) : keep, guides };
 }
 
 // Keep the inside (or, when inside===false, the outside) of a drawn [lat,lng]
@@ -406,14 +413,15 @@ export function describeStep(step) {
   if (step.tool === "matching") {
     const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
     const mode = step.inputs.mode;
-    if (mode === "nameLength") return `Matching · station name length ${step.answer?.length}`;
-    if (mode === "region") return `Matching · ${cat} · ${step.answer?.inside === false ? "outside" : "inside"}`;
+    const same = (m) => (m === false ? "differ" : "match");
+    if (mode === "nameLength") return `Matching · name length ${step.answer?.length} · ${same(step.answer?.match)}`;
+    if (mode === "region") return `Matching · ${cat} · ${step.answer?.inside === false ? "differ" : "match"}`;
     if (mode === "nearestLine") {
       const ln = (step.inputs.lines || []).find((l) => l.id === step.answer?.lineId);
-      return `Matching · ${cat} · “${ln?.label || "?"}”`;
+      return `Matching · ${cat} · “${ln?.label || "?"}” · ${same(step.answer?.match)}`;
     }
     const sel = (step.inputs.features || [])[step.answer?.featureIndex];
-    return `Matching · ${cat} · “${sel?.name || "?"}”`;
+    return `Matching · ${cat} · “${sel?.name || "?"}” · ${step.answer?.keep === false ? "differ" : "match"}`;
   }
   if (step.tool === "tentacles") {
     const cat = step.inputs.categoryLabel || step.inputs.category || "places";

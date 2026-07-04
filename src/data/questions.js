@@ -28,8 +28,10 @@ export function findTentacle(id) {
 }
 
 // ---- Matching -----------------------------------------------------------
-// "Is your nearest ___ (or your ___) the same as mine?" Reveal the hider's
-// value; the app keeps the region that matches it. Each card has a `mode`:
+// The SEEKER asks "is your nearest ___ (or your ___) the same as mine?" The
+// seeker enters THEIR own value and the hider answers yes (same) / no (different);
+// the app keeps the seeker's region on "same" and removes it on "different".
+// Each card has a `mode`:
 //   nearest     — nearest-of-a-category (Voronoi over Google Places points).
 //   nameLength  — nearest transit station, grouped by name letter-count.
 //   nearestLine — nearest of several lines/paths you draw (no Google geometry).
@@ -62,9 +64,10 @@ export function findMatching(id) {
 }
 
 // ---- Measuring ----------------------------------------------------------
-// "Am I within / beyond D of the nearest ___?" Reveal a distance D and a side;
-// the app buffers the reference by D and keeps the inside (within) or outside
-// (beyond). Each card has a `ref` describing where the reference geometry comes
+// The SEEKER asks "are you closer to / farther from the nearest ___ than me?"
+// The seeker enters THEIR distance D; the hider answers closer (within) / farther
+// (beyond); the app buffers the reference by D and keeps the inside (closer) or
+// outside (farther). Each card has a `ref` describing where the reference comes
 // from — the source is fully automatic where Google can provide it, else a
 // manual on-map draw (per the game's non-point features):
 //   points — nearest-of-a-category buffered (Google Places point set).
