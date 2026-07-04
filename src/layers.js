@@ -5,7 +5,7 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
 import { searchCategory } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
@@ -564,44 +564,56 @@ export class Layers {
     const s = openSheet({
       title: "Tentacles",
       bodyHTML: `
-        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one; the app finds those places near your play area.</p>
+        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one, then tap the tentacle <strong>centre</strong> (the seeker's location) on the map; the app finds those places within range of it.</p>
         <label class="fieldlbl">Card</label>
         <select id="tt-cat" class="field">${opts}</select>
         <div class="sheet-actions">
           <button id="tt-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="tt-find" class="btn btn-primary">Find places</button>
+          <button id="tt-find" class="btn btn-primary">Place centre</button>
         </div>
         <p id="tt-status" class="muted"></p>`,
     });
     s.q("#tt-cancel").onclick = () => s.close();
     s.q("#tt-find").onclick = async () => {
       const cat = findTentacle(s.q("#tt-cat").value);
-      const { center, radius } = this._searchParams(g.gameArea);
-      const searchRadius = Math.min(50000, radius + cat.radius); // cover R around the area
-      s.q("#tt-status").textContent = "Searching…";
+      s.close();
+      // Ask the seeker to place the tentacle centre, then search around THAT point.
+      const pts = await this.pick(1, `Tap the ${escapeHtml(cat.label.toLowerCase())} tentacle centre.`);
+      if (!pts) return this.openPanel();
+      const center = pts[0];
+      toast("Searching…");
+      const searchRadius = Math.min(50000, cat.radius * 1.1); // just cover the tentacle reach
       let feats = [];
       try {
         feats = await searchCategory(this.map, { center, radius: searchRadius, type: cat.type });
       } catch (e) {
-        s.q("#tt-status").textContent = e.message;
-        return;
+        toast(e.message);
+        return this.openPanel();
       }
-      // Distance bound: keep only places whose radius circle can reach the area.
-      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius).slice(0, 20);
+      // Keep only places within the tentacle radius of the placed centre.
+      const turf = window.turf;
+      feats = feats
+        .filter((f) => turf.distance([center.lng, center.lat], [f.lng, f.lat], { units: "meters" }) <= cat.radius)
+        .slice(0, 20);
       if (!feats.length) {
-        s.q("#tt-status").textContent = `No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of your area.`;
-        return;
+        toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of that centre.`);
+        return this.openPanel();
       }
-      s.close();
-      this._chooseTentacle(cat, feats);
+      this._chooseTentacle(cat, feats, center);
     };
   }
 
-  _chooseTentacle(cat, features) {
+  _chooseTentacle(cat, features, center) {
     const rTxt = cat.radius >= 1000 ? `${cat.radius / 1000} km` : `${cat.radius} m`;
     const temp = features.map((f, i) =>
       new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
     );
+    // Show the placed centre + its tentacle range while choosing, so the seeker
+    // can see what the candidates were found within. Cleared with the sheet.
+    if (center) {
+      temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Tentacle centre", map: this.map }));
+      temp.push(new google.maps.Circle({ ...CIRCLE_GUIDE, center, radius: cat.radius, map: this.map, clickable: false }));
+    }
     const list = features
       .map((f, i) => `<label><input type="radio" name="tt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
       .join("");
