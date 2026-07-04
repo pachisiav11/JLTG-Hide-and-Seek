@@ -78,6 +78,15 @@ export class MapFeatures {
     this.dir.renderer.setDirections({ routes: [] });
   }
 
+  // Clear all transient map features (directions route, measurement, transit
+  // layer). Used when switching games so nothing lingers from the previous one.
+  clearAll() {
+    this.clearDirections();
+    this.measure.active = false;
+    this._clearMeasure();
+    if (this.transit) this.transit.setMap(null);
+  }
+
   _getOrigin() {
     return new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null);

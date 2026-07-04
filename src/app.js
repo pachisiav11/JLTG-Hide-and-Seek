@@ -156,6 +156,22 @@ async function main() {
     const games = new Games(zones);
     layers.init();
     hider.init();
+
+    // When the game itself changes (new / open / delete→fresh), wipe overlays
+    // from modules that don't re-render on every store update, so nothing lingers
+    // between games. Zones, layers and hider already clear on each store change;
+    // boundary reference overlays persist WITHIN a game and are cleared here only
+    // on an actual game switch (id change), never on a normal question update.
+    let lastGameId = store.getCurrent()?.id || null;
+    store.subscribe((g) => {
+      const id = g?.id || null;
+      if (id !== lastGameId) {
+        lastGameId = id;
+        boundaries?.clear();
+        features.clearAll();
+      }
+    });
+
     wireToolbar(zones, features, layers, hider);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
