@@ -258,7 +258,7 @@ function keepRegionSide(gameArea, ring, inside) {
 function matchingRegion(step, gameArea) {
   const { ring } = step.inputs;
   const inside = step.answer?.inside !== false;
-  const guides = ring ? [{ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) }] : [];
+  const guides = ring ? [{ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })), bold: true }] : [];
   return { eliminated: keepRegionSide(gameArea, ring, inside), guides };
 }
 
@@ -372,7 +372,7 @@ function measuring(step, gameArea) {
   // hider's revealed level is drawn as a region and we simply keep that side — no
   // distance buffer. answer.inside === false keeps the outside instead.
   if (refType === "region") {
-    if (ring) guides.push({ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) });
+    if (ring) guides.push({ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })), bold: true });
     const inside = step.answer?.inside !== false;
     return { eliminated: keepRegionSide(gameArea, ring, inside), guides };
   }

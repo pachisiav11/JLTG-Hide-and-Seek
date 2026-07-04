@@ -13,8 +13,10 @@ import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 // Instead of tinting the still-possible area (which read too much like the drawn
 // zones), we shade EVERYTHING outside it: MASK_STYLE fills the excluded region
 // dark, ACTIVE_OUTLINE draws a crisp bright edge around the remaining play area.
-const MASK_STYLE = { fillColor: "#020a0c", fillOpacity: 0.55, strokeOpacity: 0, clickable: false };
-const ACTIVE_OUTLINE = { fillOpacity: 0, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3, clickable: false };
+// zIndex tiers keep the shading at the BOTTOM and every guide/outline ON TOP, so a
+// division boundary or bisector is never buried under the 55%-dark mask.
+const MASK_STYLE = { fillColor: "#020a0c", fillOpacity: 0.55, strokeOpacity: 0, clickable: false, zIndex: 1 };
+const ACTIVE_OUTLINE = { fillOpacity: 0, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3, clickable: false, zIndex: 2 };
 
 // A large-but-LOCAL rectangle around `area`, minus `area` → the region to shade
 // (everything but the play area), with `area` as a hole. Must NOT use a near-global
@@ -38,8 +40,8 @@ function maskOutside(area) {
     return diff ? diff.geometry : null;
   } catch (e) { console.warn("mask failed", e); return null; }
 }
-const CIRCLE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0 };
-const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3 };
+const CIRCLE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0, zIndex: 5 };
+const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
 export class Layers {
   constructor(map) {
@@ -98,17 +100,10 @@ export class Layers {
     this._clear();
     if (!g) return;
 
-    // Per-question reference guides (circles / lines / points / outlines).
-    for (const s of g.history) {
-      if (!s.enabled) continue;
-      const { guides } = computeElimination(s, g.gameArea);
-      this._renderGuides(guides);
-    }
-
-    // Spotlight the still-possible area: shade everything OUTSIDE it and outline
-    // its edge. As questions eliminate regions the active area shrinks and the
-    // mask grows. With no questions yet, active === the game area, so this also
-    // signals the play area from the start.
+    // 1) Shading FIRST (bottom layer). Spotlight the still-possible area: shade
+    // everything OUTSIDE it and outline its edge. As questions eliminate regions
+    // the active area shrinks and the mask grows. With no questions yet, active ===
+    // the game area, so this also signals the play area from the start.
     if (g.gameArea) {
       const active = computeActiveArea(g.gameArea, g.history);
       const mask = maskOutside(active || g.gameArea);
@@ -123,6 +118,14 @@ export class Layers {
         }
       }
     }
+
+    // 2) Per-question reference guides ON TOP of the shading (circles / lines /
+    // outlines), so division boundaries and bisectors are never hidden by the mask.
+    for (const s of g.history) {
+      if (!s.enabled) continue;
+      const { guides } = computeElimination(s, g.gameArea);
+      this._renderGuides(guides);
+    }
   }
 
   _renderGuides(guides) {
@@ -134,9 +137,14 @@ export class Layers {
       } else if (gd.type === "point") {
         this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
       } else if (gd.type === "outline") {
-        this.overlays.push(new google.maps.Polygon({ paths: gd.ring, strokeColor: "#94a3b8", strokeOpacity: 0.5, strokeWeight: 1, fillOpacity: 0, clickable: false, map: this.map }));
+        // A drawn division / region boundary (bold) reads clearly as the dividing
+        // line; incidental Voronoi cell edges stay faint. Both sit above the mask.
+        const style = gd.bold
+          ? { strokeColor: "#f2c14e", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 6 }
+          : { strokeColor: "#94a3b8", strokeOpacity: 0.55, strokeWeight: 1, zIndex: 5 };
+        this.overlays.push(new google.maps.Polygon({ paths: gd.ring, ...style, fillOpacity: 0, clickable: false, map: this.map }));
       } else if (gd.type === "polyline") {
-        this.overlays.push(new google.maps.Polyline({ path: gd.coords, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 3, clickable: false, map: this.map }));
+        this.overlays.push(new google.maps.Polyline({ path: gd.coords, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 3, clickable: false, zIndex: 5, map: this.map }));
       }
     }
   }
