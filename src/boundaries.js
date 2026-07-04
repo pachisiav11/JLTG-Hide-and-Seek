@@ -78,16 +78,16 @@ export class Boundaries {
   //   "approx" — fell back to the official viewport rectangle.
   show(result) {
     this._fitTo(result.geometry);
-    // Always draw the viewport extent box as a guaranteed-visible reference. DDS
-    // exact boundaries render as part of the base map (below overlays) and can be
-    // hidden by the play-area mask, or silently do nothing if the Map ID isn't
-    // DDS-enabled — so the box ensures the user ALWAYS sees a reference to trace.
-    this._drawBox(result.geometry);
     const type = (result.types || []).find((t) => TYPE_TO_FEATURE[t]);
     const featureName = type ? TYPE_TO_FEATURE[type] : null;
+    // Prefer the EXACT Data-driven-styling boundary when a DDS-enabled Map ID is
+    // configured. Only when that isn't possible do we fall back to the approximate
+    // viewport rectangle — drawing the box unconditionally (as before) buried the
+    // exact outline under a rectangle the user didn't want.
     if (this.ddsAvailable && featureName && result.place_id && this._highlightFeature(featureName, result.place_id)) {
       return { mode: "exact" };
     }
+    this._drawBox(result.geometry);
     return { mode: "approx" };
   }
 
@@ -101,6 +101,12 @@ export class Boundaries {
         entry = { layer, placeIds: new Set() };
         this._featureLayers.set(featureName, entry);
       }
+      // If the Map ID exists but this boundary layer isn't actually enabled for
+      // Data-driven styling, styling it would silently draw nothing. Report that
+      // as unavailable so show() falls back to the visible rectangle instead of
+      // leaving the user with no reference at all. (isAvailable is undefined until
+      // resolved — only bail on an explicit false.)
+      if (entry.layer.isAvailable === false) return false;
       entry.placeIds.add(placeId);
       const placeIds = entry.placeIds; // captured by the style function
       entry.layer.style = (params) =>
