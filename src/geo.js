@@ -26,6 +26,7 @@ export function pathToRing(path) {
 }
 
 // GeoJSON Polygon/MultiPolygon geometry -> array of Google paths ([{lat,lng},...]).
+// Flattens every ring to its own path — use only when holes don't matter.
 export function geojsonToPaths(geom) {
   if (!geom) return [];
   let polys = [];
@@ -38,6 +39,18 @@ export function geojsonToPaths(geom) {
     }
   }
   return paths;
+}
+
+// GeoJSON Polygon/MultiPolygon -> array of path GROUPS, one per polygon, each a
+// [outerRing, ...holeRings] of [{lat,lng}]. Pass a group as a single Google Maps
+// Polygon `paths` so inner rings render as real HOLES (even-odd fill) rather than
+// separate filled shapes. Required for inverse "mask everything but X" overlays.
+export function geojsonToPathGroups(geom) {
+  if (!geom) return [];
+  let polys = [];
+  if (geom.type === "MultiPolygon") polys = geom.coordinates;
+  else if (geom.type === "Polygon") polys = [geom.coordinates];
+  return polys.map((poly) => poly.map((ring) => ring.map(([lng, lat]) => ({ lat, lng }))));
 }
 
 // Union of many [[lat,lng]] rings -> single GeoJSON geometry (Polygon/MultiPolygon), or null.

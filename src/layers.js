@@ -4,14 +4,30 @@
 // for Radar and Thermometer (guide §5.1, §5.2, §6.2).
 import * as store from "./store.js";
 import { createStep } from "./model.js";
-import { geojsonToPaths } from "./geo.js";
+import { geojsonToPathGroups } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
 import { searchCategory } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 
-const ELIM_STYLE = { fillColor: "#ef4444", fillOpacity: 0.25, strokeColor: "#ef4444", strokeOpacity: 0.55, strokeWeight: 1 };
-const ACTIVE_STYLE = { fillColor: "#34d399", fillOpacity: 0.08, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3 };
+// Instead of tinting the still-possible area (which read too much like the drawn
+// zones), we shade EVERYTHING outside it: MASK_STYLE fills the excluded region
+// dark, ACTIVE_OUTLINE draws a crisp bright edge around the remaining play area.
+const MASK_STYLE = { fillColor: "#020a0c", fillOpacity: 0.55, strokeOpacity: 0, clickable: false };
+const ACTIVE_OUTLINE = { fillOpacity: 0, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3, clickable: false };
+
+// World rectangle minus `area` → the region to shade (everything but the play
+// area), with `area` as a hole. Kept within valid lat/lng so it never crosses the
+// antimeridian or poles; the map only ever shows the part around the play area.
+function maskOutside(area) {
+  const turf = window.turf;
+  if (!turf || !area) return null;
+  const world = turf.polygon([[[-179.9, -85], [179.9, -85], [179.9, 85], [-179.9, 85], [-179.9, -85]]]);
+  try {
+    const diff = turf.difference(turf.featureCollection([world, turf.feature(area)]));
+    return diff ? diff.geometry : null;
+  } catch (e) { console.warn("mask failed", e); return null; }
+}
 const CIRCLE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0 };
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3 };
 
@@ -72,21 +88,29 @@ export class Layers {
     this._clear();
     if (!g) return;
 
+    // Per-question reference guides (circles / lines / points / outlines).
     for (const s of g.history) {
       if (!s.enabled) continue;
-      const { eliminated, guides } = computeElimination(s, g.gameArea);
-      if (eliminated) {
-        for (const path of geojsonToPaths(eliminated)) {
-          this.overlays.push(new google.maps.Polygon({ ...ELIM_STYLE, paths: path, map: this.map, clickable: false }));
-        }
-      }
+      const { guides } = computeElimination(s, g.gameArea);
       this._renderGuides(guides);
     }
 
-    const active = computeActiveArea(g.gameArea, g.history);
-    if (active && g.history.some((s) => s.enabled)) {
-      for (const path of geojsonToPaths(active)) {
-        this.overlays.push(new google.maps.Polygon({ ...ACTIVE_STYLE, paths: path, map: this.map, clickable: false }));
+    // Spotlight the still-possible area: shade everything OUTSIDE it and outline
+    // its edge. As questions eliminate regions the active area shrinks and the
+    // mask grows. With no questions yet, active === the game area, so this also
+    // signals the play area from the start.
+    if (g.gameArea) {
+      const active = computeActiveArea(g.gameArea, g.history);
+      const mask = maskOutside(active || g.gameArea);
+      if (mask) {
+        for (const group of geojsonToPathGroups(mask)) {
+          this.overlays.push(new google.maps.Polygon({ ...MASK_STYLE, paths: group, map: this.map }));
+        }
+      }
+      if (active) {
+        for (const group of geojsonToPathGroups(active)) {
+          this.overlays.push(new google.maps.Polygon({ ...ACTIVE_OUTLINE, paths: group, map: this.map }));
+        }
       }
     }
   }

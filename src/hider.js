@@ -3,7 +3,7 @@
 // hiderLock = { locked, point:{lat,lng}, stationName, radius } — here `locked`
 // simply means a zone centre has been placed.
 import * as store from "./store.js";
-import { geojsonToPaths } from "./geo.js";
+import { geojsonToPathGroups } from "./geo.js";
 import { openSheet, toast } from "./ui.js";
 
 const MASK_STYLE = { strokeOpacity: 0, fillColor: "#020a0c", fillOpacity: 0.5, clickable: false };
@@ -81,8 +81,10 @@ export class Hider {
         mask = diff ? diff.geometry : null;
       } catch (e) { console.warn("hider mask failed", e); }
       if (mask) {
-        for (const path of geojsonToPaths(mask)) {
-          this.overlays.push(new google.maps.Polygon({ ...MASK_STYLE, paths: path, map: this.map }));
+        // Use path GROUPS so the inside of the radius is a true hole (clear),
+        // not a separately-filled shape that double-shades the hiding zone.
+        for (const group of geojsonToPathGroups(mask)) {
+          this.overlays.push(new google.maps.Polygon({ ...MASK_STYLE, paths: group, map: this.map }));
         }
       }
       // The hiding-zone boundary circle.
