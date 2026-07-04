@@ -16,15 +16,25 @@ import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 const MASK_STYLE = { fillColor: "#020a0c", fillOpacity: 0.55, strokeOpacity: 0, clickable: false };
 const ACTIVE_OUTLINE = { fillOpacity: 0, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3, clickable: false };
 
-// World rectangle minus `area` → the region to shade (everything but the play
-// area), with `area` as a hole. Kept within valid lat/lng so it never crosses the
-// antimeridian or poles; the map only ever shows the part around the play area.
+// A large-but-LOCAL rectangle around `area`, minus `area` → the region to shade
+// (everything but the play area), with `area` as a hole. Must NOT use a near-global
+// rectangle: Google Maps can't disambiguate the fill direction of a polygon that
+// spans most of the globe and ends up filling the small hole instead of the outside
+// (the play area went dark). A rectangle padded generously around the area's bbox —
+// but well short of hemispheric scale — renders the hole correctly while still
+// covering any realistic pan/zoom around a game. Padding scales with the area size
+// and is clamped to stay local; corners are clamped to valid lat/lng.
 function maskOutside(area) {
   const turf = window.turf;
   if (!turf || !area) return null;
-  const world = turf.polygon([[[-179.9, -85], [179.9, -85], [179.9, 85], [-179.9, 85], [-179.9, -85]]]);
   try {
-    const diff = turf.difference(turf.featureCollection([world, turf.feature(area)]));
+    const bb = turf.bbox(turf.feature(area)); // [minX,minY,maxX,maxY]
+    const span = Math.max(bb[2] - bb[0], bb[3] - bb[1]);
+    const pad = Math.min(40, Math.max(8, span * 3)); // ~880 km min, never near-global
+    const minX = Math.max(-179.9, bb[0] - pad), maxX = Math.min(179.9, bb[2] + pad);
+    const minY = Math.max(-85, bb[1] - pad), maxY = Math.min(85, bb[3] + pad);
+    const rect = turf.polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]);
+    const diff = turf.difference(turf.featureCollection([rect, turf.feature(area)]));
     return diff ? diff.geometry : null;
   } catch (e) { console.warn("mask failed", e); return null; }
 }
