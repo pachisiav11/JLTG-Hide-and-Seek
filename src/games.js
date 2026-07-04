@@ -4,8 +4,10 @@ import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 
 export class Games {
-  constructor(zones) {
+  constructor(zones, { boundaries = null, features = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
+    this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
+    this.features = features; // transient map features (route/measure/transit)
   }
 
   // ---- Top menu ----
@@ -17,6 +19,7 @@ export class Games {
         <p class="muted">Current game: <strong>${escapeHtml(g?.name || "—")}</strong></p>
         <div class="menu-list">
           <button id="mn-new" class="btn">➕ New game</button>
+          <button id="mn-clear" class="btn">🧹 Clear board</button>
           <button id="mn-history" class="btn">🗂 Game history</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
@@ -26,6 +29,7 @@ export class Games {
         </div>`,
     });
     s.q("#mn-new").onclick = async () => { s.close(); await this.newGame(); };
+    s.q("#mn-clear").onclick = () => { s.close(); this.clearBoard(); };
     s.q("#mn-history").onclick = () => { s.close(); this.openHistory(); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
@@ -77,6 +81,31 @@ export class Games {
     await store.newGame(name ? { name } : {});
     this.zones?.fitToArea();
     toast("New game created.");
+  }
+
+  // Wipe the current game's map content (zones, area, questions, hider) plus any
+  // transient overlays, so a board restored from a previous session — e.g. a
+  // stray thermometer left over from earlier play — can be blanked without
+  // creating a new game. Keeps the game record (name/settings) and its history
+  // of *other* saved games intact.
+  clearBoard() {
+    const s = openSheet({
+      title: "Clear board?",
+      bodyHTML: `
+        <p class="muted">Remove all zones, questions and the hider from <strong>this</strong> game, and clear any route/measure/boundary overlays. This can't be undone. Other saved games are untouched.</p>
+        <div class="sheet-actions">
+          <button id="cb-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="cb-go" class="btn btn-primary">Clear board</button>
+        </div>`,
+    });
+    s.q("#cb-cancel").onclick = () => s.close();
+    s.q("#cb-go").onclick = async () => {
+      await store.clearBoard();
+      this.boundaries?.clear();
+      this.features?.clearAll();
+      s.close();
+      toast("Board cleared.");
+    };
   }
 
   async rename() {

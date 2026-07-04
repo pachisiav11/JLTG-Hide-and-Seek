@@ -153,7 +153,7 @@ async function main() {
     const layers = new Layers(map);
     const hider = new Hider(map);
     await Promise.all([zones.init(), features.init()]);
-    const games = new Games(zones);
+    const games = new Games(zones, { boundaries, features });
     layers.init();
     hider.init();
 

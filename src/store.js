@@ -101,6 +101,21 @@ export async function newGame(overrides) {
   return current;
 }
 
+// Blank the CURRENT game in place: drop every zone, the game area, all questions
+// and the hider lock, but keep the same game id/name/settings (so it stays the
+// same saved game, just emptied). Used by "Clear board" to wipe a map that was
+// restored from a previous session without spawning a new game record.
+export async function clearBoard() {
+  if (!current) return;
+  current.zones = [];
+  current.gameArea = null;
+  current.history = [];
+  current.hiderLock = { locked: false, point: null, stationName: null, radius: null };
+  await saveNow();
+  emit();
+  return current;
+}
+
 export async function deleteGame(id) {
   await db.del("games", id);
   if (current && current.id === id) {
