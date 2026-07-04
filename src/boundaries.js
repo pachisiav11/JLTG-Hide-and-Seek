@@ -33,14 +33,16 @@ const BOUNDARY_STYLE = {
   fillOpacity: 0.08,
 };
 
-// Style for the approximate viewport rectangle fallback.
+// Style for the viewport rectangle extent guide. High zIndex so it sits ABOVE the
+// play-area mask and drawn overlays (otherwise the dark mask hides it).
 const BOX_STYLE = {
   strokeColor: "#a78bfa",
-  strokeOpacity: 0.9,
-  strokeWeight: 2,
+  strokeOpacity: 1,
+  strokeWeight: 3,
   fillColor: "#a78bfa",
-  fillOpacity: 0.05,
+  fillOpacity: 0.04,
   clickable: false,
+  zIndex: 9999,
 };
 
 export class Boundaries {
@@ -76,13 +78,16 @@ export class Boundaries {
   //   "approx" — fell back to the official viewport rectangle.
   show(result) {
     this._fitTo(result.geometry);
+    // Always draw the viewport extent box as a guaranteed-visible reference. DDS
+    // exact boundaries render as part of the base map (below overlays) and can be
+    // hidden by the play-area mask, or silently do nothing if the Map ID isn't
+    // DDS-enabled — so the box ensures the user ALWAYS sees a reference to trace.
+    this._drawBox(result.geometry);
     const type = (result.types || []).find((t) => TYPE_TO_FEATURE[t]);
     const featureName = type ? TYPE_TO_FEATURE[type] : null;
-
-    if (this.ddsAvailable && featureName && result.place_id) {
-      if (this._highlightFeature(featureName, result.place_id)) return { mode: "exact" };
+    if (this.ddsAvailable && featureName && result.place_id && this._highlightFeature(featureName, result.place_id)) {
+      return { mode: "exact" };
     }
-    this._drawBox(result.geometry);
     return { mode: "approx" };
   }
 
