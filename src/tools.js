@@ -77,12 +77,26 @@ function thermometer(step, gameArea) {
   const elimHalf = T().polygon([ring]);
 
   const eliminated = gameArea ? safeIntersect(elimHalf, gameArea) : elimHalf.geometry;
+
+  // A visible bisector guide (the actual dividing line), sized to the play area so
+  // it reads as "this splits the region" rather than a faint edge off-screen. The
+  // A→B connector uses the same axis but the bisector is what the answer divides on.
+  let bisG = L;
+  if (gameArea) {
+    try {
+      const bb = T().bbox(feat(gameArea));
+      bisG = Math.min(L, Math.max((bb[2] - bb[0]), (bb[3] - bb[1])) * 0.75 || L);
+    } catch (_) { /* keep default */ }
+  }
+  const G1 = unproj(mx + px * bisG, my + py * bisG);
+  const G2 = unproj(mx - px * bisG, my - py * bisG);
   return {
     eliminated,
     guides: [
       { type: "point", lat: a.lat, lng: a.lng, label: "A" },
       { type: "point", lat: b.lat, lng: b.lng, label: "B" },
       { type: "line", from: a, to: b },
+      { type: "line", from: { lat: G1[1], lng: G1[0] }, to: { lat: G2[1], lng: G2[0] } },
     ],
   };
 }
