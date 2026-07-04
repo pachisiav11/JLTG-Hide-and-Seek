@@ -181,7 +181,7 @@ export class Layers {
       bar.querySelector("[data-undo]").onclick = () => { pts.pop(); const m = markers.pop(); if (m) m.setMap(null); setCount(); redraw(); };
       bar.querySelector("[data-cancel]").onclick = () => { cleanup(); resolve(null); };
       bar.querySelector("[data-finish]").onclick = () => {
-        if (pts.length < minPts) { toast(`Add at least ${minPts} points.`); return; }
+        if (pts.length < minPts) { toast(`Add at least ${minPts} point${minPts === 1 ? "" : "s"}.`); return; }
         cleanup(); resolve(pts.slice());
       };
       this.map.setOptions({ draggableCursor: "crosshair" });
@@ -394,7 +394,11 @@ export class Layers {
     try {
       feats = await searchCategory(this.map, { center, radius, type: card.type });
     } catch (e) { s.q("#mt-status").textContent = e.message; return; }
-    feats = feats.slice(0, 20).map((f) => ({ ...f, len: (f.name.match(/\p{L}/gu) || []).length }));
+    // Count letters in the station name only — drop parenthetical qualifiers
+    // (e.g. "Shinjuku Station (South Exit)") that aren't part of the name players
+    // compare, then collapse whitespace before counting.
+    const nameLen = (n) => ((n.replace(/\s*\([^)]*\)/g, "").match(/\p{L}/gu)) || []).length;
+    feats = feats.slice(0, 20).map((f) => ({ ...f, len: nameLen(f.name) }));
     if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations. Need at least 2.`; return; }
     s.close();
     const temp = feats.map((f) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${f.len}`, map: this.map }));
@@ -420,14 +424,20 @@ export class Layers {
   // Nearest of several hand-drawn lines/paths (Transit Line, Street or Path).
   async _matchNearestLine(card) {
     const lines = [];
+    // Keep each drawn line visible on the map while the next ones are drawn, so
+    // the user can see what they've already placed (avoids duplicate/overlapping
+    // lines). Cleared when the selection sheet closes or the flow is abandoned.
+    const overlays = [];
+    const clearOverlays = () => { overlays.forEach((o) => o.setMap(null)); overlays.length = 0; };
     for (;;) {
       const coords = await this._drawShape(2, `Draw ${card.label} #${lines.length + 1} — tap along it`);
-      if (!coords) { if (!lines.length) return this.openPanel(); break; }
+      if (!coords) { if (!lines.length) { clearOverlays(); return this.openPanel(); } break; }
       const label = await promptText({ title: "Name this line", label: "Label", value: `${card.label} ${lines.length + 1}`, cta: "Save" });
       lines.push({ id: `ln_${lines.length}_${Date.now().toString(36)}`, label: label || `${card.label} ${lines.length + 1}`, coords });
+      overlays.push(new google.maps.Polyline({ path: coords.map((c) => ({ lat: c.lat, lng: c.lng })), map: this.map, ...LINE_GUIDE, clickable: false }));
       if (!(await this._confirm(`Added ${lines.length}. Draw another ${card.label.toLowerCase()}?`))) break;
     }
-    if (lines.length < 1) return this.openPanel();
+    if (lines.length < 1) { clearOverlays(); return this.openPanel(); }
     const list = lines.map((l, i) => `<label><input type="radio" name="ln" value="${l.id}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(l.label)}</label>`).join("");
     const s = openSheet({
       title: card.label,
@@ -435,6 +445,7 @@ export class Layers {
         <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} is the hider nearest to? (keeps that one's region)</p>
         <div class="seg">${list}</div>
         <div class="sheet-actions"><button id="ln-cancel" class="btn btn-ghost">Cancel</button><button id="ln-add" class="btn btn-primary">Add question</button></div>`,
+      onClose: () => clearOverlays(),
     });
     s.q("#ln-cancel").onclick = () => s.close();
     s.q("#ln-add").onclick = () => {
@@ -445,15 +456,17 @@ export class Layers {
     };
   }
 
-  // Which drawn region the hider is inside (admin divisions, landmass).
-  async _matchRegion(card) {
-    const pts = await this._drawShape(3, `Outline the ${card.label} the hider is in`);
+  // Draw a [lat,lng] region and keep the hider's side. Shared by Matching (admin
+  // divisions / landmass) and Measuring (sea level); onAdd(ring, inside) records
+  // the tool-specific step.
+  async _regionSideSheet({ drawHint, title, intro }, onAdd) {
+    const pts = await this._drawShape(3, drawHint);
     if (!pts) return this.openPanel();
     const ring = pts.map((p) => [p.lat, p.lng]);
     const s = openSheet({
-      title: card.label,
+      title,
       bodyHTML: `
-        <p class="muted">Keep the side the hider is on.</p>
+        <p class="muted">${intro}</p>
         <div class="seg">
           <label><input type="radio" name="rg" value="in" checked/> Hider is inside (keep inside)</label>
           <label><input type="radio" name="rg" value="out"/> Hider is outside (keep outside)</label>
@@ -463,10 +476,20 @@ export class Layers {
     s.q("#rg-cancel").onclick = () => s.close();
     s.q("#rg-add").onclick = () => {
       const inside = (s.qa('input[name="rg"]').find((r) => r.checked)?.value ?? "in") === "in";
-      this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
+      onAdd(ring, inside);
       s.close();
-      toast("Matching question added.");
     };
+  }
+
+  // Which drawn region the hider is inside (admin divisions, landmass).
+  _matchRegion(card) {
+    return this._regionSideSheet(
+      { drawHint: `Outline the ${card.label} the hider is in`, title: card.label, intro: "Keep the side the hider is on." },
+      (ring, inside) => {
+        this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
+        toast("Matching question added.");
+      },
+    );
   }
 
   // ---- Tentacles (fixed-radius "which are you closest to?") ----
@@ -653,26 +676,17 @@ export class Layers {
 
   // Sea Level: elevation has no map geometry, so draw the region above/below the
   // revealed level and keep that side (no distance buffer).
-  async _measureRegion(card) {
-    const pts = await this._drawShape(3, `Outline the ${card.label} region the hider is in`);
-    if (!pts) return this.openPanel();
-    const ring = pts.map((p) => [p.lat, p.lng]);
-    const s = openSheet({
-      title: card.label,
-      bodyHTML: `
-        <p class="muted">Draw the region matching the hider's revealed ${escapeHtml(card.label.toLowerCase())}, then keep their side.</p>
-        <div class="seg">
-          <label><input type="radio" name="m-rg" value="in" checked/> Hider is inside (keep inside)</label>
-          <label><input type="radio" name="m-rg" value="out"/> Hider is outside (keep outside)</label>
-        </div>
-        <div class="sheet-actions"><button id="m-rgc" class="btn btn-ghost">Cancel</button><button id="m-rga" class="btn btn-primary">Add question</button></div>`,
-    });
-    s.q("#m-rgc").onclick = () => s.close();
-    s.q("#m-rga").onclick = () => {
-      const inside = (s.qa('input[name="m-rg"]').find((r) => r.checked)?.value ?? "in") === "in";
-      this.addStep("measuring", { refType: "region", refLabel: card.label, ring }, { inside });
-      s.close();
-      toast("Measuring question added.");
-    };
+  _measureRegion(card) {
+    return this._regionSideSheet(
+      {
+        drawHint: `Outline the ${card.label} region the hider is in`,
+        title: card.label,
+        intro: `Draw the region matching the hider's revealed ${escapeHtml(card.label.toLowerCase())}, then keep their side.`,
+      },
+      (ring, inside) => {
+        this.addStep("measuring", { refType: "region", refLabel: card.label, ring }, { inside });
+        toast("Measuring question added.");
+      },
+    );
   }
 }

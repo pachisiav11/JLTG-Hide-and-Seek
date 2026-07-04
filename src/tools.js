@@ -90,16 +90,18 @@ function thermometer(step, gameArea) {
 // turf.voronoi returns a NULL cell for any point that exactly coincides with
 // another input point (e.g. Places sometimes lists two venues at one coordinate).
 // Nudge each coincident point ~0.6 m apart so every input gets a valid, still
-// index-aligned cell. Sub-metre offsets don't affect the elimination at map scale.
+// index-aligned cell. We check each nudged position against ALL already-placed
+// points (not just the raw duplicate group), so a nudge can never land back onto
+// another distinct input and re-create the collision it exists to prevent.
+// Sub-metre offsets don't affect the elimination at map scale.
 function dejitter(coords) {
-  const seen = new Map();
+  const used = new Set();
+  const key = (lng, lat) => lng.toFixed(6) + "," + lat.toFixed(6);
   return coords.map(([lng, lat]) => {
-    const key = lng.toFixed(6) + "," + lat.toFixed(6);
-    const n = seen.get(key) || 0;
-    seen.set(key, n + 1);
-    if (!n) return [lng, lat];
-    const d = n * 6e-6; // ~0.6 m per prior collision
-    return [lng + d, lat + d];
+    let x = lng, y = lat, n = 0;
+    while (used.has(key(x, y))) { n++; const d = n * 6e-6; x = lng + d; y = lat + d; } // ~0.6 m per step
+    used.add(key(x, y));
+    return [x, y];
   });
 }
 
@@ -219,16 +221,22 @@ function matchingNearestLine(step, gameArea) {
   return { eliminated: safeDiff(gameArea, keep), guides };
 }
 
+// Keep the inside (or, when inside===false, the outside) of a drawn [lat,lng]
+// ring within the game area. Shared by Matching (admin division / landmass) and
+// Measuring (sea level) — both are the same "draw a region, keep a side" op.
+function keepRegionSide(gameArea, ring, inside) {
+  if (!gameArea || !ring || ring.length < 3) return null;
+  const poly = ringToPoly(ring);
+  return inside ? safeDiff(gameArea, poly) : safeIntersect(poly, gameArea);
+}
+
 // Which drawn region (admin division / landmass) the hider is inside: keep that
 // side. answer.inside === false keeps the OUTSIDE instead.
 function matchingRegion(step, gameArea) {
   const { ring } = step.inputs;
   const inside = step.answer?.inside !== false;
   const guides = ring ? [{ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) }] : [];
-  if (!gameArea || !ring || ring.length < 3) return { eliminated: null, guides };
-  const poly = ringToPoly(ring);
-  const eliminated = inside ? safeDiff(gameArea, poly) : safeIntersect(poly, gameArea);
-  return { eliminated, guides };
+  return { eliminated: keepRegionSide(gameArea, ring, inside), guides };
 }
 
 // --- Tentacles: fixed-radius "which of these are you closest to?" --------
@@ -243,6 +251,10 @@ function tentacles(step, gameArea) {
   const { features, radius } = step.inputs;
   const { featureIndex, none } = step.answer || {};
   const R = radius; // metres
+  // Backward-compat: pre-rebuild tentacles steps had no fixed radius and were a
+  // plain nearest-cell partition (routed through voronoiTool). Recompute those
+  // with the old behavior so old saved/imported games still eliminate correctly.
+  if (radius == null) return voronoiTool(step, gameArea);
   const guides = (features || []).map((f, i) => ({ type: "point", lat: f.lat, lng: f.lng, label: `${i + 1}` }));
   if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
 
@@ -271,9 +283,13 @@ function tentacles(step, gameArea) {
   if (features.length >= 2) {
     const { cells } = voronoiCells(features, gameArea);
     for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
-    cell = cells[featureIndex] || null;
+    // If P's cell couldn't be resolved (a null Voronoi cell), don't fall back to
+    // the full game area — that would keep the whole circle, including area that
+    // is actually closer to another listed place. Return null instead of guessing.
+    cell = cells[featureIndex];
+    if (!cell) return { eliminated: null, guides };
   }
-  const keepRegion = cell ? safeIntersect(cell, circle.geometry) : safeIntersect(gameArea, circle.geometry);
+  const keepRegion = safeIntersect(cell, circle.geometry);
   if (!keepRegion) return { eliminated: null, guides };
   const eliminated = safeDiff(gameArea, keepRegion);
   return { eliminated, guides };
@@ -333,10 +349,7 @@ function measuring(step, gameArea) {
   if (refType === "region") {
     if (ring) guides.push({ type: "outline", ring: ring.map(([lat, lng]) => ({ lat, lng })) });
     const inside = step.answer?.inside !== false;
-    if (!gameArea || !ring || ring.length < 3) return { eliminated: null, guides };
-    const poly = ringToPoly(ring);
-    const eliminated = inside ? safeDiff(gameArea, poly) : safeIntersect(poly, gameArea);
-    return { eliminated, guides };
+    return { eliminated: keepRegionSide(gameArea, ring, inside), guides };
   }
 
   // Reference visuals for the buffer modes (points / line / area).
