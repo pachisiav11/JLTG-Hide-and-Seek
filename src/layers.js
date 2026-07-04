@@ -5,7 +5,7 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
 import { searchCategory } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
@@ -577,12 +577,21 @@ export class Layers {
     s.q("#tt-find").onclick = async () => {
       const cat = findTentacle(s.q("#tt-cat").value);
       s.close();
-      // Ask the seeker to place the tentacle centre, then search around THAT point.
-      const pts = await this.pick(1, `Tap the ${escapeHtml(cat.label.toLowerCase())} tentacle centre.`);
+      // Ask the seeker to place a search centre near the play area, then look for the
+      // category around it. The centre only AIMS the Places search; the candidate SET
+      // is every place whose radius circle can reach the play area. This matters for
+      // correctness: the hider reveals which candidate they are closest to, so a
+      // nearer place missing from the list would force a wrong "closest" and wrongly
+      // eliminate the true hiding region.
+      const pts = await this.pick(1, `Tap a ${escapeHtml(cat.label.toLowerCase())} search centre near the play area.`);
       if (!pts) return this.openPanel();
       const center = pts[0];
       toast("Searching…");
-      const searchRadius = Math.min(50000, cat.radius * 1.1); // just cover the tentacle reach
+      const turf = window.turf;
+      const bb = turf.bbox(turf.feature(g.gameArea));
+      const corners = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]];
+      const maxD = Math.max(...corners.map((c) => turf.distance([center.lng, center.lat], c, { units: "meters" })));
+      const searchRadius = Math.min(50000, maxD + cat.radius); // cover the whole area + tentacle reach
       let feats = [];
       try {
         feats = await searchCategory(this.map, { center, radius: searchRadius, type: cat.type });
@@ -590,13 +599,10 @@ export class Layers {
         toast(e.message);
         return this.openPanel();
       }
-      // Keep only places within the tentacle radius of the placed centre.
-      const turf = window.turf;
-      feats = feats
-        .filter((f) => turf.distance([center.lng, center.lat], [f.lng, f.lat], { units: "meters" }) <= cat.radius)
-        .slice(0, 20);
+      // Keep only places whose radius circle can actually reach the play area.
+      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius).slice(0, 20);
       if (!feats.length) {
-        toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of that centre.`);
+        toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of the play area.`);
         return this.openPanel();
       }
       this._chooseTentacle(cat, feats, center);
@@ -608,11 +614,11 @@ export class Layers {
     const temp = features.map((f, i) =>
       new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
     );
-    // Show the placed centre + its tentacle range while choosing, so the seeker
-    // can see what the candidates were found within. Cleared with the sheet.
+    // Show the placed search centre for context (cleared with the sheet). No range
+    // circle: the tentacle radius is measured from each place / the hider, not this
+    // centre, so a circle here would misrepresent which places qualify.
     if (center) {
-      temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Tentacle centre", map: this.map }));
-      temp.push(new google.maps.Circle({ ...CIRCLE_GUIDE, center, radius: cat.radius, map: this.map, clickable: false }));
+      temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Search centre", map: this.map }));
     }
     const list = features
       .map((f, i) => `<label><input type="radio" name="tt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
