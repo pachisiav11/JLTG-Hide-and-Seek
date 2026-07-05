@@ -305,6 +305,10 @@ export class Layers {
 
   // ---- Radar flow ----
   async startRadar() {
+    // Every question shades WITHIN the play area, so without one there's nothing to
+    // shade (the map would look unchanged). Require a zone first, like the other
+    // tools — a 🌍 Region boundary is only a reference, not a play area.
+    if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(1, "Tap the radar centre on the map.");
     if (!pts) return this.openPanel();
     const center = pts[0];
@@ -335,6 +339,7 @@ export class Layers {
 
   // ---- Thermometer flow ----
   async startThermometer() {
+    if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(2, "Tap point A (start), then point B (end).");
     if (!pts || pts.length < 2) return this.openPanel();
     const [a, b] = pts;

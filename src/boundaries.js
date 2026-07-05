@@ -88,7 +88,13 @@ export class Boundaries {
       return { mode: "exact" };
     }
     this._drawBox(result.geometry);
-    return { mode: "approx" };
+    // Explain WHY we fell back so the UI can guide the user: no Map ID at all vs a
+    // Map ID whose Map Style has no Data-driven-styling boundary layers enabled
+    // (Google logs "does not have any Datasets or FeatureLayers configured…").
+    const reason = !this.ddsAvailable ? "no-map-id"
+      : !featureName ? "unsupported-type"
+      : "dds-not-configured";
+    return { mode: "approx", reason };
   }
 
   _highlightFeature(featureName, placeId) {

@@ -265,11 +265,17 @@ export class Zones {
         .join("");
       s.qa("[data-show]").forEach((b) => (b.onclick = () => {
         const r = this._regionResults[parseInt(b.dataset.show, 10)];
-        const { mode } = this.boundaries.show(r);
+        const { mode, reason } = this.boundaries.show(r);
         s.close();
-        toast(mode === "exact"
-          ? "Boundary overlaid — trace it with ✎ Draw."
-          : "Approx extent shown (add a Map ID in Settings for the exact boundary).");
+        if (mode === "exact") {
+          toast("Boundary overlaid — trace it with ✎ Draw to make it a zone.");
+        } else if (reason === "dds-not-configured") {
+          toast("Approx box only — your Map ID has no boundary layers enabled for Data-driven styling in the Google Cloud console.", 6000);
+        } else if (reason === "no-map-id") {
+          toast("Approx box — add a Data-driven-styling Map ID in Settings for the exact outline. Trace it with ✎ Draw.", 6000);
+        } else {
+          toast("Approx box shown — trace it with ✎ Draw to make it a zone.");
+        }
       }));
     };
     s.q("#rg-clear").onclick = () => { this.boundaries.clear(); toast("Reference overlays cleared."); };
