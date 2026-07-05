@@ -155,7 +155,9 @@ export class Layers {
   }
 
   // ---- Map point picking (shared by tool flows) ----
-  pick(count, hintText) {
+  // constrainToArea: reject taps outside the game area (seeker locations must be
+  // inside the play zone). No-op when there's no game area or turf.
+  pick(count, hintText, { constrainToArea = false } = {}) {
     return new Promise((resolve) => {
       closeSheet();
       const pts = [];
@@ -172,7 +174,12 @@ export class Layers {
         this.map.setOptions({ draggableCursor: null });
       };
       const listener = this.map.addListener("click", (e) => {
-        pts.push({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+        const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        if (constrainToArea) {
+          const area = store.getCurrent()?.gameArea;
+          if (area && window.turf && !this._inArea(p, area)) { toast("Tap inside the play area."); return; }
+        }
+        pts.push(p);
         markers.push(new google.maps.Marker({ position: e.latLng, label: `${pts.length}`, map: this.map }));
         if (pts.length >= count) {
           cleanup();
@@ -380,7 +387,7 @@ export class Layers {
     // shade (the map would look unchanged). Require a zone first, like the other
     // tools — a 🌍 Region boundary is only a reference, not a play area.
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    const pts = await this.pick(1, "Tap the radar centre on the map.");
+    const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
     if (!pts) return this.openPanel();
     const center = pts[0];
     const s = openSheet({
@@ -411,7 +418,7 @@ export class Layers {
   // ---- Thermometer flow ----
   async startThermometer() {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    const pts = await this.pick(2, "Tap point A (start), then point B (end).");
+    const pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
     if (!pts || pts.length < 2) return this.openPanel();
     const [a, b] = pts;
     const s = openSheet({
@@ -692,7 +699,7 @@ export class Layers {
       // correctness: the hider reveals which candidate they are closest to, so a
       // nearer place missing from the list would force a wrong "closest" and wrongly
       // eliminate the true hiding region.
-      const pts = await this.pick(1, `Tap a ${escapeHtml(cat.label.toLowerCase())} search centre near the play area.`);
+      const pts = await this.pick(1, `Tap a ${cat.label.toLowerCase()} search centre inside the play area.`, { constrainToArea: true });
       if (!pts) return this.openPanel();
       const center = pts[0];
       toast("Searching…");
