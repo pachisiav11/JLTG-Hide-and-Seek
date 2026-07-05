@@ -245,6 +245,77 @@ export class Layers {
     });
   }
 
+  // Let the SEEKER place their own candidate objects by tapping the map and naming
+  // each (e.g. "the 2 airports I care about" instead of auto-Places). Returns
+  // [{lat,lng,name}] — same shape as Places results, so downstream Voronoi /
+  // tentacle logic is unchanged — or null if abandoned before `minCount`. When a
+  // game area exists, taps outside it are rejected (candidates must be in play).
+  async _placeNamedObjects(label, minCount = 1) {
+    const g = store.getCurrent();
+    const area = g?.gameArea;
+    const feats = [];
+    const markers = [];
+    const clear = () => { markers.forEach((m) => m.setMap(null)); markers.length = 0; };
+    for (;;) {
+      const pts = await this.pick(1, `Tap ${label.toLowerCase()} #${feats.length + 1}${feats.length >= minCount ? " (or Cancel to finish)" : ""}.`);
+      if (!pts) { if (feats.length >= minCount) break; clear(); return null; }
+      const p = pts[0];
+      if (area && window.turf && !this._inArea(p, area)) {
+        toast("That point is outside the play area — tap inside the zone.");
+        continue;
+      }
+      const name = await promptText({ title: `Name ${label} #${feats.length + 1}`, label: "Name", value: `${label} ${feats.length + 1}`, cta: "Add" });
+      if (name === null) continue; // naming cancelled → discard this tap, keep going
+      feats.push({ lat: p.lat, lng: p.lng, name: name || `${label} ${feats.length + 1}` });
+      markers.push(new google.maps.Marker({ position: p, label: `${feats.length}`, map: this.map }));
+      if (!(await this._confirm(`Added ${feats.length}. Place another ${label.toLowerCase()}?`))) break;
+    }
+    clear();
+    return feats;
+  }
+
+  // True if {lat,lng} falls inside the game-area polygon (used to keep manually
+  // placed objects / seeker points within the play zone).
+  _inArea(p, area) {
+    try {
+      const turf = window.turf;
+      return turf.booleanPointInPolygon(turf.point([p.lng, p.lat]), turf.feature(area));
+    } catch (_) { return true; } // never block on a geometry error
+  }
+
+  // Keep only candidate features inside the play area — the hider is in the zone,
+  // so places they could never be nearest to shouldn't distort the partition. No
+  // effect without an area / turf.
+  _inAreaFeatures(feats, area) {
+    if (!area || !window.turf) return feats;
+    return feats.filter((f) => this._inArea(f, area));
+  }
+
+  // A searchable radio list of candidate features. No cap on how many are shown
+  // (long lists scroll); a filter box narrows by name when there are many. Values
+  // are ORIGINAL indices so a selection maps back to features[] despite filtering.
+  _featureListHTML(name, feats) {
+    const items = feats.map((f, i) =>
+      `<label class="feat-item" data-name="${escapeHtml((f.name || "").toLowerCase())}">
+         <input type="radio" name="${name}" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}
+       </label>`).join("");
+    const search = feats.length > 8
+      ? `<input class="field feat-search" data-search="${name}" placeholder="Search ${feats.length} results…" />`
+      : "";
+    return `${search}<div class="seg feat-list" data-list="${name}">${items}</div>`;
+  }
+
+  // Wire a _featureListHTML search box to show/hide items by name substring.
+  _wireFeatureSearch(sheet, name) {
+    const box = sheet.q(`[data-search="${name}"]`);
+    if (!box) return;
+    const items = sheet.qa(`[data-list="${name}"] .feat-item`);
+    box.addEventListener("input", () => {
+      const q = box.value.trim().toLowerCase();
+      items.forEach((el) => { el.style.display = !q || el.dataset.name.includes(q) ? "" : "none"; });
+    });
+  }
+
   // ---- Panel ----
   openPanel() {
     const g = store.getCurrent();
@@ -401,25 +472,47 @@ export class Layers {
     };
   }
 
-  // Nearest-of-a-category via Places → keep the hider's Voronoi cell.
+  // Nearest-of-a-category → keep the hider's Voronoi cell. The candidate set can be
+  // found automatically (Places) or placed by the seeker (their own objects).
   async _matchNearest(card, s) {
-    const g = store.getCurrent();
-    const { center, radius } = this._searchParams(g.gameArea);
-    s.q("#mt-status").textContent = "Searching…";
-    let feats = [];
-    try {
-      feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
-    } catch (e) { s.q("#mt-status").textContent = e.message; return; }
-    feats = feats.slice(0, 20);
-    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length}. Need at least 2 to partition.`; return; }
-    s.close();
+    s.q("#mt-status").innerHTML = `
+      <label class="fieldlbl">Candidate ${escapeHtml(card.label.toLowerCase())}s</label>
+      <div class="row">
+        <button id="mt-auto" class="btn btn-primary">🔍 Auto-find nearby</button>
+        <button id="mt-manual" class="btn">✋ Place my own</button>
+      </div>
+      <span id="mt-msg" class="muted"></span>`;
+    const setMsg = (t) => { const m = s.q("#mt-msg"); if (m) m.textContent = t; };
+    s.q("#mt-auto").onclick = async () => {
+      const g = store.getCurrent();
+      const { center, radius } = this._searchParams(g.gameArea);
+      setMsg("Searching…");
+      let feats = [];
+      try {
+        feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+      } catch (e) { setMsg(e.message); return; }
+      feats = this._inAreaFeatures(feats, g.gameArea);
+      if (feats.length < 2) { setMsg(`Found ${feats.length} in the play area. Need at least 2 to partition — try “Place my own”.`); return; }
+      s.close();
+      this._matchNearestSelect(card, feats);
+    };
+    s.q("#mt-manual").onclick = async () => {
+      s.close();
+      const feats = await this._placeNamedObjects(card.label, 2);
+      if (!feats) return this.openPanel();
+      if (feats.length < 2) { toast("Place at least 2 to partition the area."); return this.openPanel(); }
+      this._matchNearestSelect(card, feats);
+    };
+  }
+
+  // Selection + same/different sheet shared by auto and manual candidate sets.
+  _matchNearestSelect(card, feats) {
     const temp = feats.map((f, i) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map }));
-    const list = feats.map((f, i) => `<label><input type="radio" name="mt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`).join("");
     const s2 = openSheet({
       title: card.label,
       bodyHTML: `
         <p class="muted">Which is <strong>your</strong> nearest ${escapeHtml(card.label.toLowerCase())}?</p>
-        <div class="seg">${list}</div>
+        ${this._featureListHTML("mt-feat", feats)}
         <label class="fieldlbl">Did the hider answer the same?</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="mt-match" value="yes" checked/> Yes — same (keep this region)</label>
@@ -428,6 +521,7 @@ export class Layers {
         <div class="sheet-actions"><button id="mt-cancel2" class="btn btn-ghost">Cancel</button><button id="mt-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
+    this._wireFeatureSearch(s2, "mt-feat");
     s2.q("#mt-cancel2").onclick = () => s2.close();
     s2.q("#mt-add").onclick = () => {
       const featureIndex = parseInt(s2.qa('input[name="mt-feat"]').find((r) => r.checked)?.value ?? "0", 10);
@@ -569,16 +663,26 @@ export class Layers {
     const s = openSheet({
       title: "Tentacles",
       bodyHTML: `
-        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one, then tap the tentacle <strong>centre</strong> (the seeker's location) on the map; the app finds those places within range of it.</p>
+        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one, then either auto-find the places (tap a search centre) or place your own on the map.</p>
         <label class="fieldlbl">Card</label>
         <select id="tt-cat" class="field">${opts}</select>
         <div class="sheet-actions">
           <button id="tt-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="tt-find" class="btn btn-primary">Place centre</button>
+          <button id="tt-manual" class="btn">✋ Place my own</button>
+          <button id="tt-find" class="btn btn-primary">🔍 Auto-find</button>
         </div>
         <p id="tt-status" class="muted"></p>`,
     });
     s.q("#tt-cancel").onclick = () => s.close();
+    s.q("#tt-manual").onclick = async () => {
+      const cat = findTentacle(s.q("#tt-cat").value);
+      s.close();
+      // Seeker names the exact places they care about; radius/Voronoi logic is the
+      // same. At least one is enough (single candidate ⇒ area ∩ its radius circle).
+      const feats = await this._placeNamedObjects(cat.label, 1);
+      if (!feats || !feats.length) return this.openPanel();
+      this._chooseTentacle(cat, feats, null);
+    };
     s.q("#tt-find").onclick = async () => {
       const cat = findTentacle(s.q("#tt-cat").value);
       s.close();
@@ -604,8 +708,9 @@ export class Layers {
         toast(e.message);
         return this.openPanel();
       }
-      // Keep only places whose radius circle can actually reach the play area.
-      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius).slice(0, 20);
+      // Keep only places whose radius circle can actually reach the play area (no
+      // cap — long lists are searchable in the chooser).
+      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius);
       if (!feats.length) {
         toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of the play area.`);
         return this.openPanel();
@@ -625,14 +730,11 @@ export class Layers {
     if (center) {
       temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Search centre", map: this.map }));
     }
-    const list = features
-      .map((f, i) => `<label><input type="radio" name="tt-feat" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}</label>`)
-      .join("");
     const s = openSheet({
       title: "Tentacles",
       bodyHTML: `
         <p class="muted">${escapeHtml(cat.label)} within ${rTxt}. Which is the hider closest to?</p>
-        <div class="seg">${list}</div>
+        ${this._featureListHTML("tt-feat", features)}
         <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None within ${rTxt} (hider is outside all)</label></div>
         <div class="sheet-actions">
           <button id="tt-cancel2" class="btn btn-ghost">Cancel</button>
@@ -640,6 +742,7 @@ export class Layers {
         </div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
+    this._wireFeatureSearch(s, "tt-feat");
     s.q("#tt-cancel2").onclick = () => s.close();
     s.q("#tt-add").onclick = () => {
       const val = s.qa('input[name="tt-feat"]').find((r) => r.checked)?.value ?? "0";

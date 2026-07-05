@@ -327,6 +327,10 @@ textarea.field { resize: vertical; }
 }
 .seg input { accent-color: var(--teal); width: 18px; height: 18px; }
 
+/* Searchable, uncapped candidate lists (matching / tentacles / measuring) */
+.feat-list { max-height: 42vh; overflow-y: auto; }
+.feat-search { margin: 12px 0 0; }
+
 /* Layer list toggles */
 .li-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
