@@ -545,8 +545,8 @@ export class Layers {
     // (e.g. "Shinjuku Station (South Exit)") that aren't part of the name players
     // compare, then collapse whitespace before counting.
     const nameLen = (n) => ((n.replace(/\s*\([^)]*\)/g, "").match(/\p{L}/gu)) || []).length;
-    feats = feats.slice(0, 20).map((f) => ({ ...f, len: nameLen(f.name) }));
-    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations. Need at least 2.`; return; }
+    feats = this._inAreaFeatures(feats, g.gameArea).map((f) => ({ ...f, len: nameLen(f.name) }));
+    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations in the play area. Need at least 2.`; return; }
     s.close();
     const temp = feats.map((f) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${f.len}`, map: this.map }));
     const lengths = [...new Set(feats.map((f) => f.len))].sort((a, b) => a - b);
@@ -815,29 +815,46 @@ export class Layers {
   // Nearest-of-a-category buffered: source points from Places (fall back to a
   // single hand-marked point if none are found nearby).
   async _measurePoints(card, s) {
-    const g = store.getCurrent();
-    const { center, radius } = this._searchParams(g.gameArea);
-    s.q("#m-status").textContent = "Searching…";
-    let feats = [];
-    try {
-      feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
-    } catch (e) { s.q("#m-status").textContent = e.message; return; }
-    if (!feats.length) {
+    s.q("#m-status").innerHTML = `
+      <label class="fieldlbl">Reference ${escapeHtml(card.label.toLowerCase())}s</label>
+      <div class="row">
+        <button id="m-auto" class="btn btn-primary">🔍 Auto-find nearby</button>
+        <button id="m-manual" class="btn">✋ Place my own</button>
+      </div>
+      <span id="m-msg" class="muted"></span>`;
+    const setMsg = (t) => { const m = s.q("#m-msg"); if (m) m.textContent = t; };
+    s.q("#m-auto").onclick = async () => {
+      const g = store.getCurrent();
+      const { center, radius } = this._searchParams(g.gameArea);
+      setMsg("Searching…");
+      let feats = [];
+      try {
+        feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+      } catch (e) { setMsg(e.message); return; }
+      feats = this._inAreaFeatures(feats, g.gameArea);
+      if (!feats.length) { setMsg(`No ${card.label.toLowerCase()} found in the play area — try “Place my own”.`); return; }
       s.close();
-      const pts = await this._drawShape(1, `No ${card.label.toLowerCase()} found nearby — tap the nearest one on the map`);
-      if (!pts) return this.openPanel();
-      return this._distanceSheet(card, {
+      this._distanceSheet(card, {
         refType: "points", refLabel: card.label,
-        refGeometry: { type: "Point", coordinates: [pts[0].lng, pts[0].lat] },
-        refFeatures: [{ ...pts[0], name: card.label }],
+        refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
+        refFeatures: feats,
       });
-    }
-    s.close();
-    this._distanceSheet(card, {
-      refType: "points", refLabel: card.label,
-      refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
-      refFeatures: feats,
-    });
+    };
+    // Manual: the seeker marks exactly which instances count, avoiding the over-
+    // or under-counting that auto-Places can cause. One point ⇒ Point; several ⇒
+    // MultiPoint (buffered the same way).
+    s.q("#m-manual").onclick = async () => {
+      s.close();
+      const feats = await this._placeNamedObjects(card.label, 1);
+      if (!feats || !feats.length) return this.openPanel();
+      this._distanceSheet(card, {
+        refType: "points", refLabel: card.label,
+        refGeometry: feats.length === 1
+          ? { type: "Point", coordinates: [feats[0].lng, feats[0].lat] }
+          : { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
+        refFeatures: feats,
+      });
+    };
   }
 
   // A hand-drawn reference line (high-speed rail, coastline, borders): buffer it.
