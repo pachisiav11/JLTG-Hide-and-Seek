@@ -117,6 +117,28 @@ function parseCoordList(text) {
   return pairs;
 }
 
+// A sanity-check size hint for an assembled game area (Phase 7): its area plus a
+// coarse Small/Medium/Large/Very large tier, so a mis-sized play area is obvious
+// before questions are added. Thresholds are in km² (≈ 50 / 500 / 5000 sq mi), so
+// "~450 sq mi" reads as Medium. Returns { m2, tier, sizeTxt, text } or null.
+export function areaSummary(geom, units = "metric") {
+  if (!geom || !window.turf) return null;
+  let m2;
+  try { m2 = T().area(feat(geom)); } catch (_) { return null; }
+  const km2 = m2 / 1e6;
+  const tier = km2 < 130 ? "Small" : km2 < 1300 ? "Medium" : km2 < 13000 ? "Large" : "Very large";
+  const fmt = (n) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 10 ? 0 : n >= 1 ? 1 : 2 });
+  const sizeTxt = units === "imperial"
+    ? `${fmt(m2 / 2.589988e6)} sq mi`
+    : `${fmt(km2)} km²`;
+  return { m2, tier, sizeTxt, text: `≈ ${sizeTxt} · ${tier}` };
+}
+
+// turf.feature() wrapper local to this module (geojsonToPaths etc. don't need it).
+function feat(g) {
+  return g && g.type === "Feature" ? g : T().feature(g);
+}
+
 export function centroidOfRing(ring) {
   try {
     const c = T().centroid(ringToTurf(ring));

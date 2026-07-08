@@ -42,7 +42,9 @@ function radar(step, gameArea) {
   } else {
     eliminated = side === "out" ? circle.geometry : null;
   }
-  return { eliminated, guides: [{ type: "circle", center, radius }] };
+  // `editable: "center"` marks the circle centre as a drag-to-reposition anchor
+  // (Phase 7) — layers.js wires the drag back to inputs.center.
+  return { eliminated, guides: [{ type: "circle", center, radius, editable: "center" }] };
 }
 
 // --- Thermometer: perpendicular bisector of A→B --------------------------
@@ -93,8 +95,9 @@ function thermometer(step, gameArea) {
   return {
     eliminated,
     guides: [
-      { type: "point", lat: a.lat, lng: a.lng, label: "A" },
-      { type: "point", lat: b.lat, lng: b.lng, label: "B" },
+      // A/B are drag-to-reposition anchors (Phase 7): dragging rewrites inputs.a/b.
+      { type: "point", lat: a.lat, lng: a.lng, label: "A", editable: "a" },
+      { type: "point", lat: b.lat, lng: b.lng, label: "B", editable: "b" },
       { type: "line", from: a, to: b },
       { type: "line", from: { lat: G1[1], lng: G1[0] }, to: { lat: G2[1], lng: G2[0] } },
     ],

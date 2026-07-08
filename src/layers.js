@@ -9,14 +9,17 @@ import { computeElimination, computeActiveArea, describeStep, distancePointToAre
 import { searchCategory } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
+import { getPalette } from "./palette.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
-// zones), we shade EVERYTHING outside it: MASK_STYLE fills the excluded region
-// dark, ACTIVE_OUTLINE draws a crisp bright edge around the remaining play area.
+// zones), we shade EVERYTHING outside it: the mask fills the excluded region dark,
+// the active outline draws a crisp bright edge around the remaining play area.
 // zIndex tiers keep the shading at the BOTTOM and every guide/outline ON TOP, so a
 // division boundary or bisector is never buried under the 55%-dark mask.
-const MASK_STYLE = { fillColor: "#020a0c", fillOpacity: 0.55, strokeOpacity: 0, clickable: false, zIndex: 1 };
-const ACTIVE_OUTLINE = { fillOpacity: 0, strokeColor: "#34d399", strokeOpacity: 0.95, strokeWeight: 3, clickable: false, zIndex: 2 };
+// Colours come from the active palette (getPalette) so the colour-blind toggle
+// (Phase 7) restyles everything live; only the neutral bits are constants here.
+const MASK_BASE = { strokeOpacity: 0, clickable: false, zIndex: 1 };
+const ACTIVE_BASE = { fillOpacity: 0, strokeOpacity: 0.95, strokeWeight: 3, clickable: false, zIndex: 2 };
 
 // A large-but-LOCAL rectangle around `area`, minus `area` → the region to shade
 // (everything but the play area), with `area` as a hole. Must NOT use a near-global
@@ -40,7 +43,8 @@ function maskOutside(area) {
     return diff ? diff.geometry : null;
   } catch (e) { console.warn("mask failed", e); return null; }
 }
-const CIRCLE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0, zIndex: 5 };
+// Neutral style for the live line-drawing preview (Matching ▸ nearest-line). The
+// committed guides restyle per-palette/per-step in _renderGuides.
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
 export class Layers {
@@ -53,6 +57,9 @@ export class Layers {
 
   init() {
     store.subscribe(() => this.render());
+    // Live-restyle every overlay when the colour palette toggles (Phase 7),
+    // without re-fetching anything.
+    window.addEventListener("jltg:palette", () => this.render());
     this.render();
   }
 
@@ -99,6 +106,7 @@ export class Layers {
     const g = store.getCurrent();
     this._clear();
     if (!g) return;
+    const pal = getPalette();
 
     // 1) Shading FIRST (bottom layer). Spotlight the still-possible area: shade
     // everything OUTSIDE it and outline its edge. As questions eliminate regions
@@ -109,44 +117,77 @@ export class Layers {
       const mask = maskOutside(active || g.gameArea);
       if (mask) {
         for (const group of geojsonToPathGroups(mask)) {
-          this.overlays.push(new google.maps.Polygon({ ...MASK_STYLE, paths: group, map: this.map }));
+          this.overlays.push(new google.maps.Polygon({ ...MASK_BASE, ...pal.mask, paths: group, map: this.map }));
         }
       }
       if (active) {
         for (const group of geojsonToPathGroups(active)) {
-          this.overlays.push(new google.maps.Polygon({ ...ACTIVE_OUTLINE, paths: group, map: this.map }));
+          this.overlays.push(new google.maps.Polygon({ ...ACTIVE_BASE, strokeColor: pal.active, paths: group, map: this.map }));
         }
       }
     }
 
     // 2) Per-question reference guides ON TOP of the shading (circles / lines /
     // outlines), so division boundaries and bisectors are never hidden by the mask.
+    // Each enabled step draws in the next palette colour so two open questions of
+    // the same tool (e.g. two Tentacles) are visually distinguishable (Phase 7).
+    let idx = 0;
     for (const s of g.history) {
       if (!s.enabled) continue;
       const { guides } = computeElimination(s, g.gameArea);
-      this._renderGuides(guides);
+      this._renderGuides(guides, s, pal.steps[idx % pal.steps.length]);
+      idx++;
     }
   }
 
-  _renderGuides(guides) {
+  // guides: computed reference shapes. step: the owning history step (for editable
+  // anchors). color: this step's cycle colour (Phase 7 per-step differentiation).
+  _renderGuides(guides, step, color) {
+    const pal = getPalette();
+    const primary = color || pal.guide;
     for (const gd of guides || []) {
       if (gd.type === "circle") {
-        this.overlays.push(new google.maps.Circle({ ...CIRCLE_GUIDE, center: gd.center, radius: gd.radius, map: this.map, clickable: false }));
+        this.overlays.push(new google.maps.Circle({ strokeColor: primary, strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0, zIndex: 5, center: gd.center, radius: gd.radius, map: this.map, clickable: false }));
+        if (gd.editable && step) this._editAnchor(step, gd.editable, gd.center, primary);
       } else if (gd.type === "line") {
-        this.overlays.push(new google.maps.Polyline({ ...LINE_GUIDE, path: [gd.from, gd.to], map: this.map, clickable: false }));
+        this.overlays.push(new google.maps.Polyline({ strokeColor: primary, strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5, path: [gd.from, gd.to], map: this.map, clickable: false }));
       } else if (gd.type === "point") {
-        this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
+        if (gd.editable && step) this._editAnchor(step, gd.editable, { lat: gd.lat, lng: gd.lng }, primary, gd.label);
+        else this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
       } else if (gd.type === "outline") {
         // A drawn division / region boundary (bold) reads clearly as the dividing
         // line; incidental Voronoi cell edges stay faint. Both sit above the mask.
         const style = gd.bold
-          ? { strokeColor: "#f2c14e", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 6 }
-          : { strokeColor: "#94a3b8", strokeOpacity: 0.55, strokeWeight: 1, zIndex: 5 };
+          ? { strokeColor: primary, strokeOpacity: 0.95, strokeWeight: 3, zIndex: 6 }
+          : { strokeColor: pal.faintOutline, strokeOpacity: 0.55, strokeWeight: 1, zIndex: 5 };
         this.overlays.push(new google.maps.Polygon({ paths: gd.ring, ...style, fillOpacity: 0, clickable: false, map: this.map }));
       } else if (gd.type === "polyline") {
-        this.overlays.push(new google.maps.Polyline({ path: gd.coords, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 3, clickable: false, zIndex: 5, map: this.map }));
+        this.overlays.push(new google.maps.Polyline({ path: gd.coords, strokeColor: primary, strokeOpacity: 0.9, strokeWeight: 3, clickable: false, zIndex: 5, map: this.map }));
       }
     }
+  }
+
+  // A drag-to-reposition anchor for a placed point (Radar centre, Thermometer A/B).
+  // Correcting a mis-tapped point no longer means restarting the tool (Phase 7):
+  // dragging rewrites step.inputs[field], which recomputes + re-renders the region.
+  // A drag that lands outside the play area is rejected and snapped back.
+  _editAnchor(step, field, position, color, label) {
+    const marker = new google.maps.Marker({
+      position, map: this.map, draggable: true, zIndex: 7,
+      title: "Drag to reposition",
+      label: label ? { text: label, color: "#04252a", fontWeight: "700" } : undefined,
+    });
+    marker.addListener("dragend", (e) => {
+      const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+      const area = store.getCurrent()?.gameArea;
+      if (area && window.turf && !this._inArea(p, area)) {
+        toast("Keep the point inside the play area.");
+        this.render(); // snap the marker back to the stored position
+        return;
+      }
+      store.update((g) => { const s = g.history.find((x) => x.id === step.id); if (s) s.inputs[field] = p; });
+    });
+    this.overlays.push(marker);
   }
 
   _clear() {

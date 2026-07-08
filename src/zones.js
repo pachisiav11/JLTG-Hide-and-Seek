@@ -4,11 +4,17 @@
 import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
-import { geojsonToPaths, unionRings, parseZoneInput } from "./geo.js";
+import { geojsonToPaths, unionRings, parseZoneInput, areaSummary } from "./geo.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
+import { getPalette } from "./palette.js";
 
-const ZONE_STYLE = { strokeColor: "#2dd4bf", strokeOpacity: 0.95, strokeWeight: 1.5, fillColor: "#2dd4bf", fillOpacity: 0.12 };
-const AREA_STYLE = { strokeColor: "#f2c14e", strokeOpacity: 0.95, strokeWeight: 3, fillOpacity: 0 };
+// Non-colour style props; hues come from the active palette (Phase 7 colour-blind
+// toggle) so a theme switch restyles zones live. The drawing preview keeps the
+// default teal (getPalette().zone) too.
+const ZONE_STYLE = { strokeOpacity: 0.95, strokeWeight: 1.5, fillOpacity: 0.12 };
+const AREA_STYLE = { strokeOpacity: 0.95, strokeWeight: 3, fillOpacity: 0 };
+const zoneStyle = () => { const p = getPalette(); return { ...ZONE_STYLE, strokeColor: p.zone, fillColor: p.zone }; };
+const areaStyle = () => ({ ...AREA_STYLE, strokeColor: getPalette().area });
 
 export class Zones {
   constructor(map, boundaries = null) {
@@ -24,6 +30,7 @@ export class Zones {
     // zones with a custom click-to-add tool (the old DrawingManager was removed
     // from the Maps JS API in v3.65).
     store.subscribe(() => this.render());
+    window.addEventListener("jltg:palette", () => this.render());
     this.render();
   }
 
@@ -48,9 +55,9 @@ export class Zones {
     if (d.preview) d.preview.setMap(null);
     const path = d.pts.slice();
     if (path.length >= 3) {
-      d.preview = new google.maps.Polygon({ ...ZONE_STYLE, paths: path, clickable: false, map: this.map });
+      d.preview = new google.maps.Polygon({ ...zoneStyle(), paths: path, clickable: false, map: this.map });
     } else if (path.length >= 1) {
-      d.preview = new google.maps.Polyline({ path, strokeColor: ZONE_STYLE.strokeColor, strokeWeight: 2, map: this.map });
+      d.preview = new google.maps.Polyline({ path, strokeColor: getPalette().zone, strokeWeight: 2, map: this.map });
     } else {
       d.preview = null;
     }
@@ -107,7 +114,10 @@ export class Zones {
     });
     if (toLibrary) await this.saveToLibrary(zone);
     this.fitToArea();
-    toast(`Added “${zone.name}”.`);
+    // Surface a size sanity-check for the assembled area (Phase 7).
+    const g = store.getCurrent();
+    const sum = areaSummary(g?.gameArea, g?.settings?.units);
+    toast(sum ? `Added “${zone.name}” · game area ${sum.text}` : `Added “${zone.name}”.`);
     return zone;
   }
 
@@ -168,6 +178,8 @@ export class Zones {
           </li>`).join("")
       : `<li class="muted">Library is empty.</li>`;
 
+    const sum = g.gameArea ? areaSummary(g.gameArea, g.settings?.units) : null;
+    const areaLine = sum ? `<p class="muted">Game area: <strong>${escapeHtml(sum.sizeTxt)}</strong> · ${escapeHtml(sum.tier)}</p>` : "";
     const s = openSheet({
       title: "Zones",
       bodyHTML: `
@@ -179,6 +191,7 @@ export class Zones {
           <button id="z-import" class="btn">⇩ Import</button>
         </div>
         <h3 class="sub">In this game</h3>
+        ${areaLine}
         <ul class="list">${zonesHtml}</ul>
         <h3 class="sub">Zone library</h3>
         <ul class="list">${libHtml}</ul>`,
@@ -290,11 +303,11 @@ export class Zones {
     if (!g) return;
     for (const z of g.zones) {
       const paths = z.polygon.map(([lat, lng]) => ({ lat, lng }));
-      this.zonePolys.push(new google.maps.Polygon({ ...ZONE_STYLE, paths, map: this.map, clickable: false }));
+      this.zonePolys.push(new google.maps.Polygon({ ...zoneStyle(), paths, map: this.map, clickable: false }));
     }
     if (g.gameArea) {
       for (const path of geojsonToPaths(g.gameArea)) {
-        this.areaPolys.push(new google.maps.Polygon({ ...AREA_STYLE, paths: path, map: this.map, clickable: false }));
+        this.areaPolys.push(new google.maps.Polygon({ ...areaStyle(), paths: path, map: this.map, clickable: false }));
       }
     }
   }

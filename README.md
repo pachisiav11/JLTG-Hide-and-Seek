@@ -4,6 +4,8 @@ A mobile web app (PWA) that renders a full Google Map and layers on the deductiv
 **elimination tools** needed to run a game of *Jet Lag: The Game*'s Hide and Seek.
 
 See [`GUIDE.md`](GUIDE.md) for the full vision, data model, and phased roadmap.
+See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) for candidate Phase 7+ ideas drawn from
+competitive analysis of other Jet Lag map companions.
 
 **Live demo (auto-deploys from `main`):** https://pachisiav11.github.io/JLTG-Hide-and-Seek/
 On a new device it asks once for your Maps API key (stored only on that device).
@@ -41,6 +43,14 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Top-bar menu; offline app shell via the service worker.
 
 **All roadmap phases (0–6) are complete.**
+
+### Post-launch improvements (Phase 7+, see [`IMPROVEMENTS.md`](IMPROVEMENTS.md))
+
+- **Phase 7 — Guide-rendering & interaction polish** ✅
+  - Per-step guide colours (two same-tool questions are now distinguishable).
+  - Draggable Radar centre + Thermometer A/B anchors (drag to correct a mis-tap).
+  - Colour-blind-safe palette toggle (Settings; instant, persisted).
+  - Suggested game-area size tier (Small / Medium / Large) on zone assembly.
 
 ## Run it locally
 

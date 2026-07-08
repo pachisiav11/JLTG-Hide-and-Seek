@@ -2,6 +2,26 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 7 — Guide-rendering & interaction polish
+Post-launch improvements from [`IMPROVEMENTS.md`](IMPROVEMENTS.md); no new deps, no
+hosting impact (Static Site only).
+- **Per-step guide differentiation.** Each enabled question now draws its reference
+  guides (Radar circle, Thermometer bisector, division/region outlines, drawn lines)
+  in the next colour of a cycling palette, so two open questions of the same tool —
+  e.g. two Tentacles — are visually distinguishable. Incidental Voronoi cell edges
+  stay faint. Elimination math was already order-independent; this closed a pure
+  rendering gap (`src/layers.js`).
+- **Draggable Radar / Thermometer anchors.** The Radar centre and Thermometer A/B
+  points are now drag-to-reposition markers; a mis-tapped point is corrected by
+  dragging instead of restarting the tool. A drag rewrites the step's inputs (region
+  recomputes live) and is rejected + snapped back if dropped outside the play area.
+- **Colour-blind-safe palette.** A Settings toggle (persisted in `localStorage`,
+  applied live with no re-fetch) swaps every shaded layer + guide between the default
+  vivid palette and an Okabe-Ito colour-blind-safe one (`src/palette.js`).
+- **Suggested game-area size tier.** Assembling the game area now surfaces its area
+  and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
+  panel), honouring the metric/imperial units setting.
+
 ## Post-roadmap enhancements
 - **Question bank → real Jet Lag cards (Tentacles first).** The question tools are
   being rebuilt to offer *only* the cards from the game (`docs/jetlag_questions.md`),

@@ -2,6 +2,7 @@
 import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
+import { getPaletteName, setPalette } from "./palette.js";
 
 export class Games {
   constructor(zones, { boundaries = null, features = null } = {}) {
@@ -178,6 +179,7 @@ export class Games {
   openSettings() {
     const g = store.getCurrent();
     const st = { ...DEFAULT_SETTINGS, ...(g?.settings || {}) };
+    const pal = getPaletteName();
     const radio = (name, val, cur, label) =>
       `<label><input type="radio" name="${name}" value="${val}" ${cur === val ? "checked" : ""}/> ${label}</label>`;
     const s = openSheet({
@@ -195,6 +197,12 @@ export class Games {
           ${radio("units", "metric", st.units, "Metric (m / km)")}
           ${radio("units", "imperial", st.units, "Imperial (ft / mi)")}
         </div>
+        <h3 class="sub">Colour theme</h3>
+        <p class="muted">Elimination state is shown through colour. Switch to a colour-blind-safe palette (applies instantly).</p>
+        <div class="seg">
+          ${radio("palette", "default", pal, "Default")}
+          ${radio("palette", "cb", pal, "Colour-blind safe (Okabe-Ito)")}
+        </div>
         <h3 class="sub">Region boundaries (advanced)</h3>
         <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
         <input id="st-mapid" class="field" type="text" autocomplete="off" spellcheck="false" placeholder="Map ID (optional)" value="${escapeHtml(localStorage.getItem("jltg.mapId") || "")}" />
@@ -209,11 +217,15 @@ export class Games {
         </div>`,
     });
     s.q("#st-help").onclick = () => { s.close(); this.openInstructions(); };
-    s.q("#st-cancel").onclick = () => s.close();
+    // Palette applies live on selection (no re-fetch); Cancel restores the prior one.
+    s.qa('input[name="palette"]').forEach((r) => (r.onchange = () => setPalette(r.value)));
+    s.q("#st-cancel").onclick = () => { setPalette(pal); s.close(); };
     s.q("#st-save").onclick = () => {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
       store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units }));
+      // Palette was already applied live on change; persist the chosen one.
+      setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Map ID lives on the device (localStorage), applied on next reload since
       // it is immutable once the map is created.
       const mapId = s.q("#st-mapid").value.trim();
