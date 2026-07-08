@@ -51,6 +51,16 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Draggable Radar centre + Thermometer A/B anchors (drag to correct a mis-tap).
   - Colour-blind-safe palette toggle (Settings; instant, persisted).
   - Suggested game-area size tier (Small / Medium / Large) on zone assembly.
+- **Phase 8 — Data resilience, validation & Render config** ✅
+  - Validate games on read from IndexedDB (not just import); corrupt records surface
+    a clear error instead of throwing inside the renderer.
+  - Contain renderer failures: a bad step is skipped and a recoverable banner shown,
+    never a blank map or uncaught throw.
+  - Config → Render env vars: [`render.yaml`](render.yaml) +
+    [`scripts/build-config.js`](scripts/build-config.js) generate `config.js` from
+    `GOOGLE_MAPS_API_KEY` at build time (see **Deploy to Render** above).
+  - Verified boundary precision: exact outlines need a DDS Map ID (Google Geocoding
+    returns only a viewport box) — documented in `GUIDE.md` §4.
 
 ## Run it locally
 
@@ -76,6 +86,38 @@ Then open the printed URL on your phone or desktop browser.
 > The Maps JS key is visible in the browser at runtime. `.gitignore` keeps it out
 > of source control, but before hosting publicly you must restrict the key by
 > HTTP referrer + the 4 APIs in Google Cloud, or it can be abused.
+
+## Deploy to Render (static site)
+
+Hosting target is **Render** (default `*.onrender.com` subdomain — no custom domain).
+The app deploys as a **Static Site** (no backend). Instead of committing `config.js`,
+the Maps key is injected from an environment variable at build time by
+[`scripts/build-config.js`](scripts/build-config.js) (wired up in
+[`render.yaml`](render.yaml)). Local dev is unchanged — keep your git-ignored
+`config.js` and never run the build script locally.
+
+**Dashboard steps (one-time):**
+
+1. **Create the Static Site.** In the Render dashboard: **New ▸ Static Site**, connect
+   this GitHub repo (`JLTG-Hide-and-Seek`), branch `main`.
+   - **Build command:** `node scripts/build-config.js`
+   - **Publish directory:** `.` (the repo root)
+   - (Or use **New ▸ Blueprint** and let it read [`render.yaml`](render.yaml).)
+2. **Add the key as an environment variable.** In the site's **Environment** tab, add
+   `GOOGLE_MAPS_API_KEY` = *your key*. Optionally add `MAP_ID` (vector Map ID for exact
+   DDS region boundaries) and `DEFAULT_CENTER_LAT` / `DEFAULT_CENTER_LNG` / `DEFAULT_ZOOM`.
+   These are **not** in git.
+3. **Confirm the build reads it.** After the first deploy, open the live URL and check
+   the map loads. In the build log you should see
+   `[build-config] wrote …/config.js (key present, …)`. If it says `key EMPTY`, the env
+   var isn't set. (You can also verify locally:
+   `GOOGLE_MAPS_API_KEY=… FORCE_CONFIG=1 node scripts/build-config.js` — then discard the
+   generated `config.js`.)
+4. **Restrict the key in Google Cloud.** In **APIs & Services ▸ Credentials ▸ your key ▸
+   Application restrictions ▸ HTTP referrers**, add your Render subdomain, e.g.
+   `https://jltg-hide-and-seek.onrender.com/*` (and keep the 4 API restrictions).
+   **Without this, Maps requests are silently rejected in production even though local
+   dev still works.**
 
 ## Project layout
 

@@ -59,14 +59,24 @@ export function setCurrent(game) {
   return current;
 }
 
-// Load the last-open game, or create a fresh one if none exists.
+// Load the last-open game, or create a fresh one if none exists. A record that
+// fails validation (corrupted / partially written) is NOT loaded and NOT deleted —
+// we log a clear error and start a fresh game so the app still boots, leaving the
+// bad record in IndexedDB for possible manual recovery (Phase 8).
 export async function init() {
   const lastId = await db.getSetting(CURRENT_GAME_KEY, null);
   if (lastId) {
     const g = await db.get("games", lastId);
-    if (g) return setCurrentSilent(g);
+    if (g) {
+      const err = validateGame(g);
+      if (err) {
+        console.error(`Last-open game ${lastId} failed validation (${err}); starting a fresh game.`);
+      } else {
+        return setCurrentSilent(normalizeGame(g));
+      }
+    }
   }
-  // No prior game — create and persist a fresh one.
+  // No prior game (or it was invalid) — create and persist a fresh one.
   const g = createGame();
   current = g;
   await saveNow();
@@ -89,8 +99,12 @@ export async function listGames() {
 export async function openGame(id) {
   const g = await db.get("games", id);
   if (!g) throw new Error(`Game ${id} not found`);
+  // Validate on read (Phase 8): a corrupted record raises a clear error the UI can
+  // surface, instead of loading garbage that throws inside the renderer.
+  const err = validateGame(g);
+  if (err) throw new Error(`This saved game is corrupted (${err}).`);
   await db.setSetting(CURRENT_GAME_KEY, id);
-  return setCurrentSilent(g);
+  return setCurrentSilent(normalizeGame(g));
 }
 
 export async function newGame(overrides) {

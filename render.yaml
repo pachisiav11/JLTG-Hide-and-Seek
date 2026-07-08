@@ -1,0 +1,27 @@
+# Render Blueprint (Phase 8) — hosts JLTG as a STATIC SITE (no backend), the same
+# zero-server shape as the current GitHub Pages deploy. The build step injects the
+# Maps API key from an environment variable into config.js (see scripts/build-config.js),
+# replacing the manual "copy config.example.js" step.
+#
+# You can apply this blueprint from the Render dashboard (New ▸ Blueprint, point it
+# at this repo) OR follow the equivalent manual dashboard steps in README ▸ Deploy.
+# Either way, set the GOOGLE_MAPS_API_KEY value in Render (it is sync:false below,
+# so it is NOT stored in git) and restrict that key in Google Cloud to your
+# *.onrender.com subdomain.
+services:
+  - type: web
+    runtime: static
+    name: jltg-hide-and-seek
+    # Generate config.js from env vars, then publish the repo root as static files.
+    buildCommand: node scripts/build-config.js
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false        # set in the Render dashboard; never committed
+      - key: MAP_ID
+        sync: false        # optional: vector Map ID for exact DDS region boundaries
+    headers:
+      - path: /config.js
+        name: Cache-Control
+        value: no-store    # the generated key file should never be cached

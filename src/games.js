@@ -63,7 +63,12 @@ export class Games {
       : `<li class="muted">No saved games.</li>`;
     const s = openSheet({ title: "Game history", bodyHTML: `<ul class="list">${rows}</ul>` });
     s.qa("[data-open]").forEach((b) => (b.onclick = async () => {
-      await store.openGame(b.dataset.open);
+      try {
+        await store.openGame(b.dataset.open);
+      } catch (e) {
+        toast(e.message || "Couldn't open that game.");
+        return;
+      }
       this.zones?.fitToArea();
       s.close();
       toast("Game opened.");

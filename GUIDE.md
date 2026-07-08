@@ -91,6 +91,16 @@ The play area is a **set of named zones** rather than a single boundary. Example
 - Zones can be drawn by hand (custom click-to-draw) **or** imported (GeoJSON / paste coordinates).
   To help hand-drawing, **🌍 Region boundary** overlays a place's official Google boundary
   (Data-driven styling, or an approximate viewport box) as a *reference only* — never a zone.
+  - **Boundary precision (verified, Phase 8).** Google's **Geocoding API returns only a
+    `viewport`/`bounds` rectangle** for a place, *not* a precise administrative polygon — so
+    the rectangle fallback is the best the geocoder alone can do. The **exact** outline comes
+    from Google **Data-driven styling** (DDS): with a vector Map ID whose boundary FeatureLayers
+    are enabled, `getFeatureLayer(...).style` paints the real administrative polygon
+    ([src/boundaries.js](src/boundaries.js) `_highlightFeature`). This is the equivalent of
+    cniehaus's exact OSM-relation approach, using Google's own boundary data instead of
+    Nominatim. **Takeaway:** exact boundaries require a DDS-enabled Map ID (set in Settings);
+    without one, only the approximate box is available — this is a Google API limitation, not a
+    code gap, and users trace the reference with ✎ Draw either way.
 - `gameArea` = `turf.union(...zones)`; all elimination tools clip against it so nothing
   is ever shaded outside the play area.
 - A **zone picker** lets you build a game from a saved library of reusable zones

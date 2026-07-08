@@ -60,12 +60,30 @@ export function createStep({ tool, inputs = {}, answer = {}, enabled = true } = 
   };
 }
 
-// Basic shape validation used on import to avoid loading garbage.
+// Shape validation. Run both on import AND whenever a game is read back from
+// IndexedDB (Phase 8), so a corrupted / partially-written record surfaces a clear
+// error here instead of throwing deep inside the renderer. Kept lenient about
+// optional/derived fields (gameArea, settings, hiderLock) so older valid saves and
+// in-progress games still pass — it rejects only structurally broken records.
 export function validateGame(obj) {
   if (!obj || typeof obj !== "object") return "Not an object";
   if (typeof obj.id !== "string") return "Missing id";
   if (!Array.isArray(obj.zones)) return "zones must be an array";
   if (!Array.isArray(obj.history)) return "history must be an array";
+  // Zones must be objects with a polygon array (the renderer maps over polygon).
+  for (let i = 0; i < obj.zones.length; i++) {
+    const z = obj.zones[i];
+    if (!z || typeof z !== "object") return `zone ${i} is not an object`;
+    if (!Array.isArray(z.polygon)) return `zone ${i} has no polygon array`;
+  }
+  // History steps must be objects naming a known tool (computeElimination switches
+  // on step.tool; a bad tool would silently no-op, a non-object would throw).
+  for (let i = 0; i < obj.history.length; i++) {
+    const s = obj.history[i];
+    if (!s || typeof s !== "object") return `history step ${i} is not an object`;
+    if (!TOOLS.includes(s.tool)) return `history step ${i} has unknown tool "${s.tool}"`;
+  }
+  if (obj.gameArea != null && typeof obj.gameArea !== "object") return "gameArea must be a polygon object";
   return null; // ok
 }
 

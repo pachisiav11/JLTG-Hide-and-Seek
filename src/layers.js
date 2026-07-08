@@ -103,6 +103,17 @@ export class Layers {
 
   // ---- Rendering ----
   render() {
+    // Top-level guard (Phase 8): a malformed Turf geometry must never leave the map
+    // blank or throw uncaught. On failure we show a recoverable banner instead.
+    try {
+      this._render();
+    } catch (e) {
+      console.error("Layer render failed:", e);
+      this._showRenderError("Couldn’t draw the map layers — try disabling the most recent question (Questions ▸ uncheck it).");
+    }
+  }
+
+  _render() {
     const g = store.getCurrent();
     this._clear();
     if (!g) return;
@@ -131,13 +142,41 @@ export class Layers {
     // outlines), so division boundaries and bisectors are never hidden by the mask.
     // Each enabled step draws in the next palette colour so two open questions of
     // the same tool (e.g. two Tentacles) are visually distinguishable (Phase 7).
+    // A single failing step is contained so it can't blank every other guide.
     let idx = 0;
+    let failed = 0;
     for (const s of g.history) {
       if (!s.enabled) continue;
-      const { guides } = computeElimination(s, g.gameArea);
-      this._renderGuides(guides, s, pal.steps[idx % pal.steps.length]);
+      const color = pal.steps[idx % pal.steps.length];
       idx++;
+      try {
+        const { guides } = computeElimination(s, g.gameArea);
+        this._renderGuides(guides, s, color);
+      } catch (e) {
+        failed++;
+        console.error(`Guide render failed for step ${s.id} (${s.tool}); skipping it.`, e);
+      }
     }
+    if (failed) this._showRenderError(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
+    else this._hideRenderError();
+  }
+
+  // A dismissible, recoverable error banner (Phase 8). Reused across renders — one
+  // banner, latest message wins; auto-hidden on the next clean render.
+  _showRenderError(msg) {
+    let bar = document.getElementById("layer-error");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "layer-error";
+      bar.className = "err-banner";
+      bar.innerHTML = `<span class="err-msg"></span><button class="err-x" aria-label="Dismiss">✕</button>`;
+      bar.querySelector(".err-x").addEventListener("click", () => bar.remove());
+      document.body.appendChild(bar);
+    }
+    bar.querySelector(".err-msg").textContent = msg;
+  }
+  _hideRenderError() {
+    document.getElementById("layer-error")?.remove();
   }
 
   // guides: computed reference shapes. step: the owning history step (for editable

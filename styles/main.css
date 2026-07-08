@@ -401,6 +401,35 @@ textarea.field { resize: vertical; }
 }
 #measure-readout.show { opacity: 1; }
 
+/* Recoverable renderer-error banner (Phase 8) */
+.err-banner {
+  position: fixed;
+  z-index: 44;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(50px + var(--safe-top));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 92vw;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
+  background: rgba(60, 20, 20, 0.96);
+  border: 1px solid var(--danger);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.err-banner .err-x {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 15px;
+  padding: 2px 4px;
+}
+
 #install-btn {
   position: absolute;
   z-index: 6;

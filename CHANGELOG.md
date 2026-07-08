@@ -22,6 +22,27 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 8 — Data resilience, validation & Render config migration
+Hardens the local-only architecture and moves hosted config to Render's env-var
+model. No new user-facing features.
+- **Validate on read.** `validateGame` (now stricter — it also checks zone/step
+  shape and known tools) runs whenever a game is read back from IndexedDB, not only
+  on import. A corrupted last-open record starts a fresh game (the bad record is kept
+  for recovery, not deleted); opening a corrupted saved game surfaces a clear error.
+- **Contain renderer failures.** `computeActiveArea` and the per-step guide render
+  are wrapped so one malformed geometry is skipped rather than blanking the map, and
+  `Layers.render()` has a top-level guard that shows a dismissible, recoverable error
+  banner ("try disabling that question") instead of throwing uncaught.
+- **Config → Render environment variables.** [`render.yaml`](render.yaml) deploys the
+  app as a Render **Static Site**; [`scripts/build-config.js`](scripts/build-config.js)
+  generates `config.js` from `GOOGLE_MAPS_API_KEY` (and optional `MAP_ID`, center,
+  zoom) at build time, removing the manual "copy config.example.js" step. Local dev is
+  unchanged (git-ignored `config.js`; the script refuses to clobber it). Dashboard
+  walkthrough + Google Cloud referrer step added to the README.
+- **Boundary precision verified.** Confirmed Google's Geocoding API returns only a
+  viewport rectangle; exact administrative outlines come from Data-driven styling with
+  a vector Map ID (already implemented). Documented in `GUIDE.md` §4.
+
 ## Post-roadmap enhancements
 - **Question bank → real Jet Lag cards (Tentacles first).** The question tools are
   being rebuilt to offer *only* the cards from the game (`docs/jetlag_questions.md`),

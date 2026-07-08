@@ -413,7 +413,11 @@ export function computeActiveArea(gameArea, steps) {
   const elims = [];
   for (const s of steps || []) {
     if (!s.enabled) continue;
-    const { eliminated } = computeElimination(s, gameArea);
+    // Contain a single malformed step (Phase 8): a bad geometry throwing here must
+    // not blank the whole active area — skip that step's contribution and continue.
+    let eliminated = null;
+    try { ({ eliminated } = computeElimination(s, gameArea)); }
+    catch (e) { console.error(`Step ${s.id} (${s.tool}) failed to compute; skipping it.`, e); continue; }
     if (eliminated) elims.push(eliminated);
   }
   if (!elims.length) return gameArea;
