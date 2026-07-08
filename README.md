@@ -61,6 +61,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
     `GOOGLE_MAPS_API_KEY` at build time (see **Deploy to Render** above).
   - Verified boundary precision: exact outlines need a DDS Map ID (Google Geocoding
     returns only a viewport box) — documented in `GUIDE.md` §4.
+- **Phase 9 — Admin-division tool + reusable custom categories** ✅
+  - 🗺 Admin check: tap two points, compare admin divisions level by level (✓/✗/–).
+  - Custom library (☰ menu): reusable custom Places categories (in Matching /
+    Measuring / Tentacles) and saved pins (seed the "place my own" flows).
 
 ## Run it locally
 

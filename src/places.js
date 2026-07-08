@@ -47,6 +47,42 @@ export function searchText(map, query) {
   });
 }
 
+// Reverse-geocode a point into its administrative divisions (Phase 9). Returns a
+// normalized { neighbourhood, city, county, state, country } — each a display name
+// or undefined. Used by the admin-division comparison tool. Uses google.maps.Geocoder
+// (a separate product from PlacesService); a lightweight singleton geocoder is reused.
+let geocoder = null;
+export function reverseGeocode({ lat, lng }) {
+  if (!geocoder) geocoder = new google.maps.Geocoder();
+  return new Promise((resolve, reject) => {
+    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status === "OK" && results?.length) resolve(extractAdminLevels(results));
+      else if (status === "ZERO_RESULTS") resolve({});
+      else reject(new Error(`Reverse geocode failed (${status}).`));
+    });
+  });
+}
+
+// Scan all result components for the first name at each admin level. Google labels
+// vary by country, so several component types map to one conceptual level.
+function extractAdminLevels(results) {
+  const pick = (types) => {
+    for (const r of results) {
+      for (const c of r.address_components || []) {
+        if (types.some((t) => (c.types || []).includes(t))) return c.long_name;
+      }
+    }
+    return undefined;
+  };
+  return {
+    neighbourhood: pick(["neighborhood", "sublocality", "sublocality_level_1"]),
+    city: pick(["locality", "postal_town", "administrative_area_level_3"]),
+    county: pick(["administrative_area_level_2"]),
+    state: pick(["administrative_area_level_1"]),
+    country: pick(["country"]),
+  };
+}
+
 // Search a category near a centre. Resolves to [{ name, lat, lng }]. `keyword`
 // optionally narrows results (e.g. "McDonald's"). Radius is clamped to the API max.
 export function searchCategory(map, { center, radius, type, keyword }) {

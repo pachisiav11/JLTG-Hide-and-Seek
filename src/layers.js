@@ -6,7 +6,7 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
-import { searchCategory } from "./places.js";
+import { searchCategory, reverseGeocode } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -343,6 +343,12 @@ export class Layers {
     const feats = [];
     const markers = [];
     const clear = () => { markers.forEach((m) => m.setMap(null)); markers.length = 0; };
+    // Optionally seed from the reusable saved-pin library (Phase 9) before tapping.
+    const seeded = await this._pickSavedPins(area);
+    for (const p of seeded) {
+      feats.push({ lat: p.lat, lng: p.lng, name: p.name });
+      markers.push(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, label: `${feats.length}`, map: this.map }));
+    }
     for (;;) {
       const pts = await this.pick(1, `Tap ${label.toLowerCase()} #${feats.length + 1}${feats.length >= minCount ? " (or Cancel to finish)" : ""}.`);
       if (!pts) { if (feats.length >= minCount) break; clear(); return null; }
@@ -359,6 +365,36 @@ export class Layers {
     }
     clear();
     return feats;
+  }
+
+  // Offer the reusable saved pins (Phase 9) as an optional seed for a manual
+  // placement flow. Resolves to a (possibly empty) [{lat,lng,name}] — never null,
+  // so seeding is always skippable and non-breaking. Pins outside the play area are
+  // filtered out (the hider is in the zone).
+  async _pickSavedPins(area) {
+    let pins = [];
+    try { pins = (await this.library?.getPins?.()) || []; } catch (_) { pins = []; }
+    if (area && window.turf) pins = pins.filter((p) => this._inArea(p, area));
+    if (!pins.length) return [];
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      const items = pins.map((p, i) =>
+        `<label class="feat-item"><input type="checkbox" value="${i}"/> ${escapeHtml(p.name)}</label>`).join("");
+      const s = openSheet({
+        title: "Saved pins",
+        bodyHTML: `<p class="muted">Include any saved pins in this question? You can still tap more on the map afterwards.</p>
+          <div class="seg feat-list">${items}</div>
+          <div class="sheet-actions"><button id="sp-skip" class="btn btn-ghost">Skip</button><button id="sp-use" class="btn btn-primary">Use selected</button></div>`,
+        onClose: () => done([]),
+      });
+      s.q("#sp-skip").onclick = () => { s.close(); done([]); };
+      s.q("#sp-use").onclick = () => {
+        const chosen = s.qa('input[type="checkbox"]').filter((c) => c.checked).map((c) => pins[parseInt(c.value, 10)]);
+        s.close();
+        done(chosen.map((p) => ({ lat: p.lat, lng: p.lng, name: p.name })));
+      };
+    });
   }
 
   // True if {lat,lng} falls inside the game-area polygon (used to keep manually
@@ -434,6 +470,7 @@ export class Layers {
         </div>
         <div class="row">
           <button id="t-measure" class="btn btn-primary">📐 Measuring</button>
+          <button id="t-admin" class="btn">🗺 Admin check</button>
         </div>
         <div class="row">
           <button id="t-undo" class="btn">↶ Undo</button>
@@ -448,6 +485,7 @@ export class Layers {
     s.q("#t-match").onclick = () => this.startMatching();
     s.q("#t-tent").onclick = () => this.startTentacles();
     s.q("#t-measure").onclick = () => this.startMeasuring();
+    s.q("#t-admin").onclick = () => this.startAdminCheck();
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
     s.qa("[data-toggle]").forEach((c) => (c.onchange = () => this.toggle(c.dataset.toggle)));
@@ -459,6 +497,71 @@ export class Layers {
       store.update((g) => { const st = g.history.find((x) => x.id === b.dataset.rename); if (st) st.title = name || undefined; });
       this.openPanel();
     }));
+  }
+
+  // ---- Admin-division comparison (Phase 9) ----
+  // A diagnostic, not an elimination: tap two points, reverse-geocode both, and
+  // compare their administrative divisions level by level (neighbourhood → city →
+  // county → state → country), marking each ✓ same / ✗ different / – unknown. Helps
+  // seekers reason about an admin-division question. (The admin1–4 Matching cards
+  // remain the way to actually eliminate a region.) Reference: cniehaus's checker.
+  async startAdminCheck() {
+    const pts = await this.pick(2, "Tap two points to compare their admin divisions.");
+    if (!pts || pts.length < 2) return this.openPanel();
+    const markers = pts.map((p, i) => new google.maps.Marker({ position: p, label: `${i + 1}`, map: this.map }));
+    toast("Looking up divisions…");
+    let A, B;
+    try {
+      [A, B] = await Promise.all([reverseGeocode(pts[0]), reverseGeocode(pts[1])]);
+    } catch (e) {
+      markers.forEach((m) => m.setMap(null));
+      toast(e.message);
+      return this.openPanel();
+    }
+    const levels = [
+      ["Neighbourhood", "neighbourhood"],
+      ["City / town", "city"],
+      ["County / 2nd admin", "county"],
+      ["State / 1st admin", "state"],
+      ["Country", "country"],
+    ];
+    const rows = levels.map(([label, key]) => {
+      const a = A[key], b = B[key];
+      const mark = a && b ? (a === b ? "✓" : "✗") : "–";
+      const cls = mark === "✓" ? "adm-same" : mark === "✗" ? "adm-diff" : "adm-unk";
+      return `<tr>
+        <td>${escapeHtml(label)}</td>
+        <td>${escapeHtml(a || "—")}</td>
+        <td>${escapeHtml(b || "—")}</td>
+        <td class="${cls}">${mark}</td>
+      </tr>`;
+    }).join("");
+    const s = openSheet({
+      title: "Admin divisions",
+      bodyHTML: `
+        <p class="muted">Comparing point ➊ and point ➋. ✓ same · ✗ different · – unknown.</p>
+        <div class="adm-wrap">
+          <table class="adm-table">
+            <thead><tr><th>Level</th><th>➊</th><th>➋</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="sheet-actions"><button id="adm-close" class="btn btn-primary">Done</button></div>`,
+      onClose: () => markers.forEach((m) => m.setMap(null)),
+    });
+    s.q("#adm-close").onclick = () => s.close();
+  }
+
+  // Custom categories saved in the reusable library (Phase 9), as an <optgroup> of
+  // <option value="custom:ID">. Empty string when none / no library. Async: the
+  // caller awaits this before building the tool sheet.
+  async _customCategoryOptions() {
+    try {
+      const cats = (await this.library?.getCategories?.()) || [];
+      if (!cats.length) return { html: "", cats };
+      const opts = cats.map((c) => `<option value="custom:${c.id}">${escapeHtml(c.label)}</option>`).join("");
+      return { html: `<optgroup label="Custom">${opts}</optgroup>`, cats };
+    } catch (_) { return { html: "", cats: [] }; }
   }
 
   // ---- Radar flow ----
@@ -537,12 +640,13 @@ export class Layers {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
     const opts = MATCHING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
+    const { html: customOpts, cats } = await this._customCategoryOptions();
     const s = openSheet({
       title: "Matching",
       bodyHTML: `
         <p class="muted">You (the seeker) ask “is your nearest ___ the same as mine?” Enter <em>your</em> answer, then tap Yes (hider matches) or No (hider differs) — the app keeps or removes your region accordingly.</p>
         <label class="fieldlbl">Question</label>
-        <select id="mt-cat" class="field">${opts}</select>
+        <select id="mt-cat" class="field">${opts}${customOpts}</select>
         <div class="sheet-actions">
           <button id="mt-cancel" class="btn btn-ghost">Cancel</button>
           <button id="mt-next" class="btn btn-primary">Next</button>
@@ -551,7 +655,14 @@ export class Layers {
     });
     s.q("#mt-cancel").onclick = () => s.close();
     s.q("#mt-next").onclick = async () => {
-      const card = findMatching(s.q("#mt-cat").value);
+      const val = s.q("#mt-cat").value;
+      // A custom library category behaves like a nearest-of-category card.
+      if (val.startsWith("custom:")) {
+        const c = cats.find((x) => `custom:${x.id}` === val);
+        if (!c) return toast("That category is unavailable.");
+        return this._matchNearest({ id: val, label: c.label, mode: "nearest", type: c.type || undefined, keyword: c.keyword || undefined }, s);
+      }
+      const card = findMatching(val);
       if (card.mode === "nearest") return this._matchNearest(card, s);
       if (card.mode === "nameLength") return this._matchNameLength(card, s);
       if (card.mode === "nearestLine") { s.close(); return this._matchNearestLine(card); }
@@ -747,12 +858,20 @@ export class Layers {
     const opts = TENTACLES.map((c) =>
       `<option value="${c.id}">${escapeHtml(c.label)} · ${rTxt(c.radius)}${c.approx ? ` (${escapeHtml(c.approx)})` : ""}</option>`
     ).join("");
+    const { cats } = await this._customCategoryOptions();
+    const customOptsR = cats.length
+      ? `<optgroup label="Custom">${cats.map((c) => `<option value="custom:${c.id}">${escapeHtml(c.label)} · ${rTxt(c.radius || 2000)}</option>`).join("")}</optgroup>`
+      : "";
+    // Resolve a select value (built-in id or custom:ID) to a tentacle card.
+    const resolveCat = (val) => val.startsWith("custom:")
+      ? (() => { const c = cats.find((x) => `custom:${x.id}` === val); return c ? { id: val, label: c.label, type: c.type || undefined, keyword: c.keyword || undefined, radius: c.radius || 2000 } : null; })()
+      : findTentacle(val);
     const s = openSheet({
       title: "Tentacles",
       bodyHTML: `
         <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one, then either auto-find the places (tap a search centre) or place your own on the map.</p>
         <label class="fieldlbl">Card</label>
-        <select id="tt-cat" class="field">${opts}</select>
+        <select id="tt-cat" class="field">${opts}${customOptsR}</select>
         <div class="sheet-actions">
           <button id="tt-cancel" class="btn btn-ghost">Cancel</button>
           <button id="tt-manual" class="btn">✋ Place my own</button>
@@ -762,7 +881,8 @@ export class Layers {
     });
     s.q("#tt-cancel").onclick = () => s.close();
     s.q("#tt-manual").onclick = async () => {
-      const cat = findTentacle(s.q("#tt-cat").value);
+      const cat = resolveCat(s.q("#tt-cat").value);
+      if (!cat) return toast("That category is unavailable.");
       s.close();
       // Seeker names the exact places they care about; radius/Voronoi logic is the
       // same. At least one is enough (single candidate ⇒ area ∩ its radius circle).
@@ -771,7 +891,8 @@ export class Layers {
       this._chooseTentacle(cat, feats, null);
     };
     s.q("#tt-find").onclick = async () => {
-      const cat = findTentacle(s.q("#tt-cat").value);
+      const cat = resolveCat(s.q("#tt-cat").value);
+      if (!cat) return toast("That category is unavailable.");
       s.close();
       // Ask the seeker to place a search centre near the play area, then look for the
       // category around it. The centre only AIMS the Places search; the candidate SET
@@ -848,12 +969,13 @@ export class Layers {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
     const opts = MEASURING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
+    const { html: customOpts, cats } = await this._customCategoryOptions();
     const s = openSheet({
       title: "Measuring",
       bodyHTML: `
         <p class="muted">You (the seeker) ask “are you closer to / farther from the nearest ___ than me?” Enter <em>your</em> distance, then tap the hider's answer.</p>
         <label class="fieldlbl">Question</label>
-        <select id="m-cat" class="field">${opts}</select>
+        <select id="m-cat" class="field">${opts}${customOpts}</select>
         <div class="sheet-actions">
           <button id="m-cancel" class="btn btn-ghost">Cancel</button>
           <button id="m-next" class="btn btn-primary">Next</button>
@@ -862,7 +984,14 @@ export class Layers {
     });
     s.q("#m-cancel").onclick = () => s.close();
     s.q("#m-next").onclick = async () => {
-      const card = findMeasuring(s.q("#m-cat").value);
+      const val = s.q("#m-cat").value;
+      // A custom library category behaves like a nearest-of-category (points) card.
+      if (val.startsWith("custom:")) {
+        const c = cats.find((x) => `custom:${x.id}` === val);
+        if (!c) return toast("That category is unavailable.");
+        return this._measurePoints({ id: val, label: c.label, ref: "points", type: c.type || undefined, keyword: c.keyword || undefined }, s);
+      }
+      const card = findMeasuring(val);
       if (card.ref === "points") return this._measurePoints(card, s);
       s.close();
       if (card.ref === "line") return this._measureLine(card);

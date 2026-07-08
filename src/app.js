@@ -153,7 +153,12 @@ async function main() {
     const layers = new Layers(map);
     const hider = new Hider(map);
     await Promise.all([zones.init(), features.init()]);
-    const games = new Games(zones, { boundaries, features });
+    // Reusable custom library (Phase 9): custom categories + pins. Attached to
+    // layers so the tool flows can offer them, and to games for the menu manager.
+    const { Library } = await import("./library.js");
+    const library = new Library(map, layers);
+    layers.library = library;
+    const games = new Games(zones, { boundaries, features, library });
     layers.init();
     hider.init();
 
@@ -175,7 +180,7 @@ async function main() {
     wireToolbar(zones, features, layers, hider);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, hider, games, boundaries, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, hider, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

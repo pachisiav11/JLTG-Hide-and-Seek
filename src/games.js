@@ -5,10 +5,11 @@ import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
+    this.library = library; // reusable custom categories + pins (Phase 9)
   }
 
   // ---- Top menu ----
@@ -22,6 +23,7 @@ export class Games {
           <button id="mn-new" class="btn">➕ New game</button>
           <button id="mn-clear" class="btn">🧹 Clear board</button>
           <button id="mn-history" class="btn">🗂 Game history</button>
+          <button id="mn-library" class="btn">📌 Custom library</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
@@ -32,6 +34,7 @@ export class Games {
     s.q("#mn-new").onclick = async () => { s.close(); await this.newGame(); };
     s.q("#mn-clear").onclick = () => { s.close(); this.clearBoard(); };
     s.q("#mn-history").onclick = () => { s.close(); this.openHistory(); };
+    s.q("#mn-library").onclick = () => { s.close(); this.library ? this.library.openManager() : toast("Library unavailable."); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
@@ -270,8 +273,10 @@ export class Games {
             <li><strong>🧭 Matching</strong> — one of the game's 20 cards. Reveal the hider's value and the app keeps the matching region: nearest-place cards (airport, park, museum, …) partition automatically; transit line / street are drawn as lines; admin divisions & landmass are drawn regions; station-name-length groups nearest-station regions by letter count.</li>
             <li><strong>🐙 Tentacles</strong> — a fixed-radius card (2 km: museums, libraries, movie theaters, hospitals · 25 km: metro lines, zoos, aquariums, amusement parks). Pick the one the hider is closest to (keeps its cell within that radius), or “none in range” (shades everything within that radius of them all).</li>
             <li><strong>📐 Measuring</strong> — one of the game's 20 cards: reveal the hider's distance and within/beyond. Nearest-place cards buffer automatically; high-speed rail, coastline and borders are drawn as lines; a body of water is a drawn area; sea level is a drawn region (elevation has no map geometry).</li>
+            <li><strong>🗺 Admin check</strong> — tap two points to compare their administrative divisions (neighbourhood → country), each marked ✓ same / ✗ different / – unknown. A reasoning aid; it doesn't shade the map.</li>
             <li><strong>Undo / Redo</strong>, toggle any question on/off, and ✏️ rename it to the real question asked.</li>
           </ul>
+          <p class="muted">Add your own reusable <strong>Custom library</strong> (☰ menu): custom Places categories appear in Matching / Measuring / Tentacles, and saved pins can seed the “place my own” flows — handy for a city with thin map data.</p>
 
           <h3 class="sub">3 · The hider — 🎯 Hider</h3>
           <p class="muted">Set the hiding-zone centre and radius; everything outside the radius is shaded. The radius is per game.</p>

@@ -22,6 +22,22 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 9 — Admin-division tool + reusable custom categories
+Extends the Matching tool family and the reusable-library model. No hosting impact.
+- **Admin-division comparison (🗺 Admin check).** A new diagnostic in the Questions
+  panel: tap two points, reverse-geocode both, and compare their administrative
+  divisions level by level (neighbourhood → city → county → state → country), each
+  marked ✓ same / ✗ different / – unknown. Helps reason about an admin-division
+  question; the admin1–4 Matching cards still do the actual elimination. (cniehaus's
+  admin-division checker.)
+- **Reusable custom categories + pins (Custom library).** A new device-level library
+  (☰ menu ▸ Custom library, IndexedDB `categories` + `pins` stores) of user-defined
+  Places categories and named pins, reusable across games like the zone library.
+  Custom categories appear in Matching (nearest), Measuring (points) and Tentacles
+  (fixed radius); saved pins can seed the "place my own" flows. This is the long-term
+  fix for regional data gaps — patch a missing category once and reuse it every game.
+  (gelbh's SessionCustomCategory / SessionCustomLocationPin.)
+
 ## Phase 8 — Data resilience, validation & Render config migration
 Hardens the local-only architecture and moves hosted config to Render's env-var
 model. No new user-facing features.

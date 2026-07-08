@@ -401,6 +401,16 @@ textarea.field { resize: vertical; }
 }
 #measure-readout.show { opacity: 1; }
 
+/* Admin-division comparison table (Phase 9) */
+.adm-wrap { overflow-x: auto; }
+.adm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.adm-table th, .adm-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.adm-table th { color: var(--text-dim); font-weight: 600; font-size: 12px; }
+.adm-table td:last-child, .adm-table th:last-child { text-align: center; font-weight: 700; }
+.adm-same { color: var(--teal); }
+.adm-diff { color: var(--danger); }
+.adm-unk { color: var(--text-dim); }
+
 /* Recoverable renderer-error banner (Phase 8) */
 .err-banner {
   position: fixed;

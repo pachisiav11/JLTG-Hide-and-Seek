@@ -1,10 +1,12 @@
 // Minimal, dependency-free IndexedDB wrapper for the JLTG app.
-// Database `jltg` with three stores:
-//   - games    (keyPath "id")   — full Game records (see model.js)
-//   - zones    (keyPath "id")   — reusable named zone polygons (zone library, Phase 1)
-//   - settings (keyPath "key")  — lightweight app-wide settings
+// Database `jltg` with five stores:
+//   - games      (keyPath "id")  — full Game records (see model.js)
+//   - zones      (keyPath "id")  — reusable named zone polygons (zone library, Phase 1)
+//   - categories (keyPath "id")  — reusable custom Places categories (Phase 9)
+//   - pins       (keyPath "id")  — reusable named location pins (Phase 9)
+//   - settings   (keyPath "key") — lightweight app-wide settings
 const DB_NAME = "jltg";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -24,6 +26,14 @@ export function openDB() {
       }
       if (!db.objectStoreNames.contains("zones")) {
         db.createObjectStore("zones", { keyPath: "id" });
+      }
+      // Added in DB_VERSION 2 (Phase 9). guarded by contains() so the upgrade is
+      // idempotent whether coming from a v1 database or a fresh install.
+      if (!db.objectStoreNames.contains("categories")) {
+        db.createObjectStore("categories", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("pins")) {
+        db.createObjectStore("pins", { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });
