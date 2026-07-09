@@ -401,6 +401,35 @@ textarea.field { resize: vertical; }
 }
 #measure-readout.show { opacity: 1; }
 
+/* PWA "update available" banner (Phase 12) */
+.update-banner {
+  position: fixed;
+  z-index: 46;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(86px + var(--safe-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 92vw;
+  padding: 8px 10px 8px 14px;
+  border-radius: 12px;
+  background: rgba(9, 39, 46, 0.98);
+  border: 1px solid var(--teal);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.update-banner .update-x { border: none; background: transparent; color: var(--text-dim); font-size: 14px; padding: 2px 4px; }
+
+/* Print / save-to-PDF view (Phase 12): hide the app chrome, print only the map. */
+@media print {
+  #topbar, #toolbar, #install-btn, #q-timer, .err-banner, .update-banner,
+  .sheet, .sheet-backdrop, #toast, #measure-readout, .draw-bar, .ctx-menu { display: none !important; }
+  html, body { overflow: visible !important; height: auto !important; }
+  #map { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100vh !important; }
+}
+
 /* Soft question timer (Phase 11) */
 .q-timer {
   position: fixed;

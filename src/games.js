@@ -28,6 +28,7 @@ export class Games {
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
           <button id="mn-import" class="btn">⬆️ Import game</button>
+          <button id="mn-print" class="btn">🖨 Print / save map (PDF)</button>
           <button id="mn-settings" class="btn">⚙️ Settings</button>
         </div>`,
     });
@@ -39,7 +40,18 @@ export class Games {
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
     s.q("#mn-import").onclick = () => { s.close(); this.openImport(); };
+    s.q("#mn-print").onclick = () => { s.close(); this.printMap(); };
     s.q("#mn-settings").onclick = () => { s.close(); this.openSettings(); };
+  }
+
+  // Print-ready export of the current map view (Phase 12). No new dependency —
+  // a @media print stylesheet hides the app chrome (toolbar, banners, sheets) and
+  // prints just the map with the still-possible area shaded; the browser's
+  // print-to-PDF is the "save" path. A short delay lets the menu sheet finish
+  // closing so it isn't captured.
+  printMap() {
+    toast("Opening print view… choose “Save as PDF” to export.", 3500);
+    setTimeout(() => window.print(), 400);
   }
 
   // ---- History browser ----
@@ -188,6 +200,7 @@ export class Games {
     const g = store.getCurrent();
     const st = { ...DEFAULT_SETTINGS, ...(g?.settings || {}) };
     const pal = getPaletteName();
+    const mapStyle = localStorage.getItem("jltg.mapStyle") || "roadmap";
     const radio = (name, val, cur, label) =>
       `<label><input type="radio" name="${name}" value="${val}" ${cur === val ? "checked" : ""}/> ${label}</label>`;
     const s = openSheet({
@@ -210,6 +223,12 @@ export class Games {
         <div class="seg">
           ${radio("palette", "default", pal, "Default")}
           ${radio("palette", "cb", pal, "Colour-blind safe (Okabe-Ito)")}
+        </div>
+        <h3 class="sub">Map style</h3>
+        <div class="seg">
+          ${radio("mapStyle", "roadmap", mapStyle, "Map")}
+          ${radio("mapStyle", "satellite", mapStyle, "Satellite")}
+          ${radio("mapStyle", "dark", mapStyle, "Dark")}
         </div>
         <h3 class="sub">Question timer</h3>
         <p class="muted">Optional soft countdown shown when a question is asked. It never blocks anything.</p>
@@ -241,7 +260,10 @@ export class Games {
     s.q("#st-help").onclick = () => { s.close(); this.openInstructions(); };
     // Palette applies live on selection (no re-fetch); Cancel restores the prior one.
     s.qa('input[name="palette"]').forEach((r) => (r.onchange = () => setPalette(r.value)));
-    s.q("#st-cancel").onclick = () => { setPalette(pal); s.close(); };
+    // Map style also applies live via the jltg:mapstyle event.
+    const applyMapStyleLive = (v) => window.dispatchEvent(new CustomEvent("jltg:mapstyle", { detail: v }));
+    s.qa('input[name="mapStyle"]').forEach((r) => (r.onchange = () => applyMapStyleLive(r.value)));
+    s.q("#st-cancel").onclick = () => { setPalette(pal); applyMapStyleLive(mapStyle); s.close(); };
     s.q("#st-save").onclick = () => {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
@@ -250,6 +272,8 @@ export class Games {
       store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, truthCheck }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
+      // Persist the device-level map style (already applied live via the event).
+      localStorage.setItem("jltg.mapStyle", s.qa('input[name="mapStyle"]').find((r) => r.checked)?.value || "roadmap");
       // Map ID lives on the device (localStorage), applied on next reload since
       // it is immutable once the map is created.
       const mapId = s.q("#st-mapid").value.trim();
@@ -306,7 +330,7 @@ export class Games {
           </ul>
 
           <h3 class="sub">Games &amp; saving</h3>
-          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON). Distance mode, units, colour theme, an optional per-question <strong>timer</strong>, and a <strong>computed-truth check</strong> (flags a manual answer that would remove the hider's own location) all live in Settings.</p>
+          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON, or <strong>🖨 Print / save map (PDF)</strong>). Distance mode, units, colour theme, <strong>map style</strong> (Map / Satellite / Dark), an optional per-question <strong>timer</strong>, and a <strong>computed-truth check</strong> (flags a manual answer that would remove the hider's own location) all live in Settings.</p>
 
           <div class="sheet-actions">
             <button id="hlp-close" class="btn btn-primary">Got it</button>

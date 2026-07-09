@@ -74,6 +74,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Soft per-question timer (Settings; Off / 1 / 2 / 5 min) + manual start.
   - Opt-in computed-truth check: flags (never overrides) a manual answer that would
     eliminate the hider's set location, reusing the step's elimination geometry.
+- **Phase 12 — Presentation polish** ✅
+  - Map / Satellite / Dark base-style toggle (Settings) + 🖨 Print / save map (PDF).
+  - i18n scaffolding (`src/i18n.js` + `src/langs/en.js`; English only for now).
+  - PWA "New version available — Reload" banner instead of a silent SW swap.
 
 ## Run it locally
 

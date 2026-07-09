@@ -1,5 +1,5 @@
 // App bootstrap: wire config -> DB/store -> Google Map -> PWA install.
-import { loadGoogleMaps, createMap } from "./maps.js";
+import { loadGoogleMaps, createMap, applyMapStyle } from "./maps.js";
 import * as store from "./store.js";
 import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
@@ -125,6 +125,13 @@ async function main() {
       mapId: cfg.mapId,
     });
     window.__jltgMap = map; // handy for debugging / later phases
+    // Base map style (Phase 12): device-level preference. Applied now and whenever
+    // Settings dispatches a change. Dark style is a no-op under a vector Map ID.
+    applyMapStyle(map, localStorage.getItem("jltg.mapStyle") || "roadmap", { hasMapId: !!cfg.mapId });
+    window.addEventListener("jltg:mapstyle", (e) => {
+      const warn = applyMapStyle(map, e.detail || "roadmap", { hasMapId: !!cfg.mapId });
+      if (warn) toast(warn, 5000);
+    });
   } catch (e) {
     console.error(e);
     // Only a device-entered key is worth discarding; a config.js key stays put.
@@ -218,14 +225,49 @@ function wireToolbar(zones, features, layers, hider) {
 }
 
 // --- PWA: service worker + install prompt ---------------------------------
+// Phase 12: instead of silently swapping to a new build, a new service worker
+// WAITS and we surface a visible "Update available — Reload" banner. Clicking it
+// tells the waiting worker to skipWaiting; controllerchange then reloads once, so
+// players never unknowingly run a stale cached version mid-game.
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   if (location.protocol === "file:") return; // no SW on file://
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js").catch((e) =>
-      console.warn("SW registration failed:", e)
-    );
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./service-worker.js");
+      // A worker already waiting from a previous visit → prompt straight away.
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          // "installed" while a controller exists = an UPDATE (not first install).
+          if (nw.state === "installed" && navigator.serviceWorker.controller) showUpdateBanner(nw);
+        });
+      });
+    } catch (e) {
+      console.warn("SW registration failed:", e);
+    }
   });
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
+}
+
+function showUpdateBanner(worker) {
+  if (document.getElementById("update-banner")) return;
+  const bar = document.createElement("div");
+  bar.id = "update-banner";
+  bar.className = "update-banner";
+  bar.innerHTML = `<span>New version available.</span>
+    <button class="btn btn-primary btn-sm" id="ub-reload">Reload</button>
+    <button class="update-x" aria-label="Dismiss">✕</button>`;
+  document.body.appendChild(bar);
+  bar.querySelector("#ub-reload").onclick = () => { bar.remove(); worker.postMessage({ type: "SKIP_WAITING" }); };
+  bar.querySelector(".update-x").onclick = () => bar.remove();
 }
 
 function wireInstallPrompt() {

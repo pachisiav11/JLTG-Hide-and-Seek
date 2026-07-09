@@ -65,3 +65,46 @@ export async function createMap(element, { center, zoom, mapId }) {
   const map = new Map(element, opts);
   return map;
 }
+
+// A dark base-map style (Phase 12). Applied via setOptions({ styles }); note this
+// has NO effect when a vector `mapId` is set (that map is styled in the cloud) —
+// applyMapStyle handles that case by warning rather than silently no-op'ing.
+export const DARK_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#212121" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#212121" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#757575" }] },
+  { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+  { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#181818" }] },
+  { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#2c2c2c" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] },
+  { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#373737" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3c3c3c" }] },
+  { featureType: "transit", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#000000" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] },
+];
+
+// Switch the base map style (Phase 12): "roadmap" (default), "satellite" (hybrid,
+// keeps labels) or "dark". Returns a warning string if a request can't fully apply
+// (dark style + a vector Map ID), else null.
+export function applyMapStyle(map, style, { hasMapId = false } = {}) {
+  if (!map) return null;
+  if (style === "satellite") {
+    map.setMapTypeId("hybrid");
+    try { map.setOptions({ styles: null }); } catch (_) {}
+    return null;
+  }
+  if (style === "dark") {
+    map.setMapTypeId("roadmap");
+    if (hasMapId) return "Dark style needs no Map ID (a vector map is styled in Google Cloud instead).";
+    try { map.setOptions({ styles: DARK_STYLE }); } catch (_) {}
+    return null;
+  }
+  map.setMapTypeId("roadmap");
+  try { map.setOptions({ styles: null }); } catch (_) {}
+  return null;
+}

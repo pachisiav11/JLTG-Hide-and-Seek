@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v43";
+const CACHE_VERSION = "jltg-shell-v44";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -19,6 +19,8 @@ const SHELL_ASSETS = [
   "./src/palette.js",
   "./src/library.js",
   "./src/timer.js",
+  "./src/i18n.js",
+  "./src/langs/en.js",
   "./src/zones.js",
   "./src/features.js",
   "./src/tools.js",
@@ -35,9 +37,16 @@ const SHELL_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
+  // Do NOT skipWaiting automatically (Phase 12): a new worker WAITS so the app can
+  // show an "update available" banner; it activates only when the page asks it to.
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL_ASSETS))
   );
+});
+
+// The page posts this when the user clicks "Reload" on the update banner.
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

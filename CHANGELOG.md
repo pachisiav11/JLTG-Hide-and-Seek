@@ -22,6 +22,22 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 12 — Presentation polish
+Client-side only; no hosting impact.
+- **Multiple map styles.** A Map / Satellite / Dark base-style toggle (Settings,
+  device-level, applied live via `applyMapStyle` in [`src/maps.js`](src/maps.js);
+  dark style warns under a vector Map ID since that's cloud-styled), plus a
+  **🖨 Print / save map (PDF)** menu action that hides the app chrome via a `@media
+  print` stylesheet and prints just the shaded map — browser print-to-PDF, no new dep.
+- **i18n scaffolding.** cniehaus's no-dependency pattern: [`src/i18n.js`](src/i18n.js)
+  `t()`/`tf()` helpers over plain [`src/langs/en.js`](src/langs/en.js) dictionaries.
+  English only for now (the UI isn't routed through it yet — a future need), so adding
+  a language is a drop-in rather than a refactor.
+- **PWA update UX.** A new build's service worker now WAITS and the app shows a visible
+  "New version available — Reload" banner instead of a silent background swap; clicking
+  Reload skip-waits and reloads once, so players never unknowingly run a stale cached
+  version mid-game.
+
 ## Phase 11 — Question timers + optional "computed truth" check
 Client-side only; both opt-in via Settings, both default off.
 - **Soft per-question timer** ([`src/timer.js`](src/timer.js)). An optional countdown
