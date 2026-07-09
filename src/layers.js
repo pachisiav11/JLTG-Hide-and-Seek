@@ -7,7 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea, checkStepAgainstPoint } from "./tools.js";
 import { startCountdown } from "./timer.js";
-import { searchCategory, searchCategoryResilient, reverseGeocode } from "./places.js";
+import { searchCategory, searchCategoryResilient, reverseGeocode, searchText } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -351,71 +351,6 @@ export class Layers {
     });
   }
 
-  // Let the SEEKER place their own candidate objects by tapping the map and naming
-  // each (e.g. "the 2 airports I care about" instead of auto-Places). Returns
-  // [{lat,lng,name}] — same shape as Places results, so downstream Voronoi /
-  // tentacle logic is unchanged — or null if abandoned before `minCount`. When a
-  // game area exists, taps outside it are rejected (candidates must be in play).
-  async _placeNamedObjects(label, minCount = 1) {
-    const g = store.getCurrent();
-    const area = g?.gameArea;
-    const feats = [];
-    const markers = [];
-    const clear = () => { markers.forEach((m) => m.setMap(null)); markers.length = 0; };
-    // Optionally seed from the reusable saved-pin library (Phase 9) before tapping.
-    const seeded = await this._pickSavedPins(area);
-    for (const p of seeded) {
-      feats.push({ lat: p.lat, lng: p.lng, name: p.name });
-      markers.push(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, label: `${feats.length}`, map: this.map }));
-    }
-    for (;;) {
-      const pts = await this.pick(1, `Tap ${label.toLowerCase()} #${feats.length + 1}${feats.length >= minCount ? " (or Cancel to finish)" : ""}.`);
-      if (!pts) { if (feats.length >= minCount) break; clear(); return null; }
-      const p = pts[0];
-      if (area && window.turf && !this._inArea(p, area)) {
-        toast("That point is outside the play area — tap inside the zone.");
-        continue;
-      }
-      const name = await promptText({ title: `Name ${label} #${feats.length + 1}`, label: "Name", value: `${label} ${feats.length + 1}`, cta: "Add" });
-      if (name === null) continue; // naming cancelled → discard this tap, keep going
-      feats.push({ lat: p.lat, lng: p.lng, name: name || `${label} ${feats.length + 1}` });
-      markers.push(new google.maps.Marker({ position: p, label: `${feats.length}`, map: this.map }));
-      if (!(await this._confirm(`Added ${feats.length}. Place another ${label.toLowerCase()}?`))) break;
-    }
-    clear();
-    return feats;
-  }
-
-  // Offer the reusable saved pins (Phase 9) as an optional seed for a manual
-  // placement flow. Resolves to a (possibly empty) [{lat,lng,name}] — never null,
-  // so seeding is always skippable and non-breaking. Pins outside the play area are
-  // filtered out (the hider is in the zone).
-  async _pickSavedPins(area) {
-    let pins = [];
-    try { pins = (await this.library?.getPins?.()) || []; } catch (_) { pins = []; }
-    if (area && window.turf) pins = pins.filter((p) => this._inArea(p, area));
-    if (!pins.length) return [];
-    return new Promise((resolve) => {
-      let settled = false;
-      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-      const items = pins.map((p, i) =>
-        `<label class="feat-item"><input type="checkbox" value="${i}"/> ${escapeHtml(p.name)}</label>`).join("");
-      const s = openSheet({
-        title: "Saved pins",
-        bodyHTML: `<p class="muted">Include any saved pins in this question? You can still tap more on the map afterwards.</p>
-          <div class="seg feat-list">${items}</div>
-          <div class="sheet-actions"><button id="sp-skip" class="btn btn-ghost">Skip</button><button id="sp-use" class="btn btn-primary">Use selected</button></div>`,
-        onClose: () => done([]),
-      });
-      s.q("#sp-skip").onclick = () => { s.close(); done([]); };
-      s.q("#sp-use").onclick = () => {
-        const chosen = s.qa('input[type="checkbox"]').filter((c) => c.checked).map((c) => pins[parseInt(c.value, 10)]);
-        s.close();
-        done(chosen.map((p) => ({ lat: p.lat, lng: p.lng, name: p.name })));
-      };
-    });
-  }
-
   // True if {lat,lng} falls inside the game-area polygon (used to keep manually
   // placed objects / seeker points within the play zone).
   _inArea(p, area) {
@@ -455,6 +390,137 @@ export class Layers {
     box.addEventListener("input", () => {
       const q = box.value.trim().toLowerCase();
       items.forEach((el) => { el.style.display = !q || el.dataset.name.includes(q) ? "" : "none"; });
+    });
+  }
+
+  // ---- Unified POI candidate picker (shared by every POI question) --------
+  // Given an initial candidate set (auto-found, possibly empty), let the seeker
+  // TICK which ones count and ADD missing ones by tap or by name/address search.
+  // Returns the final [{lat,lng,name}] (the ticked ∪ added) or null if cancelled.
+  // Used by Matching-nearest, Tentacles and Measuring-points so the "choose some +
+  // add your own (tap or search)" mechanism is identical across all POI cards.
+  async _assembleCandidates(card, initialFeats, { minCount = 1 } = {}) {
+    const g = store.getCurrent();
+    const area = g?.gameArea;
+    const feats = (initialFeats || []).map((f) => ({ lat: f.lat, lng: f.lng, name: f.name, on: true }));
+    // Seed the reusable saved pins (Phase 9) as optional candidates — present but
+    // UNticked, so the seeker can include any with one tap. In-area pins only.
+    try {
+      let pins = (await this.library?.getPins?.()) || [];
+      if (area && window.turf) pins = pins.filter((p) => this._inArea(p, area));
+      for (const p of pins) {
+        const dup = feats.some((f) => Math.abs(f.lat - p.lat) < 1e-6 && Math.abs(f.lng - p.lng) < 1e-6);
+        if (!dup) feats.push({ lat: p.lat, lng: p.lng, name: p.name, on: false });
+      }
+    } catch (_) { /* saved pins are optional */ }
+    let markers = [];
+    const drawMarkers = () => {
+      markers.forEach((m) => m.setMap(null));
+      markers = feats.map((f, i) => new google.maps.Marker({
+        position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`,
+        opacity: f.on ? 1 : 0.35, map: this.map,
+      }));
+    };
+    drawMarkers();
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (val) => { if (settled) return; settled = true; markers.forEach((m) => m.setMap(null)); resolve(val); };
+
+      const render = () => {
+        const rows = feats.map((f, i) =>
+          `<label class="feat-item" data-name="${escapeHtml((f.name || "").toLowerCase())}">
+             <input type="checkbox" data-idx="${i}" ${f.on ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}
+           </label>`).join("") || `<p class="muted">No candidates yet — add some by tap or search below.</p>`;
+        const search = feats.length > 8
+          ? `<input class="field feat-search" data-search="cand" placeholder="Filter ${feats.length}…" />` : "";
+        const onCount = feats.filter((f) => f.on).length;
+        const s = openSheet({
+          title: `${card.label} — candidates`,
+          bodyHTML: `
+            <p class="muted">Tick the ${escapeHtml(card.label.toLowerCase())}s that count and add any that are missing. These form the partition.</p>
+            ${search}
+            <div class="seg feat-list" data-list="cand">${rows}</div>
+            <div class="row">
+              <button id="cand-tap" class="btn">✋ Add by tap</button>
+              <button id="cand-search" class="btn">🔎 Add by search</button>
+            </div>
+            <div class="sheet-actions">
+              <button id="cand-cancel" class="btn btn-ghost">Cancel</button>
+              <button id="cand-done" class="btn btn-primary">Use selected (${onCount})</button>
+            </div>`,
+        });
+        s.qa("[data-idx]").forEach((cb) => { cb.onchange = () => { feats[+cb.dataset.idx].on = cb.checked; drawMarkers(); }; });
+        this._wireFeatureSearch(s, "cand");
+        s.q("#cand-cancel").onclick = () => { s.close(); finish(null); };
+        s.q("#cand-done").onclick = () => {
+          const chosen = feats.filter((f) => f.on).map((f) => ({ lat: f.lat, lng: f.lng, name: f.name }));
+          if (chosen.length < minCount) { toast(`Select at least ${minCount}.`); return; }
+          s.close(); finish(chosen);
+        };
+        // Add by tap: close the sheet, drop a pin (constrained to the play area),
+        // name it, then re-open the picker with the new candidate.
+        s.q("#cand-tap").onclick = async () => {
+          s.close();
+          const pts = await this.pick(1, `Tap the ${card.label.toLowerCase()} location.`, area ? { constrainToArea: true } : {});
+          if (pts) {
+            const name = await promptText({ title: `Name this ${card.label.toLowerCase()}`, label: "Name", value: `${card.label} ${feats.length + 1}`, cta: "Add" });
+            feats.push({ lat: pts[0].lat, lng: pts[0].lng, name: name || `${card.label} ${feats.length + 1}`, on: true });
+            drawMarkers();
+          }
+          render();
+        };
+        // Add by search: text-search a place/address, confirm which result(s) to add.
+        s.q("#cand-search").onclick = async () => {
+          const query = await promptText({ title: `Search for a ${card.label.toLowerCase()}`, label: "Place or address", value: "", cta: "Search" });
+          if (query == null || !query.trim()) { render(); return; }
+          let results = [];
+          try { toast("Searching…"); results = await searchText(this.map, query.trim()); }
+          catch (e) { toast(e.message); render(); return; }
+          if (!results.length) { toast("No matches — try a more specific name."); render(); return; }
+          s.close();
+          const added = await this._pickSearchResults(card, results, area);
+          for (const a of added) feats.push({ lat: a.lat, lng: a.lng, name: a.name, on: true });
+          drawMarkers();
+          render();
+        };
+      };
+      render();
+    });
+  }
+
+  // Choose which text-search results to add as candidates. Resolves to the picked
+  // [{lat,lng,name}] (possibly empty). Results outside the play area are allowed but
+  // flagged, since a seeker may deliberately add a just-outside landmark.
+  _pickSearchResults(card, results, area) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      const rows = results.map((r, i) => {
+        const outside = area && window.turf && !this._inArea(r, area);
+        return `<label class="feat-item">
+            <input type="checkbox" value="${i}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(r.name)}
+            ${outside ? '<span class="muted"> · outside area</span>' : ""}
+            ${r.address ? `<br/><span class="muted small">${escapeHtml(r.address)}</span>` : ""}
+          </label>`;
+      }).join("");
+      const s = openSheet({
+        title: `Add — “${escapeHtml(card.label)}”`,
+        bodyHTML: `
+          <p class="muted">Tick the result(s) to add as candidates.</p>
+          <div class="seg feat-list">${rows}</div>
+          <div class="sheet-actions">
+            <button id="sr-cancel" class="btn btn-ghost">Back</button>
+            <button id="sr-add" class="btn btn-primary">Add selected</button>
+          </div>`,
+        onClose: () => done([]),
+      });
+      s.q("#sr-cancel").onclick = () => { s.close(); done([]); };
+      s.q("#sr-add").onclick = () => {
+        const chosen = s.qa('input[type="checkbox"]').filter((c) => c.checked)
+          .map((c) => results[parseInt(c.value, 10)]).map((r) => ({ lat: r.lat, lng: r.lng, name: r.name }));
+        done(chosen); s.close();
+      };
     });
   }
 
@@ -718,17 +784,18 @@ export class Layers {
         ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._inAreaFeatures(feats, g.gameArea);
-      if (feats.length < 2) { setMsg(`Found ${feats.length} in the play area. Need at least 2 to partition — try “Place my own”, or add a Custom category (☰ menu).`); return; }
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
-      this._matchNearestSelect(card, feats);
+      // Refine the auto-found set: tick which count, add missing by tap/search.
+      const chosen = await this._assembleCandidates(card, feats, { minCount: 2 });
+      if (!chosen) return this.openPanel();
+      this._matchNearestSelect(card, chosen);
     };
     s.q("#mt-manual").onclick = async () => {
       s.close();
-      const feats = await this._placeNamedObjects(card.label, 2);
-      if (!feats) return this.openPanel();
-      if (feats.length < 2) { toast("Place at least 2 to partition the area."); return this.openPanel(); }
-      this._matchNearestSelect(card, feats);
+      const chosen = await this._assembleCandidates(card, [], { minCount: 2 });
+      if (!chosen) return this.openPanel();
+      this._matchNearestSelect(card, chosen);
     };
   }
 
@@ -915,7 +982,7 @@ export class Layers {
       s.close();
       // Seeker names the exact places they care about; radius/Voronoi logic is the
       // same. At least one is enough (single candidate ⇒ area ∩ its radius circle).
-      const feats = await this._placeNamedObjects(cat.label, 1);
+      const feats = await this._assembleCandidates(cat, [], { minCount: 1 });
       if (!feats || !feats.length) return this.openPanel();
       this._chooseTentacle(cat, feats, null);
     };
@@ -951,11 +1018,11 @@ export class Layers {
       // Keep only places whose radius circle can actually reach the play area (no
       // cap — long lists are searchable in the chooser).
       feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius);
-      if (!feats.length) {
-        toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of the play area.`);
-        return this.openPanel();
-      }
-      this._chooseTentacle(cat, feats, center);
+      if (!feats.length) toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of the play area — add your own below.`);
+      // Refine: tick which count, add missing by tap/search (add-your-own included).
+      const chosen = await this._assembleCandidates(cat, feats, { minCount: 1 });
+      if (!chosen || !chosen.length) return this.openPanel();
+      this._chooseTentacle(cat, chosen, center);
     };
   }
 
@@ -1080,30 +1147,34 @@ export class Layers {
         ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._inAreaFeatures(feats, g.gameArea);
-      if (!feats.length) { setMsg(`No ${card.label.toLowerCase()} found in the play area — try “Place my own”, or add a Custom category (☰ menu).`); return; }
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
-      this._distanceSheet(card, {
-        refType: "points", refLabel: card.label,
-        refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
-        refFeatures: feats,
-      });
+      // Refine: tick which reference points count, add missing by tap/search.
+      const chosen = await this._assembleCandidates(card, feats, { minCount: 1 });
+      if (!chosen || !chosen.length) return this.openPanel();
+      this._pointsDistanceSheet(card, chosen);
     };
     // Manual: the seeker marks exactly which instances count, avoiding the over-
-    // or under-counting that auto-Places can cause. One point ⇒ Point; several ⇒
-    // MultiPoint (buffered the same way).
+    // or under-counting that auto-Places can cause.
     s.q("#m-manual").onclick = async () => {
       s.close();
-      const feats = await this._placeNamedObjects(card.label, 1);
-      if (!feats || !feats.length) return this.openPanel();
-      this._distanceSheet(card, {
-        refType: "points", refLabel: card.label,
-        refGeometry: feats.length === 1
-          ? { type: "Point", coordinates: [feats[0].lng, feats[0].lat] }
-          : { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
-        refFeatures: feats,
-      });
+      const chosen = await this._assembleCandidates(card, [], { minCount: 1 });
+      if (!chosen || !chosen.length) return this.openPanel();
+      this._pointsDistanceSheet(card, chosen);
     };
+  }
+
+  // Build the reference geometry from chosen points (one ⇒ Point, several ⇒
+  // MultiPoint, buffered the same) and open the distance sheet. Shared by the
+  // auto and manual Measuring-points paths after candidate assembly.
+  _pointsDistanceSheet(card, feats) {
+    this._distanceSheet(card, {
+      refType: "points", refLabel: card.label,
+      refGeometry: feats.length === 1
+        ? { type: "Point", coordinates: [feats[0].lng, feats[0].lat] }
+        : { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },
+      refFeatures: feats,
+    });
   }
 
   // A hand-drawn reference line (high-speed rail, coastline, borders): buffer it.

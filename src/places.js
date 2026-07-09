@@ -85,7 +85,10 @@ function extractAdminLevels(results) {
 
 // Search a category near a centre. Resolves to [{ name, lat, lng }]. `keyword`
 // optionally narrows results (e.g. "McDonald's"). Radius is clamped to the API max.
-export function searchCategory(map, { center, radius, type, keyword }) {
+// nearbySearch returns only 20 per page; we follow pagination up to `maxPages`
+// (Google caps at 3 → ~60 results) so dense categories aren't silently truncated
+// to 20. Each nextPage() needs a short delay before the token is valid.
+export function searchCategory(map, { center, radius, type, keyword, maxPages = 3 }) {
   const svc = getService(map);
   const request = {
     location: center,
@@ -95,24 +98,36 @@ export function searchCategory(map, { center, radius, type, keyword }) {
   if (keyword) request.keyword = keyword;
 
   return new Promise((resolve, reject) => {
-    svc.nearbySearch(request, (results, status) => {
+    const all = [];
+    const seen = new Set();
+    let pages = 0;
+    const handle = (results, status, pagination) => {
       const S = google.maps.places.PlacesServiceStatus;
       if (status === S.OK && results) {
-        resolve(
-          results
-            .filter((r) => r.geometry && r.geometry.location)
-            .map((r) => ({
-              name: r.name || "(unnamed)",
-              lat: r.geometry.location.lat(),
-              lng: r.geometry.location.lng(),
-            }))
-        );
+        for (const r of results) {
+          if (!(r.geometry && r.geometry.location)) continue;
+          const lat = r.geometry.location.lat(), lng = r.geometry.location.lng();
+          const key = r.place_id || `${lat.toFixed(6)},${lng.toFixed(6)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          all.push({ name: r.name || "(unnamed)", lat, lng });
+        }
+        pages++;
+        if (pagination && pagination.hasNextPage && pages < maxPages) {
+          // The next-page token needs ~2 s to activate; calling too soon errors.
+          setTimeout(() => pagination.nextPage(), 1600);
+        } else {
+          resolve(all);
+        }
       } else if (status === S.ZERO_RESULTS) {
-        resolve([]);
+        resolve(all);
+      } else if (all.length) {
+        resolve(all); // keep the pages we already have on a later-page error
       } else {
         reject(new Error(`Places search failed: ${status}`));
       }
-    });
+    };
+    svc.nearbySearch(request, handle);
   });
 }
 
