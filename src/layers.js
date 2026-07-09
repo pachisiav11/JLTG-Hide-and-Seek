@@ -5,7 +5,7 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep, distancePointToArea, checkStepAgainstPoint } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep, checkStepAgainstPoint } from "./tools.js";
 import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
@@ -1047,7 +1047,7 @@ export class Layers {
     const s = openSheet({
       title: "Tentacles",
       bodyHTML: `
-        <p class="muted">A fixed-radius “which of these are you closest to?” card. Pick one, then either auto-find the places (tap a search centre) or place your own on the map.</p>
+        <p class="muted">A “of the {places} within R of me, which are you closest to?” card. Pick one, tap YOUR location, then auto-find or place the candidates. The radius reaches out from you — “none” is a miss (a negative radar around you).</p>
         <label class="fieldlbl">Card</label>
         <select id="tt-cat" class="field">${opts}${customOptsR}</select>
         <div class="sheet-actions">
@@ -1058,51 +1058,45 @@ export class Layers {
         <p id="tt-status" class="muted"></p>`,
     });
     s.q("#tt-cancel").onclick = () => s.close();
+    // Tap the seeker's location — the centre of the tentacle reach. Constrained to
+    // the play area (the seeker is within the game region). Shared by both paths.
+    const pickCentre = async (cat) => {
+      const cpts = await this.pick(1, `Tap YOUR location — the centre of the ${rTxt(cat.radius)} tentacle.`, { constrainToArea: true });
+      return cpts ? cpts[0] : null;
+    };
     s.q("#tt-manual").onclick = async () => {
       const cat = resolveCat(s.q("#tt-cat").value);
       if (!cat) return toast("That category is unavailable.");
       s.close();
-      // Seeker names the exact places they care about; radius/Voronoi logic is the
-      // same. At least one is enough (single candidate ⇒ area ∩ its radius circle).
-      const feats = await this._assembleCandidates(cat, [], { minCount: 1 });
+      const center = await pickCentre(cat);
+      if (!center) return this.openPanel();
+      // Seeker names the exact places within reach; the radius is measured from them.
+      const feats = await this._assembleCandidates(cat, [], { minCount: 1, center, radius: cat.radius });
       if (!feats || !feats.length) return this.openPanel();
-      this._chooseTentacle(cat, feats, null);
+      this._chooseTentacle(cat, feats, center);
     };
     s.q("#tt-find").onclick = async () => {
       const cat = resolveCat(s.q("#tt-cat").value);
       if (!cat) return toast("That category is unavailable.");
       s.close();
-      // Ask the seeker to place a search centre near the play area, then look for the
-      // category around it. The centre only AIMS the Places search; the candidate SET
-      // is every place whose radius circle can reach the play area. This matters for
-      // correctness: the hider reveals which candidate they are closest to, so a
-      // nearer place missing from the list would force a wrong "closest" and wrongly
-      // eliminate the true hiding region.
-      const pts = await this.pick(1, `Tap a ${cat.label.toLowerCase()} search centre inside the play area.`, { constrainToArea: true });
-      if (!pts) return this.openPanel();
-      const center = pts[0];
+      const center = await pickCentre(cat);
+      if (!center) return this.openPanel();
       toast("Searching…");
       const turf = window.turf;
-      const bb = turf.bbox(turf.feature(g.gameArea));
-      const corners = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]];
-      const maxD = Math.max(...corners.map((c) => turf.distance([center.lng, center.lat], c, { units: "meters" })));
-      const searchRadius = Math.min(50000, maxD + cat.radius); // cover the whole area + tentacle reach
       let feats = [], source = "google";
       try {
-        // Overpass fallback bbox is padded by the tentacle radius so places just
-        // outside the play area (but within reach) are still found.
-        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius: searchRadius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: cat.radius }));
+        // Search the category within the tentacle radius OF THE SEEKER.
+        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius: cat.radius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: 0 }));
       } catch (e) {
         toast(e.message);
         return this.openPanel();
       }
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
-      // Keep only places whose radius circle can actually reach the play area (no
-      // cap — long lists are searchable in the chooser).
-      feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius);
-      if (!feats.length) toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of the play area — add your own below.`);
-      // Refine: tick which count, add missing by tap/search (add-your-own included).
-      const chosen = await this._assembleCandidates(cat, feats, { minCount: 1 });
+      // Keep only places within the tentacle radius of the seeker (the reach).
+      feats = feats.filter((f) => turf.distance([center.lng, center.lat], [f.lng, f.lat], { units: "meters" }) <= cat.radius);
+      if (!feats.length) toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of you — add your own below.`);
+      // Refine: tick which count, add missing by tap/search (biased to you).
+      const chosen = await this._assembleCandidates(cat, feats, { minCount: 1, center, radius: cat.radius });
       if (!chosen || !chosen.length) return this.openPanel();
       this._chooseTentacle(cat, chosen, center);
     };
@@ -1113,18 +1107,19 @@ export class Layers {
     const temp = features.map((f, i) =>
       new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`, map: this.map })
     );
-    // Show the placed search centre for context (cleared with the sheet). No range
-    // circle: the tentacle radius is measured from each place / the hider, not this
-    // centre, so a circle here would misrepresent which places qualify.
+    // Show the seeker centre + the tentacle REACH circle (the radius is measured
+    // from the seeker), cleared with the sheet.
     if (center) {
-      temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Search centre", map: this.map }));
+      temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Your location", map: this.map }));
+      temp.push(new google.maps.Circle({ center, radius: cat.radius, map: this.map, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillColor: "#38bdf8", fillOpacity: 0.06, clickable: false }));
     }
     const s = openSheet({
       title: "Tentacles",
+      mapInteractive: true,
       bodyHTML: `
-        <p class="muted">${escapeHtml(cat.label)} within ${rTxt}. Which is the hider closest to?</p>
+        <p class="muted">${escapeHtml(cat.label)} within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
         ${this._featureListHTML("tt-feat", features)}
-        <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None within ${rTxt} (hider is outside all)</label></div>
+        <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
         <div class="sheet-actions">
           <button id="tt-cancel2" class="btn btn-ghost">Cancel</button>
           <button id="tt-add" class="btn btn-primary">Add question</button>
@@ -1135,7 +1130,7 @@ export class Layers {
     s.q("#tt-cancel2").onclick = () => s.close();
     s.q("#tt-add").onclick = () => {
       const val = s.qa('input[name="tt-feat"]').find((r) => r.checked)?.value ?? "0";
-      const inputs = { category: cat.id, categoryLabel: cat.label, radius: cat.radius, features };
+      const inputs = { category: cat.id, categoryLabel: cat.label, radius: cat.radius, features, center };
       const answer = val === "none" ? { none: true } : { featureIndex: parseInt(val, 10) };
       this.addStep("tentacles", inputs, answer);
       s.close();

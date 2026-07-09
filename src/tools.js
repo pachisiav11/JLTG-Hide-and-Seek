@@ -266,61 +266,74 @@ function matchingRegion(step, gameArea) {
 }
 
 // --- Tentacles: fixed-radius "which of these are you closest to?" --------
-// A tentacle card has a FIXED radius R. Two answers:
-//  • closest = feature P  → the hider is within R of P AND closer to P than any
-//    other listed place, so KEEP P's Voronoi cell ∩ circle(P,R); eliminate the rest.
-//  • none in range        → the hider is within R of NONE of them, so eliminate the
-//    UNION of every circle(P,R) (a radar-"outside" over all the places).
-// Candidate features are pre-filtered (in the flow) to those whose R-circle can
-// actually reach the play area, so far-off places never distort the partition.
+// A tentacle card has a FIXED radius R that is the SEEKER's reach: "of the {places}
+// within R of ME, which are you closest to?". Two answers:
+//  • closest = feature P  → the hider is within R of the SEEKER (`center`) AND in
+//    P's Voronoi cell, so KEEP cell(P) ∩ circle(center,R); eliminate the rest.
+//  • none / outside       → the hider is NOT within R of the seeker — functionally a
+//    radar MISS of radius R centred on the seeker, so ELIMINATE circle(center,R).
+// The radius is measured from the SEEKER, not each place. Legacy steps saved before
+// this change carry no `center` and fall back to the old per-POI-circle behavior so
+// old saved/imported games still eliminate correctly.
 function tentacles(step, gameArea) {
-  const { features, radius } = step.inputs;
+  const { features, radius, center } = step.inputs;
   const { featureIndex, none } = step.answer || {};
   const R = radius; // metres
-  // Backward-compat: pre-rebuild tentacles steps had no fixed radius and were a
-  // plain nearest-cell partition (routed through voronoiTool). Recompute those
-  // with the old behavior so old saved/imported games still eliminate correctly.
+  // Pre-rebuild tentacles steps had no fixed radius (plain nearest-cell partition).
   if (radius == null) return voronoiTool(step, gameArea);
-  // Candidate points don't persist (see voronoiTool); the radius circle(s) below
-  // are the meaningful reference that stays on the map.
   const guides = [];
   if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
+  const circleGeom = (lng, lat) => T().circle([lng, lat], R / 1000, { units: "kilometers", steps: 64 }).geometry;
 
-  const circleOf = (f) => T().circle([f.lng, f.lat], R / 1000, { units: "kilometers", steps: 64 });
+  // ---- Seeker-centric model (new steps carry `center`) --------------------
+  if (center) {
+    const seeker = circleGeom(center.lng, center.lat);
+    guides.push({ type: "circle", center: { lat: center.lat, lng: center.lng }, radius: R });
+    // Miss: the hider is outside the seeker's reach → eliminate INSIDE the circle.
+    if (none) return { eliminated: safeIntersect(seeker, gameArea), guides };
 
-  // "None in range" → eliminate everything within R of any listed place.
+    if (featureIndex == null) return { eliminated: null, guides };
+    const P = features[featureIndex];
+    if (!P) return { eliminated: null, guides };
+    // Hit: within reach AND closest to P. With one candidate the whole area is P's
+    // cell, so keep = area ∩ seeker circle.
+    let cell = gameArea;
+    if (features.length >= 2) {
+      const { cells } = voronoiCells(features, gameArea);
+      for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
+      cell = cells[featureIndex];
+      if (!cell) return { eliminated: null, guides };
+    }
+    const keep = safeIntersect(cell, seeker);
+    if (!keep) return { eliminated: null, guides };
+    return { eliminated: safeDiff(gameArea, keep), guides };
+  }
+
+  // ---- Legacy per-POI-circle model (old steps without a seeker `center`) --
+  const circleOf = (f) => circleGeom(f.lng, f.lat);
   if (none) {
     let union = null;
     for (const f of features) {
       guides.push({ type: "circle", center: { lat: f.lat, lng: f.lng }, radius: R });
-      union = union ? safeUnion(union, circleOf(f).geometry) : circleOf(f).geometry;
+      union = union ? safeUnion(union, circleOf(f)) : circleOf(f);
     }
     const eliminated = union ? safeIntersect(union, gameArea) : null;
     return { eliminated, guides };
   }
-
   if (featureIndex == null) return { eliminated: null, guides };
   const P = features[featureIndex];
   if (!P) return { eliminated: null, guides };
-  const circle = circleOf(P);
   guides.push({ type: "circle", center: { lat: P.lat, lng: P.lng }, radius: R });
-
-  // Keep = closest-to-P region ∩ its radius. With a single candidate the whole
-  // area is P's cell, so keep is just the area ∩ circle.
   let cell = gameArea;
   if (features.length >= 2) {
     const { cells } = voronoiCells(features, gameArea);
     for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
-    // If P's cell couldn't be resolved (a null Voronoi cell), don't fall back to
-    // the full game area — that would keep the whole circle, including area that
-    // is actually closer to another listed place. Return null instead of guessing.
     cell = cells[featureIndex];
     if (!cell) return { eliminated: null, guides };
   }
-  const keepRegion = safeIntersect(cell, circle.geometry);
+  const keepRegion = safeIntersect(cell, circleOf(P));
   if (!keepRegion) return { eliminated: null, guides };
-  const eliminated = safeDiff(gameArea, keepRegion);
-  return { eliminated, guides };
+  return { eliminated: safeDiff(gameArea, keepRegion), guides };
 }
 
 // Straight-line distance (metres) from a point to a game-area polygon: 0 if the
