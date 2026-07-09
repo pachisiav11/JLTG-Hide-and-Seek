@@ -1,12 +1,28 @@
 # Phase 14 — Rebuild the Android APK (runbook)
 
-> **Status: BLOCKED — cannot be completed in this environment.** Rebuilding the APK
-> needs (1) the app **live on Render** at its `*.onrender.com` URL, (2) the Android
-> toolchain (JDK + Android SDK + Bubblewrap), (3) a signing keystore, and (4) a
-> physical device to sanity-test. None of those exist here, and fabricating an APK or
-> bumping the version pill without a real build would misreport the outcome. This
-> runbook makes the rebuild **turnkey once the app is deployed** — it is a re-point of
-> the existing thin TWA wrapper, not a re-author.
+> **Status: DONE (2026-07-09).** Once the app went live at
+> `https://jltg-map-companion.onrender.com`, the toolchain (JDK 21 + Android SDK +
+> Bubblewrap 1.24) turned out to be present on this machine, so the APK was actually
+> rebuilt and re-signed against the Render URL. [download/JLTG.apk](download/JLTG.apk)
+> now points at `jltg-map-companion.onrender.com` (was `pachisiav11.github.io`),
+> packageId `app.web.jltg.twa`, versionName **1.1.0** / versionCode 3, signed and
+> verified (apksigner v1/v2/v3 = true). Digital Asset Links were added at
+> [.well-known/assetlinks.json](.well-known/assetlinks.json) so the TWA verifies as a
+> fullscreen app once deployed. **The physical-device sanity check (step 7) is still
+> the developer's to do.**
+>
+> **Signing key (KEEP SAFE — not in git):** `C:\Users\vihaa\jltg-twa-build\android.keystore`,
+> alias `android`. SHA-256 `1A:CF:B3:54:56:93:E8:4B:39:83:23:52:70:5E:04:BA:B3:33:A5:91:31:BE:E3:45:76:6E:D4:D5:44:C0:59:04`.
+> Reuse this exact keystore for future updates so they install over v1.1.0 without an
+> uninstall. This is a NEW key vs the old GitHub-Pages APK, so testers must **uninstall
+> the old app first**. The `assetlinks.json` fingerprint must match whatever key ships.
+>
+> ---
+>
+> *Original blocker note (now resolved), kept for context:* Rebuilding the APK needs
+> (1) the app **live on Render**, (2) the Android toolchain, (3) a signing keystore,
+> and (4) a device to sanity-test. (1)–(3) were satisfied; (4) remains manual. This
+> runbook is a re-point of the existing thin TWA wrapper, not a re-author.
 
 The current [download/JLTG.apk](download/JLTG.apk) (~1.1 MB) is a **thin TWA wrapper**
 that just loads the hosted PWA in an installed shell. Phase 14 rebuilds it against the

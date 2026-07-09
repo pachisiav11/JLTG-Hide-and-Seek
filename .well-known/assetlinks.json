@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.web.jltg.twa",
+      "sha256_cert_fingerprints": [
+        "1A:CF:B3:54:56:93:E8:4B:39:83:23:52:70:5E:04:BA:B3:33:A5:91:31:BE:E3:45:76:6E:D4:D5:44:C0:59:04"
+      ]
+    }
+  }
+]
