@@ -78,6 +78,13 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Map / Satellite / Dark base-style toggle (Settings) + 🖨 Print / save map (PDF).
   - i18n scaffolding (`src/i18n.js` + `src/langs/en.js`; English only for now).
   - PWA "New version available — Reload" banner instead of a silent SW swap.
+- **Phase 13 — Live multiplayer sync** 📝 design pass (gated)
+  - Design doc written: [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md) — session/role
+    model, conflict handling, Render Node + Socket.IO relay (Circuit pattern), offline
+    queue. **Implementation is intentionally blocked pending review** (it changes the
+    "no server, no account" premise in `GUIDE.md` §2).
+- **Phase 14 — Rebuild the Android APK** ⏳ blocked on a live Render URL + a device
+  (rebuild the thin TWA wrapper against the new `*.onrender.com` URL; see IMPROVEMENTS.md).
 
 ## Run it locally
 

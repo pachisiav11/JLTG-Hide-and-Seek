@@ -22,6 +22,18 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 13 — Live multiplayer sync (design pass only)
+Gated by design: the design doc comes first and **implementation is blocked pending
+review** (this phase changes the "no server, no account" premise in GUIDE.md §2).
+- Wrote [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md): session/role model layered on
+  the existing `Game`; a coarse semantic **event log** (append-on-collections +
+  last-writer-wins on scalars) that leans on the already order-independent
+  `computeActiveArea` so concurrent `step.add`s never conflict; a Render **Node +
+  Socket.IO** relay reusing the Phase 10 Express app (Circuit pattern, rooms keyed by
+  session code, relay-not-store); and a gelbh-style IndexedDB **outbox** with
+  retry/backoff so each device stays offline-resilient with IndexedDB as its source of
+  truth. No implementation code written yet — see the doc's §8 open questions.
+
 ## Phase 12 — Presentation polish
 Client-side only; no hosting impact.
 - **Multiple map styles.** A Map / Satellite / Dark base-style toggle (Settings,
