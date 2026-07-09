@@ -22,6 +22,16 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 14 — Rebuild the Android APK (runbook prepared; blocked)
+Cannot be completed here: rebuilding the thin TWA wrapper needs the app live on Render,
+the Android toolchain, a signing keystore, and a device to test. Fabricating an APK or
+bumping the version pill without a real build would misreport the outcome, so instead:
+- Wrote [`APK_REBUILD.md`](APK_REBUILD.md) — a turnkey re-point runbook (Bubblewrap init
+  against the deployed `manifest.webmanifest`, keep it a thin wrapper, replace
+  `download/JLTG.apk`, bump `install_guide.html`'s version pill, device sanity check).
+- Added [`twa-manifest.template.json`](twa-manifest.template.json) mirroring the PWA
+  manifest, with host/URL placeholders to fill with the Render URL.
+
 ## Phase 13 — Live multiplayer sync (design pass only)
 Gated by design: the design doc comes first and **implementation is blocked pending
 review** (this phase changes the "no server, no account" premise in GUIDE.md §2).

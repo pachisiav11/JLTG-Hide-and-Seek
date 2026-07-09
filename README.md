@@ -84,7 +84,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
     queue. **Implementation is intentionally blocked pending review** (it changes the
     "no server, no account" premise in `GUIDE.md` §2).
 - **Phase 14 — Rebuild the Android APK** ⏳ blocked on a live Render URL + a device
-  (rebuild the thin TWA wrapper against the new `*.onrender.com` URL; see IMPROVEMENTS.md).
+  - Turnkey runbook prepared: [`APK_REBUILD.md`](APK_REBUILD.md) +
+    [`twa-manifest.template.json`](twa-manifest.template.json). Rebuild the thin TWA
+    wrapper against the new `*.onrender.com` URL once the app is deployed (needs the
+    Android toolchain, a keystore, and a device to test — can't be done in CI).
 
 ## Run it locally
 
