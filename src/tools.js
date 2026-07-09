@@ -126,11 +126,25 @@ function dejitter(coords) {
 // Returns { cells } where cells[i] is the clipped Voronoi cell geometry for
 // features[i] (or null). The partition is computed over a bbox that contains both
 // the features and the game area, then each cell is clipped to the game area.
+//
+// IMPORTANT: turf.voronoi treats lng/lat as PLANAR, so away from the equator the
+// cells are stretched in longitude and no longer match the true GEODESIC "nearest
+// place" partition — a hider could truthfully answer "nearest = A" yet sit in A's
+// distorted cell's neighbour, so keeping A's cell would wrongly eliminate the true
+// location. We therefore compute the Voronoi in a longitude-COMPRESSED space
+// (x = lng·cos(lat0), same trick as the thermometer bisector) and unproject the
+// resulting cells back to lng/lat before clipping. This makes the cells match
+// straight-line ground distance to a very good approximation across a play area.
 function voronoiCells(features, gameArea) {
-  const pts = dejitter(features.map((f) => [f.lng, f.lat])).map((c) => T().point(c));
-  const collection = T().featureCollection([...pts, feat(gameArea)]);
-  let bbox = T().bbox(collection);
-  // Pad the bbox so edge cells are unbounded-safe.
+  const lat0 = features.reduce((s, f) => s + f.lat, 0) / features.length;
+  const k = Math.cos((lat0 * Math.PI) / 180) || 1e-6; // longitude compression
+  const proj = ([lng, lat]) => [lng * k, lat];
+  const unproj = ([x, y]) => [x / k, y];
+  const pts = dejitter(features.map((f) => [f.lng, f.lat])).map((c) => T().point(proj(c)));
+  // bbox in the projected space, covering the projected features + game-area extent.
+  const gbb = T().bbox(feat(gameArea));
+  const corners = [proj([gbb[0], gbb[1]]), proj([gbb[2], gbb[3]])].map((c) => T().point(c));
+  let bbox = T().bbox(T().featureCollection([...pts, ...corners]));
   const padX = (bbox[2] - bbox[0]) * 0.15 || 0.05;
   const padY = (bbox[3] - bbox[1]) * 0.15 || 0.05;
   bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
@@ -141,7 +155,12 @@ function voronoiCells(features, gameArea) {
     console.warn("voronoi failed", e);
     return { cells: features.map(() => null) };
   }
-  const cells = (raw.features || []).map((cell) => (cell ? safeIntersect(cell, gameArea) : null));
+  const cells = (raw.features || []).map((cell) => {
+    if (!cell) return null;
+    // Unproject the cell polygon back to lng/lat, then clip to the game area.
+    const rings = cell.geometry.coordinates.map((ring) => ring.map(unproj));
+    return safeIntersect(T().polygon(rings), gameArea);
+  });
   return { cells };
 }
 
@@ -230,8 +249,16 @@ function matchingNearestLine(step, gameArea) {
     if ((ln.coords || []).length >= 2) for (const c of densifyLine(ln.coords, 400)) { rawCoords.push(c); owner.push(idx); }
   });
   if (rawCoords.length < 2) return { eliminated: null, guides };
-  const allPts = dejitter(rawCoords).map((c) => turf.point(c));
-  let bbox = turf.bbox(turf.featureCollection([...allPts, feat(gameArea)]));
+  // Longitude-compress before the Voronoi (see voronoiCells) so cells match ground
+  // distance, not planar lng/lat — otherwise the chosen line's region is skewed.
+  const lat0 = rawCoords.reduce((s, c) => s + c[1], 0) / rawCoords.length;
+  const k = Math.cos((lat0 * Math.PI) / 180) || 1e-6;
+  const proj = ([lng, lat]) => [lng * k, lat];
+  const unproj = ([x, y]) => [x / k, y];
+  const allPts = dejitter(rawCoords).map((c) => turf.point(proj(c)));
+  const gbb = turf.bbox(feat(gameArea));
+  const corners = [proj([gbb[0], gbb[1]]), proj([gbb[2], gbb[3]])].map((c) => turf.point(c));
+  let bbox = turf.bbox(turf.featureCollection([...allPts, ...corners]));
   const padX = (bbox[2] - bbox[0]) * 0.15 || 0.05, padY = (bbox[3] - bbox[1]) * 0.15 || 0.05;
   bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
   let raw;
@@ -240,7 +267,11 @@ function matchingNearestLine(step, gameArea) {
   const chosen = lines.findIndex((l) => l.id === lineId);
   let keep = null;
   (raw.features || []).forEach((cell, i) => {
-    if (cell && owner[i] === chosen) { const clip = safeIntersect(cell, gameArea); if (clip) keep = keep ? safeUnion(keep, clip) : clip; }
+    if (cell && owner[i] === chosen) {
+      const unpoly = turf.polygon(cell.geometry.coordinates.map((ring) => ring.map(unproj)));
+      const clip = safeIntersect(unpoly, gameArea);
+      if (clip) keep = keep ? safeUnion(keep, clip) : clip;
+    }
   });
   if (!keep) return { eliminated: null, guides };
   // Match → keep the chosen line's region; no-match → eliminate it.
