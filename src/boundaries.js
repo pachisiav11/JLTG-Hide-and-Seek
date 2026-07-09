@@ -124,6 +124,34 @@ export class Boundaries {
     }
   }
 
+  // Toggle a single admin division's DDS boundary on/off (the region-draw tracing
+  // helper). Reuses the FeatureLayer machinery: `on` adds/removes the placeId from
+  // the styled set and re-applies the style. Returns true if DDS could render it,
+  // false if unavailable (no such FeatureType, or the layer isn't enabled on the
+  // Map ID) so the caller can uncheck the control and explain.
+  setAdminHighlight(featureName, placeId, on) {
+    try {
+      const type = google.maps.FeatureType?.[featureName];
+      if (!type) return false;
+      let entry = this._featureLayers.get(featureName);
+      if (!entry) {
+        const layer = this.map.getFeatureLayer(type);
+        entry = { layer, placeIds: new Set() };
+        this._featureLayers.set(featureName, entry);
+      }
+      if (entry.layer.isAvailable === false) return false;
+      if (on) entry.placeIds.add(placeId); else entry.placeIds.delete(placeId);
+      const placeIds = entry.placeIds;
+      entry.layer.style = placeIds.size
+        ? ((params) => (placeIds.has(params.feature.placeId) ? BOUNDARY_STYLE : null))
+        : null;
+      return true;
+    } catch (e) {
+      console.warn("admin highlight unavailable", e);
+      return false;
+    }
+  }
+
   _drawBox(geometry) {
     const b = geometry?.bounds || geometry?.viewport;
     if (!b) return;

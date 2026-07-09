@@ -157,7 +157,7 @@ async function main() {
     }
     const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
-    const layers = new Layers(map);
+    const layers = new Layers(map, { boundaries });
     const hider = new Hider(map);
     await Promise.all([zones.init(), features.init()]);
     // Reusable custom library (Phase 9): custom categories + pins. Attached to

@@ -7,7 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea, checkStepAgainstPoint } from "./tools.js";
 import { startCountdown } from "./timer.js";
-import { searchCategory, searchCategoryResilient, reverseGeocode, searchText } from "./places.js";
+import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -49,8 +49,9 @@ function maskOutside(area) {
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
 export class Layers {
-  constructor(map) {
+  constructor(map, { boundaries } = {}) {
     this.map = map;
+    this.boundaries = boundaries || null; // for the admin-division tracing helper (DDS)
     this.overlays = [];
     this.redoStack = [];
     this._pick = null;
@@ -936,14 +937,84 @@ export class Layers {
   }
 
   // Which drawn region the hider is inside (admin divisions, landmass).
-  _matchRegion(card) {
-    return this._regionSideSheet(
-      { drawHint: `Outline the ${card.label} you (the seeker) are in`, title: card.label, intro: `Draw the ${card.label.toLowerCase()} you're in, then answer whether the hider is in the same one.` },
-      (ring, inside) => {
-        this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
-        toast("Matching question added.");
-      },
-    );
+  async _matchRegion(card) {
+    // Admin-division cards get a tracing helper: highlight the OFFICIAL boundary of
+    // the division you're in (via DDS) so you can trace it. Cleared once drawing ends.
+    const isAdmin = ["admin1", "admin2", "admin3", "admin4"].includes(card.id);
+    let cleanup = () => {};
+    if (isAdmin) cleanup = await this._adminTracePrompt();
+    try {
+      await this._regionSideSheet(
+        { drawHint: `Outline the ${card.label} you (the seeker) are in`, title: card.label, intro: `Draw the ${card.label.toLowerCase()} you're in, then answer whether the hider is in the same one.` },
+        (ring, inside) => {
+          this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
+          toast("Matching question added.");
+        },
+      );
+    } finally { cleanup(); }
+  }
+
+  // Reference point for "the division you're in": the play-area centroid (the
+  // seeker is in their zone), falling back to the current map centre.
+  _adminRefPoint() {
+    try {
+      const g = store.getCurrent();
+      if (g?.gameArea && window.turf) {
+        const c = window.turf.centroid(window.turf.feature(g.gameArea));
+        return { lat: c.geometry.coordinates[1], lng: c.geometry.coordinates[0] };
+      }
+    } catch (_) { /* fall through */ }
+    const c = this.map.getCenter();
+    return { lat: c.lat(), lng: c.lng() };
+  }
+
+  // Pre-draw helper: toggle official admin-division boundaries (DDS) to trace over.
+  // Resolves to a cleanup() that removes any highlights (called once drawing ends).
+  async _adminTracePrompt() {
+    const b = this.boundaries;
+    if (!b) return () => {};
+    if (!b.ddsAvailable) {
+      toast("Add a vector Map ID with boundary layers (Settings) to trace real division outlines.");
+      return () => {};
+    }
+    let levels = [];
+    try { levels = await adminDivisionsAt(this._adminRefPoint()); }
+    catch (_) { /* geocode failed — just skip the helper */ }
+    if (!levels.length) return () => {};
+
+    const active = new Set(); // "feature|placeId"
+    const clearAll = () => {
+      for (const key of active) { const [f, p] = key.split("|"); b.setAdminHighlight(f, p, false); }
+      active.clear();
+    };
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (fn) => { if (!settled) { settled = true; resolve(fn); } };
+      const rows = levels.map((lv) =>
+        `<label class="feat-item"><input type="checkbox" data-f="${lv.feature}" data-p="${escapeHtml(lv.placeId)}"/> ${escapeHtml(lv.label)} — ${escapeHtml(lv.name)}</label>`).join("");
+      const s = openSheet({
+        title: "Trace division boundaries",
+        bodyHTML: `
+          <p class="muted">Toggle the official boundary of the division you're in to trace over it, then start drawing. Needs boundary FeatureLayers enabled on your Map ID — if a toggle shows nothing on the map, they aren't enabled.</p>
+          <div class="seg feat-list">${rows}</div>
+          <div class="sheet-actions">
+            <button id="at-skip" class="btn btn-ghost">Skip</button>
+            <button id="at-draw" class="btn btn-primary">Start drawing</button>
+          </div>`,
+        onClose: () => done(clearAll),
+      });
+      s.qa("input[data-f]").forEach((cb) => {
+        cb.onchange = () => {
+          const f = cb.dataset.f, p = cb.dataset.p, key = `${f}|${p}`;
+          if (cb.checked) {
+            if (b.setAdminHighlight(f, p, true)) active.add(key);
+            else { cb.checked = false; toast("That boundary layer isn't enabled on your Map ID."); }
+          } else { b.setAdminHighlight(f, p, false); active.delete(key); }
+        };
+      });
+      s.q("#at-skip").onclick = () => { clearAll(); s.close(); done(() => {}); };
+      s.q("#at-draw").onclick = () => { s.close(); done(clearAll); };
+    });
   }
 
   // ---- Tentacles (fixed-radius "which are you closest to?") ----

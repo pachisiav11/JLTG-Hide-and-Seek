@@ -63,6 +63,36 @@ export function reverseGeocode({ lat, lng }) {
   });
 }
 
+// DDS-highlightable admin levels, outermost→innermost. Google's Data-Driven
+// Styling only exposes FeatureLayers for these (there is no level-3/-4 FeatureType),
+// so the tracing helper can only draw these boundaries even though the game asks
+// about 1st–4th divisions. Geocoding `type` → DDS FeatureType enum name.
+const DDS_ADMIN_LEVELS = [
+  { type: "administrative_area_level_1", feature: "ADMINISTRATIVE_AREA_LEVEL_1", label: "1st Admin division" },
+  { type: "administrative_area_level_2", feature: "ADMINISTRATIVE_AREA_LEVEL_2", label: "2nd Admin division" },
+  { type: "locality",                    feature: "LOCALITY",                    label: "City / locality (≈3rd)" },
+];
+
+// Reverse-geocode a point into the admin divisions Data-Driven Styling can
+// highlight. Returns [{ feature, label, placeId, name }] outermost→innermost for
+// the levels present at that point (each with its own placeId, used to style the
+// exact FeatureLayer boundary). Empty if none resolve.
+export function adminDivisionsAt({ lat, lng }) {
+  if (!geocoder) geocoder = new google.maps.Geocoder();
+  return new Promise((resolve, reject) => {
+    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status === "ZERO_RESULTS") { resolve([]); return; }
+      if (status !== "OK" || !results?.length) { reject(new Error(`Reverse geocode failed (${status}).`)); return; }
+      const out = [];
+      for (const lvl of DDS_ADMIN_LEVELS) {
+        const r = results.find((res) => (res.types || []).includes(lvl.type) && res.place_id);
+        if (r) out.push({ feature: lvl.feature, label: lvl.label, placeId: r.place_id, name: (r.address_components?.[0]?.long_name) || r.formatted_address || lvl.label });
+      }
+      resolve(out);
+    });
+  });
+}
+
 // Scan all result components for the first name at each admin level. Google labels
 // vary by country, so several component types map to one conceptual level.
 function extractAdminLevels(results) {
