@@ -66,6 +66,11 @@ export class Sync {
     this._applying = false;   // guard: don't re-emit while applying a remote event
     this.members = [];
     this._statusFns = new Set();
+    // Tombstones: ids removed in this session. They make removals convergent — a
+    // stale snapshot can otherwise resurrect a zone/step another device deleted,
+    // because merge/adopt union collections by id. A tombstoned id is never re-added.
+    this._tombZones = new Set();
+    this._tombSteps = new Set();
   }
 
   isConfigured() { return !!backendUrl(); }
@@ -136,6 +141,8 @@ export class Sync {
     if (this.socket && this.session) this.socket.emit("session.leave");
     this.session = null;
     this.members = [];
+    this._tombZones.clear();
+    this._tombSteps.clear();
     localStorage.removeItem(LS_SESSION);
     this._status();
   }
@@ -148,7 +155,7 @@ export class Sync {
     const lastZoneIds = new Set((last.zones || []).map((z) => z.id));
     const curZoneIds = new Set(cur.zones.map((z) => z.id));
     for (const z of cur.zones) if (!lastZoneIds.has(z.id)) this._emit("zone.add", { zone: z });
-    for (const z of last.zones || []) if (!curZoneIds.has(z.id)) this._emit("zone.remove", { id: z.id });
+    for (const z of last.zones || []) if (!curZoneIds.has(z.id)) { this._tombZones.add(z.id); this._emit("zone.remove", { id: z.id }); }
 
     const lastSteps = new Map((last.history || []).map((s) => [s.id, s]));
     const curSteps = new Map(cur.history.map((s) => [s.id, s]));
@@ -157,7 +164,7 @@ export class Sync {
       if (!prev) this._emit("step.add", { step: s });
       else if (prev.enabled !== s.enabled || prev.title !== s.title) this._emit("step.update", { id: s.id, enabled: s.enabled, title: s.title });
     }
-    for (const s of last.history || []) if (!curSteps.has(s.id)) this._emit("step.remove", { id: s.id });
+    for (const s of last.history || []) if (!curSteps.has(s.id)) { this._tombSteps.add(s.id); this._emit("step.remove", { id: s.id }); }
 
     if (JSON.stringify(last.hiderLock) !== JSON.stringify(cur.hiderLock)) this._emit("hider.set", { hiderLock: cur.hiderLock });
     if (last.name !== cur.name) this._emit("game.rename", { name: cur.name });
@@ -171,7 +178,22 @@ export class Sync {
     else this._queue(event);
   }
   _emitSnapshot() {
-    this._emit("snapshot", clone(store.getCurrent()));
+    const snap = clone(store.getCurrent());
+    // Carry tombstones alongside the game so peers don't resurrect removed ids.
+    // `__tomb` is not part of the Game shape; readers extract then strip it.
+    if (snap) snap.__tomb = { zones: [...this._tombZones], steps: [...this._tombSteps] };
+    this._emit("snapshot", snap);
+  }
+
+  // Absorb tombstones carried on an inbound snapshot; returns the game without __tomb.
+  _absorbTomb(payload) {
+    if (payload && payload.__tomb) {
+      for (const id of payload.__tomb.zones || []) this._tombZones.add(id);
+      for (const id of payload.__tomb.steps || []) this._tombSteps.add(id);
+      const { __tomb, ...game } = payload;
+      return game;
+    }
+    return payload;
   }
 
   // ---- Inbound: apply a remote event through the same store mutations --------
@@ -193,12 +215,15 @@ export class Sync {
     const p = event.payload || {};
     switch (event.kind) {
       case "zone.add":
+        if (this._tombZones.has(p.zone.id)) break; // don't resurrect a removed zone
         if (!g.zones.some((z) => z.id === p.zone.id)) { g.zones.push(p.zone); g.gameArea = unionRings(g.zones.map((z) => z.polygon)); }
         break;
       case "zone.remove":
+        this._tombZones.add(p.id);
         g.zones = g.zones.filter((z) => z.id !== p.id); g.gameArea = unionRings(g.zones.map((z) => z.polygon));
         break;
       case "step.add":
+        if (this._tombSteps.has(p.step.id)) break; // don't resurrect a removed step
         if (!g.history.some((s) => s.id === p.step.id)) g.history.push(p.step);
         break;
       case "step.update": {
@@ -207,6 +232,7 @@ export class Sync {
         break;
       }
       case "step.remove":
+        this._tombSteps.add(p.id);
         g.history = g.history.filter((s) => s.id !== p.id);
         break;
       case "hider.set":
@@ -220,20 +246,31 @@ export class Sync {
 
   // Adopt a whole snapshot (used on JOIN): replace local game with the host's.
   _adopt(snapshot) {
+    snapshot = this._absorbTomb(snapshot);
     this._applying = true;
-    store.setCurrent(normalizeGame(snapshot));
+    const g = normalizeGame(snapshot);
+    // Honour tombstones the host advertised (an id it already deleted must not return).
+    g.zones = g.zones.filter((z) => !this._tombZones.has(z.id));
+    g.history = g.history.filter((s) => !this._tombSteps.has(s.id));
+    store.setCurrent(g);
     this._applying = false;
     this._last = clone(store.getCurrent());
   }
 
   // Merge a snapshot into the current game (used for in-session reconciliation):
   // union collections by id, last-writer-wins on scalars. Convergent + idempotent.
+  // Tombstoned ids are never re-added (removals win over a stale snapshot).
   _merge(snapshot) {
+    snapshot = this._absorbTomb(snapshot);
     store.update((g) => {
+      // Drop anything locally present that has since been tombstoned.
+      g.zones = g.zones.filter((z) => !this._tombZones.has(z.id));
+      g.history = g.history.filter((s) => !this._tombSteps.has(s.id));
       const zoneIds = new Set(g.zones.map((z) => z.id));
-      for (const z of snapshot.zones || []) if (!zoneIds.has(z.id)) g.zones.push(z);
+      for (const z of snapshot.zones || []) if (!this._tombZones.has(z.id) && !zoneIds.has(z.id)) g.zones.push(z);
       const byId = new Map(g.history.map((s) => [s.id, s]));
       for (const s of snapshot.history || []) {
+        if (this._tombSteps.has(s.id)) continue;
         if (byId.has(s.id)) Object.assign(byId.get(s.id), s);
         else g.history.push(s);
       }

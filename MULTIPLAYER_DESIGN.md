@@ -18,6 +18,16 @@
 >    last-writer-wins on scalars). Concurrent `step.add`s still never conflict (the
 >    reason in §3 holds). A Lamport clock is carried on events for future ordering work.
 >
+> **Update — tombstones added (removals now convergent).** Each device keeps
+> per-session **tombstone** sets of removed zone/step ids (`Sync._tombZones` /
+> `_tombSteps`). A tombstoned id is never re-added by `_merge`/`_adopt` or a late
+> `*.add`, and tombstones ride along on snapshots (`payload.__tomb`) so a peer that
+> deleted an id propagates that deletion even to a joiner holding a stale snapshot.
+> This closes the one gap noted in §3 ("simultaneous removals can lose to a merge").
+> Verified headless (6/6): a stale snapshot no longer resurrects a removed step, an
+> advertised tombstone removes the id on a peer that still has it, and normal
+> add/echo-suppression behaviour is unaffected.
+>
 > Original gate (now satisfied): *this phase changes the "no server, no account" premise
 > in [GUIDE.md](GUIDE.md) §2* — §2 has been amended to "no account, optional relay."
 
