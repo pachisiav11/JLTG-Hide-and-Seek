@@ -5,7 +5,8 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep, distancePointToArea, checkStepAgainstPoint } from "./tools.js";
+import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
@@ -68,7 +69,25 @@ export class Layers {
     const step = createStep({ tool, inputs, answer, enabled: true });
     store.update((g) => g.history.push(step));
     this.redoStack = [];
+    this._afterAdd(step);
     return step;
+  }
+
+  // Post-add hooks (Phase 11), both opt-in via Settings and non-blocking:
+  //  • computed-truth check — warn (never override) if the manual answer would
+  //    eliminate the hider's known point,
+  //  • soft question timer — start a countdown once a question is asked.
+  _afterAdd(step) {
+    const g = store.getCurrent();
+    const st = g?.settings || {};
+    if (st.truthCheck) {
+      const pt = g?.hiderLock?.point;
+      if (pt && checkStepAgainstPoint(step, g.gameArea, pt) === "conflict") {
+        // Delay so this lands AFTER the flow's "question added" toast.
+        setTimeout(() => toast("⚠ This answer removes the hider's location — double-check it.", 5000), 450);
+      }
+    }
+    if (st.questionTimer > 0) startCountdown(st.questionTimer, { onEnd: () => toast("⏱ Question time's up.") });
   }
   toggle(id) {
     store.update((g) => {
@@ -443,18 +462,25 @@ export class Layers {
   openPanel() {
     const g = store.getCurrent();
     const canRedo = this.redoStack.length > 0;
+    // Live computed-truth flag (Phase 11): mark any enabled step whose eliminated
+    // region contains the hider's known point (opt-in + a point must be set).
+    const truthOn = g.settings?.truthCheck && g.hiderLock?.point;
     const rows = g.history.length
-      ? g.history.map((s) => `
+      ? g.history.map((s) => {
+          const conflict = truthOn && s.enabled && checkStepAgainstPoint(s, g.gameArea, g.hiderLock.point) === "conflict";
+          const warn = conflict ? `<span class="li-warn" title="This answer removes the hider's location">⚠</span> ` : "";
+          return `
           <li>
             <label class="li-toggle">
               <input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""} />
-              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}</span>
+              <span class="li-name ${s.enabled ? "" : "off"}">${warn}${escapeHtml(s.title || describeStep(s))}</span>
             </label>
             <span class="li-actions">
               <button class="btn btn-ghost btn-sm" data-rename="${s.id}">✏️</button>
               <button class="btn btn-ghost btn-sm" data-del="${s.id}">🗑</button>
             </span>
-          </li>`).join("")
+          </li>`;
+        }).join("")
       : `<li class="muted">No questions yet. Add one below.</li>`;
 
     const s = openSheet({
@@ -476,10 +502,12 @@ export class Layers {
           <button id="t-undo" class="btn">↶ Undo</button>
           <button id="t-redo" class="btn" ${canRedo ? "" : "disabled"}>↷ Redo</button>
         </div>
+        ${g.settings?.questionTimer > 0 ? `<div class="row"><button id="t-timer" class="btn">⏱ Start ${Math.round(g.settings.questionTimer / 60)}-min timer</button></div>` : ""}
         <h3 class="sub">Questions</h3>
         <ul class="list">${rows}</ul>`,
     });
 
+    if (g.settings?.questionTimer > 0) s.q("#t-timer").onclick = () => { startCountdown(g.settings.questionTimer, { onEnd: () => toast("⏱ Question time's up.") }); s.close(); };
     s.q("#t-radar").onclick = () => this.startRadar();
     s.q("#t-thermo").onclick = () => this.startThermometer();
     s.q("#t-match").onclick = () => this.startMatching();

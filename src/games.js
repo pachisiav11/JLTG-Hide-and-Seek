@@ -211,6 +211,20 @@ export class Games {
           ${radio("palette", "default", pal, "Default")}
           ${radio("palette", "cb", pal, "Colour-blind safe (Okabe-Ito)")}
         </div>
+        <h3 class="sub">Question timer</h3>
+        <p class="muted">Optional soft countdown shown when a question is asked. It never blocks anything.</p>
+        <div class="seg">
+          ${radio("questionTimer", "0", String(st.questionTimer || 0), "Off")}
+          ${radio("questionTimer", "60", String(st.questionTimer || 0), "1 minute")}
+          ${radio("questionTimer", "120", String(st.questionTimer || 0), "2 minutes")}
+          ${radio("questionTimer", "300", String(st.questionTimer || 0), "5 minutes")}
+        </div>
+        <h3 class="sub">Computed-truth check</h3>
+        <p class="muted">When the hider's centre is set, flag any manual answer that would remove the hider's own location (a double-check hint — it never changes your answer).</p>
+        <div class="seg">
+          ${radio("truthCheck", "off", st.truthCheck ? "on" : "off", "Off")}
+          ${radio("truthCheck", "on", st.truthCheck ? "on" : "off", "On")}
+        </div>
         <h3 class="sub">Region boundaries (advanced)</h3>
         <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
         <input id="st-mapid" class="field" type="text" autocomplete="off" spellcheck="false" placeholder="Map ID (optional)" value="${escapeHtml(localStorage.getItem("jltg.mapId") || "")}" />
@@ -231,7 +245,9 @@ export class Games {
     s.q("#st-save").onclick = () => {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
-      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units }));
+      const questionTimer = parseInt(s.qa('input[name="questionTimer"]').find((r) => r.checked)?.value || "0", 10);
+      const truthCheck = (s.qa('input[name="truthCheck"]').find((r) => r.checked)?.value || "off") === "on";
+      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, truthCheck }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Map ID lives on the device (localStorage), applied on next reload since
@@ -290,7 +306,7 @@ export class Games {
           </ul>
 
           <h3 class="sub">Games &amp; saving</h3>
-          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON). Distance mode &amp; units live in Settings.</p>
+          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON). Distance mode, units, colour theme, an optional per-question <strong>timer</strong>, and a <strong>computed-truth check</strong> (flags a manual answer that would remove the hider's own location) all live in Settings.</p>
 
           <div class="sheet-actions">
             <button id="hlp-close" class="btn btn-primary">Got it</button>

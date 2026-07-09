@@ -22,6 +22,19 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 11 — Question timers + optional "computed truth" check
+Client-side only; both opt-in via Settings, both default off.
+- **Soft per-question timer** ([`src/timer.js`](src/timer.js)). An optional countdown
+  (Off / 1 / 2 / 5 min) shown when a question is asked, plus a manual "Start timer"
+  button in the Questions panel. Deliberately soft — it never blocks adding another
+  question (JLTG is planning-oriented / single-device).
+- **Optional computed-truth check.** Manual answers are still the only answers — this
+  never overrides them. When the hider's centre is set, it reuses each step's existing
+  elimination geometry: if the hider's point falls inside the region a step would
+  eliminate, the answer is flagged (a toast on add + a ⚠ in the Questions list) as
+  "removes the hider's location — double-check it". Steps with no computable region
+  report "unavailable" and are not flagged (gelbh's "truth unavailable" fallback).
+
 ## Phase 10 — Optional Overpass fallback for Places search (Render Web Service)
 A mitigation against Places API cost/quota risk — a FALLBACK, not a replacement for
 the Google Maps engine. First phase to use Render's Web Service tier.

@@ -401,6 +401,33 @@ textarea.field { resize: vertical; }
 }
 #measure-readout.show { opacity: 1; }
 
+/* Soft question timer (Phase 11) */
+.q-timer {
+  position: fixed;
+  z-index: 43;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(50px + var(--safe-top));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 999px;
+  background: rgba(9, 39, 46, 0.96);
+  border: 1px solid var(--panel-2);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.q-timer-label { font-size: 12px; color: var(--text-dim); }
+.q-timer-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.q-timer.done { border-color: var(--danger); background: rgba(60, 20, 20, 0.96); }
+.q-timer.done .q-timer-time { color: var(--danger); }
+.q-timer-x { border: none; background: transparent; color: var(--text-dim); font-size: 14px; padding: 2px 4px; }
+
+/* Computed-truth conflict marker (Phase 11) */
+.li-warn { color: var(--danger); font-weight: 700; }
+
 /* Admin-division comparison table (Phase 9) */
 .adm-wrap { overflow-x: auto; }
 .adm-table { width: 100%; border-collapse: collapse; font-size: 13px; }

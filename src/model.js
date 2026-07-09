@@ -8,6 +8,8 @@ export const TOOLS = ["radar", "thermometer", "matching", "measuring", "tentacle
 export const DEFAULT_SETTINGS = {
   distanceMode: "straight-line", // "straight-line" | "transit" | "walking"
   units: "metric",               // "metric" | "imperial"
+  questionTimer: 0,              // Phase 11: soft countdown seconds per question (0 = off)
+  truthCheck: false,            // Phase 11: flag answers that eliminate the hider's point
 };
 
 function uid(prefix) {

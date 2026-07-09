@@ -70,6 +70,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
     deployed as a **separate** Render Web Service (`render.yaml`, `package.json`).
   - Client falls back Google → Overpass on failure / thin results, gated on
     `OVERPASS_PROXY_URL` (unset = Google-only). See **Backend (optional)** below.
+- **Phase 11 — Question timers + optional computed-truth check** ✅
+  - Soft per-question timer (Settings; Off / 1 / 2 / 5 min) + manual start.
+  - Opt-in computed-truth check: flags (never overrides) a manual answer that would
+    eliminate the hider's set location, reusing the step's elimination geometry.
 
 ## Run it locally
 
