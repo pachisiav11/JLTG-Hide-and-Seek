@@ -24,12 +24,15 @@ function getService(map) {
   return service;
 }
 
-// Free-text place search (for the Directions tab). Resolves to
-// [{ name, lat, lng, address }].
-export function searchText(map, query) {
+// Free-text place search. Resolves to [{ name, lat, lng, address }]. An optional
+// `{ location, radius }` biases results toward a centre (e.g. the seeker) so a
+// query like "derby" prefers the Derby near you over a namesake far away.
+export function searchText(map, query, { location, radius } = {}) {
   const svc = getService(map);
+  const req = { query };
+  if (location) { req.location = location; req.radius = Math.min(50000, Math.max(1, radius || 30000)); }
   return new Promise((resolve, reject) => {
-    svc.textSearch({ query }, (results, status) => {
+    svc.textSearch(req, (results, status) => {
       const S = google.maps.places.PlacesServiceStatus;
       if (status === S.OK && results) {
         resolve(results.filter((r) => r.geometry?.location).map((r) => ({

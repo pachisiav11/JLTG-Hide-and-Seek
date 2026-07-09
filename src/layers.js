@@ -400,7 +400,7 @@ export class Layers {
   // Returns the final [{lat,lng,name}] (the ticked ∪ added) or null if cancelled.
   // Used by Matching-nearest, Tentacles and Measuring-points so the "choose some +
   // add your own (tap or search)" mechanism is identical across all POI cards.
-  async _assembleCandidates(card, initialFeats, { minCount = 1 } = {}) {
+  async _assembleCandidates(card, initialFeats, { minCount = 1, center = null, radius = 0 } = {}) {
     const g = store.getCurrent();
     const area = g?.gameArea;
     const feats = (initialFeats || []).map((f) => ({ lat: f.lat, lng: f.lng, name: f.name, on: true }));
@@ -438,8 +438,9 @@ export class Layers {
         const onCount = feats.filter((f) => f.on).length;
         const s = openSheet({
           title: `${card.label} — candidates`,
+          mapInteractive: true,
           bodyHTML: `
-            <p class="muted">Tick the ${escapeHtml(card.label.toLowerCase())}s that count and add any that are missing. These form the partition.</p>
+            <p class="muted">Tick the ${escapeHtml(card.label.toLowerCase())}s that count and add any that are missing. These form the partition. You can pan the map behind this sheet.</p>
             ${search}
             <div class="seg feat-list" data-list="cand">${rows}</div>
             <div class="row">
@@ -465,7 +466,7 @@ export class Layers {
           s.close();
           const pts = await this.pick(1, `Tap the ${card.label.toLowerCase()} location.`, area ? { constrainToArea: true } : {});
           if (pts) {
-            const name = await promptText({ title: `Name this ${card.label.toLowerCase()}`, label: "Name", value: `${card.label} ${feats.length + 1}`, cta: "Add" });
+            const name = await promptText({ title: `Name this ${card.label.toLowerCase()}`, label: "Name", value: `${card.label} ${feats.length + 1}`, cta: "Add", mapInteractive: true });
             feats.push({ lat: pts[0].lat, lng: pts[0].lng, name: name || `${card.label} ${feats.length + 1}`, on: true });
             drawMarkers();
           }
@@ -473,14 +474,14 @@ export class Layers {
         };
         // Add by search: text-search a place/address, confirm which result(s) to add.
         s.q("#cand-search").onclick = async () => {
-          const query = await promptText({ title: `Search for a ${card.label.toLowerCase()}`, label: "Place or address", value: "", cta: "Search" });
+          const query = await promptText({ title: `Search for a ${card.label.toLowerCase()}`, label: "Place or address", value: "", cta: "Search", mapInteractive: true });
           if (query == null || !query.trim()) { render(); return; }
           let results = [];
-          try { toast("Searching…"); results = await searchText(this.map, query.trim()); }
+          try { toast("Searching…"); results = await searchText(this.map, query.trim(), { location: center || undefined, radius }); }
           catch (e) { toast(e.message); render(); return; }
           if (!results.length) { toast("No matches — try a more specific name."); render(); return; }
           s.close();
-          const added = await this._pickSearchResults(card, results, area);
+          const added = await this._pickSearchResults(card, results, area, { center, radius });
           for (const a of added) feats.push({ lat: a.lat, lng: a.lng, name: a.name, on: true });
           drawMarkers();
           render();
@@ -493,22 +494,31 @@ export class Layers {
   // Choose which text-search results to add as candidates. Resolves to the picked
   // [{lat,lng,name}] (possibly empty). Results outside the play area are allowed but
   // flagged, since a seeker may deliberately add a just-outside landmark.
-  _pickSearchResults(card, results, area) {
+  _pickSearchResults(card, results, area, { center = null, radius = 0 } = {}) {
     return new Promise((resolve) => {
       let settled = false;
       const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      // Distance to the seeker centre (when given) → flag + default-uncheck anything
+      // beyond the card's range, so "within range of me" is the default.
+      const distOf = (r) => (center && window.turf)
+        ? window.turf.distance([center.lng, center.lat], [r.lng, r.lat], { units: "meters" }) : null;
       const rows = results.map((r, i) => {
         const outside = area && window.turf && !this._inArea(r, area);
+        const d = distOf(r);
+        const outOfRange = !!(radius && d != null && d > radius);
+        // Default-check in-range results (or the first, when no range is given).
+        const checkedDefault = (radius && d != null) ? d <= radius : i === 0;
         return `<label class="feat-item">
-            <input type="checkbox" value="${i}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(r.name)}
-            ${outside ? '<span class="muted"> · outside area</span>' : ""}
+            <input type="checkbox" value="${i}" ${checkedDefault ? "checked" : ""}/> ${escapeHtml(r.name)}
+            ${outOfRange ? '<span class="muted"> · out of range</span>' : outside ? '<span class="muted"> · outside area</span>' : ""}
             ${r.address ? `<br/><span class="muted small">${escapeHtml(r.address)}</span>` : ""}
           </label>`;
       }).join("");
       const s = openSheet({
         title: `Add — “${escapeHtml(card.label)}”`,
+        mapInteractive: true,
         bodyHTML: `
-          <p class="muted">Tick the result(s) to add as candidates.</p>
+          <p class="muted">Tick the result(s) to add as candidates.${radius ? " Out-of-range results are unticked by default." : ""}</p>
           <div class="seg feat-list">${rows}</div>
           <div class="sheet-actions">
             <button id="sr-cancel" class="btn btn-ghost">Back</button>
@@ -787,8 +797,9 @@ export class Layers {
       feats = this._inAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
-      // Refine the auto-found set: tick which count, add missing by tap/search.
-      const chosen = await this._assembleCandidates(card, feats, { minCount: 2 });
+      // Refine the auto-found set: tick which count, add missing by tap/search
+      // (search biased to the area centre).
+      const chosen = await this._assembleCandidates(card, feats, { minCount: 2, center });
       if (!chosen) return this.openPanel();
       this._matchNearestSelect(card, chosen);
     };
@@ -1220,8 +1231,9 @@ export class Layers {
       feats = this._inAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
-      // Refine: tick which reference points count, add missing by tap/search.
-      const chosen = await this._assembleCandidates(card, feats, { minCount: 1 });
+      // Refine: tick which reference points count, add missing by tap/search
+      // (search biased to the area centre).
+      const chosen = await this._assembleCandidates(card, feats, { minCount: 1, center });
       if (!chosen || !chosen.length) return this.openPanel();
       this._pointsDistanceSheet(card, chosen);
     };

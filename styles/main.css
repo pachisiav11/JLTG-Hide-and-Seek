@@ -223,6 +223,8 @@ html, body {
   transition: opacity 0.25s ease;
 }
 .sheet-backdrop.open { opacity: 1; }
+/* Non-blocking backdrop: lets the user pan/zoom the map behind the sheet. */
+.sheet-backdrop.ghost { background: transparent; pointer-events: none; }
 .sheet {
   position: fixed;
   z-index: 31;

@@ -17,10 +17,14 @@ export function toast(msg, ms = 2400) {
 
 // Open a bottom sheet. `bodyHTML` is inserted into the content area; the returned
 // object exposes the root element, a query helper, and a close() fn.
-export function openSheet({ title, bodyHTML = "", onClose } = {}) {
+// `mapInteractive: true` makes the backdrop non-blocking (transparent + no pointer
+// capture) so the user can still pan/zoom the Google map behind the sheet — used by
+// the POI candidate / search flows where seeing and moving the map matters. It also
+// drops backdrop-click-to-close (there is nothing to click through to close).
+export function openSheet({ title, bodyHTML = "", onClose, mapInteractive = false } = {}) {
   closeSheet();
   const backdrop = document.createElement("div");
-  backdrop.className = "sheet-backdrop";
+  backdrop.className = "sheet-backdrop" + (mapInteractive ? " ghost" : "");
 
   const sheet = document.createElement("div");
   sheet.className = "sheet";
@@ -48,7 +52,7 @@ export function openSheet({ title, bodyHTML = "", onClose } = {}) {
     onClose?.();
   };
 
-  backdrop.addEventListener("click", close);
+  if (!mapInteractive) backdrop.addEventListener("click", close);
   sheet.querySelector(".sheet-close").addEventListener("click", close);
 
   document.body.appendChild(backdrop);
@@ -117,11 +121,12 @@ export function formatDistance(meters, units = "metric") {
 }
 
 // A small single-field text prompt as a bottom sheet. Resolves to the string or null.
-export function promptText({ title, label = "", value = "", placeholder = "", cta = "Save" } = {}) {
+export function promptText({ title, label = "", value = "", placeholder = "", cta = "Save", mapInteractive = false } = {}) {
   return new Promise((resolve) => {
     let done = false;
     const s = openSheet({
       title,
+      mapInteractive,
       bodyHTML: `
         ${label ? `<label class="fieldlbl">${escapeHtml(label)}</label>` : ""}
         <input id="pt-input" class="field" type="text" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" />
