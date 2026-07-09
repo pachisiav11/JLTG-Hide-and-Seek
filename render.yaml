@@ -25,3 +25,20 @@ services:
       - path: /config.js
         name: Cache-Control
         value: no-store    # the generated key file should never be cached
+
+  # Backend Web Service (Phase 10): an Overpass proxy used only as a FALLBACK for
+  # Places-category search. Free tier, no API key of its own. Kept as a SEPARATE
+  # service from the Static Site above; they talk over HTTPS. (Phase 13's Socket.IO
+  # relay can later live in this same Express app.)
+  - type: web
+    runtime: node
+    name: jltg-backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # Lock CORS to the static site's origin in production (set to its onrender URL).
+      - key: ALLOW_ORIGIN
+        sync: false
+

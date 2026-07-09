@@ -115,3 +115,78 @@ export function searchCategory(map, { center, radius, type, keyword }) {
     });
   });
 }
+
+// ---- Overpass fallback (Phase 10) --------------------------------------------
+// Google Places is the DEFAULT; Overpass (via the Render proxy) is a FALLBACK for
+// when Places fails / is quota-exhausted or returns too few results. Gated on a
+// configured OVERPASS_PROXY_URL — with none, this is a no-op and Google-only.
+
+const THIN = 2; // fewer than this ⇒ try the OSM fallback
+
+// Client-supported category keys (must mirror server CATEGORY_TAGS). A card's
+// Google `type` is used directly when it's one of these; keyword-only cards map by
+// keyword. Returns an Overpass category key or null (⇒ no fallback for this card).
+const OVERPASS_TYPES = new Set([
+  "hospital", "park", "museum", "library", "movie_theater", "zoo", "aquarium",
+  "amusement_park", "train_station", "subway_station", "bus_station", "airport",
+  "school", "place_of_worship", "tourist_attraction", "restaurant", "shopping_mall",
+]);
+const KEYWORD_TO_OVERPASS = { mountain: "mountain", "golf course": "golf", consulate: "consulate" };
+
+function deriveOverpassCategory({ type, keyword }) {
+  if (type && OVERPASS_TYPES.has(type)) return type;
+  const k = (keyword || "").trim().toLowerCase();
+  return KEYWORD_TO_OVERPASS[k] || null;
+}
+
+// [minX,minY,maxX,maxY] bbox of a game-area polygon, optionally padded by ~meters,
+// formatted as the "S,W,N,E" string the proxy expects. Null if turf/area missing.
+function areaBboxSWNE(gameArea, padMeters = 0) {
+  const turf = window.turf;
+  if (!turf || !gameArea) return null;
+  try {
+    const bb = turf.bbox(gameArea.type === "Feature" ? gameArea : turf.feature(gameArea));
+    const dLat = padMeters / 111320;
+    const midLat = (bb[1] + bb[3]) / 2;
+    const dLng = padMeters / (111320 * Math.max(0.05, Math.cos((midLat * Math.PI) / 180)));
+    const s = bb[1] - dLat, w = bb[0] - dLng, n = bb[3] + dLat, e = bb[2] + dLng;
+    return `${s},${w},${n},${e}`;
+  } catch (_) { return null; }
+}
+
+async function overpassCategory(proxyBase, category, bboxStr, keyword) {
+  const base = proxyBase.replace(/\/+$/, "");
+  const url = new URL(base + "/overpass");
+  url.searchParams.set("category", category);
+  url.searchParams.set("bbox", bboxStr);
+  if (keyword) url.searchParams.set("keyword", keyword);
+  const resp = await fetch(url.toString());
+  if (!resp.ok) throw new Error(`Overpass proxy HTTP ${resp.status}`);
+  const json = await resp.json();
+  return (json.features || []).map((f) => ({ name: f.name, lat: f.lat, lng: f.lng }));
+}
+
+// Google Places first; on error or a thin result, fall back to Overpass (if
+// configured) over the game-area bbox. Returns { feats, source: "google"|"overpass" }.
+// A per-category, per-area decision — not a global source switch (IMPROVEMENTS §10).
+export async function searchCategoryResilient(map, { center, radius, type, keyword, gameArea, padMeters = 0 }) {
+  let feats = [], googleErr = null;
+  try { feats = await searchCategory(map, { center, radius, type, keyword }); }
+  catch (e) { googleErr = e; }
+  if (!googleErr && feats.length >= THIN) return { feats, source: "google" };
+
+  const proxy = window.JLTG_CONFIG?.OVERPASS_PROXY_URL;
+  const cat = deriveOverpassCategory({ type, keyword });
+  const bbox = areaBboxSWNE(gameArea, padMeters);
+  if (proxy && cat && bbox) {
+    try {
+      // Only send a keyword to OSM for keyword-only cards (a place type is more
+      // reliable than a name substring server-side).
+      const osm = await overpassCategory(proxy, cat, bbox, !type && keyword ? keyword : "");
+      if (googleErr) { if (osm.length) return { feats: osm, source: "overpass" }; }
+      else if (osm.length > feats.length) return { feats: osm, source: "overpass" };
+    } catch (e) { console.warn("Overpass fallback failed:", e.message); }
+  }
+  if (googleErr && !feats.length) throw googleErr; // nothing worked
+  return { feats, source: "google" };
+}

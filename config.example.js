@@ -17,4 +17,10 @@ window.JLTG_CONFIG = {
   // Map defaults — Singapore / Marina Bay area (adjust to your play region).
   DEFAULT_CENTER: { lat: 1.2830, lng: 103.8590 },
   DEFAULT_ZOOM: 12,
+
+  // OPTIONAL (Phase 10): base URL of the Render Overpass-proxy Web Service, e.g.
+  // "https://jltg-backend.onrender.com". When set, a failed / thin Google Places
+  // category search falls back to OpenStreetMap via this proxy. Leave blank to
+  // disable the fallback (Google Places only).
+  OVERPASS_PROXY_URL: "",
 };

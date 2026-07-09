@@ -22,6 +22,23 @@ hosting impact (Static Site only).
   and a Small / Medium / Large / Very large tier (in the add-zone toast and the Zones
   panel), honouring the metric/imperial units setting.
 
+## Phase 10 — Optional Overpass fallback for Places search (Render Web Service)
+A mitigation against Places API cost/quota risk — a FALLBACK, not a replacement for
+the Google Maps engine. First phase to use Render's Web Service tier.
+- **Overpass proxy backend** ([`server.js`](server.js), Express): a `/overpass`
+  route that broadens OSM tag matching per category, tries multiple public Overpass
+  endpoints with retry/backoff server-side, and returns a normalized `{name,lat,lng}`
+  list. Deployed as a **separate** Render Web Service ([`render.yaml`](render.yaml) +
+  [`package.json`](package.json)); the Static Site is unchanged. Verified end-to-end
+  (returns real OSM data for a Singapore bbox).
+- **Client fallback ladder** (`searchCategoryResilient` in [`src/places.js`](src/places.js)):
+  Google Places first; on failure / quota-exhaustion / a thin result, fall back to
+  Overpass over the game-area bbox (broadened tags), then keep the larger set. A
+  per-category, per-area decision, gated on a configured `OVERPASS_PROXY_URL` (env →
+  `config.js`); with none set it's a no-op (Google-only). Wired into Matching (nearest),
+  Measuring (points) and Tentacles (auto-find). Thin-result messages now also point at
+  the Phase 9 Custom library as the long-term local fix.
+
 ## Phase 9 — Admin-division tool + reusable custom categories
 Extends the Matching tool family and the reusable-library model. No hosting impact.
 - **Admin-division comparison (🗺 Admin check).** A new diagnostic in the Questions

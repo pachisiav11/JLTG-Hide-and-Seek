@@ -16,9 +16,11 @@
 // client-side value either way, and it MUST still be restricted in Google Cloud by
 // HTTP referrer (your *.onrender.com subdomain) + the enabled APIs. See README.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, "..", "config.js");
 
 const key = process.env.GOOGLE_MAPS_API_KEY || "";
@@ -26,6 +28,7 @@ const mapId = process.env.MAP_ID || "";
 const centerLat = process.env.DEFAULT_CENTER_LAT || "1.2830";
 const centerLng = process.env.DEFAULT_CENTER_LNG || "103.8590";
 const zoom = process.env.DEFAULT_ZOOM || "12";
+const overpassProxy = process.env.OVERPASS_PROXY_URL || "";
 
 if (!key) {
   console.warn(
@@ -51,6 +54,7 @@ window.JLTG_CONFIG = {
   MAP_ID: ${JSON.stringify(mapId)},
   DEFAULT_CENTER: { lat: ${Number(centerLat)}, lng: ${Number(centerLng)} },
   DEFAULT_ZOOM: ${Number(zoom)},
+  OVERPASS_PROXY_URL: ${JSON.stringify(overpassProxy)},
 };
 `;
 

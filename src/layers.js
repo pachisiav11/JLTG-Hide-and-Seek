@@ -6,7 +6,7 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, distancePointToArea } from "./tools.js";
-import { searchCategory, reverseGeocode } from "./places.js";
+import { searchCategory, searchCategoryResilient, reverseGeocode } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -685,13 +685,14 @@ export class Layers {
       const g = store.getCurrent();
       const { center, radius } = this._searchParams(g.gameArea);
       setMsg("Searching…");
-      let feats = [];
+      let feats = [], source = "google";
       try {
-        feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._inAreaFeatures(feats, g.gameArea);
-      if (feats.length < 2) { setMsg(`Found ${feats.length} in the play area. Need at least 2 to partition — try “Place my own”.`); return; }
+      if (feats.length < 2) { setMsg(`Found ${feats.length} in the play area. Need at least 2 to partition — try “Place my own”, or add a Custom category (☰ menu).`); return; }
       s.close();
+      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
       this._matchNearestSelect(card, feats);
     };
     s.q("#mt-manual").onclick = async () => {
@@ -909,13 +910,16 @@ export class Layers {
       const corners = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]];
       const maxD = Math.max(...corners.map((c) => turf.distance([center.lng, center.lat], c, { units: "meters" })));
       const searchRadius = Math.min(50000, maxD + cat.radius); // cover the whole area + tentacle reach
-      let feats = [];
+      let feats = [], source = "google";
       try {
-        feats = await searchCategory(this.map, { center, radius: searchRadius, type: cat.type });
+        // Overpass fallback bbox is padded by the tentacle radius so places just
+        // outside the play area (but within reach) are still found.
+        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius: searchRadius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: cat.radius }));
       } catch (e) {
         toast(e.message);
         return this.openPanel();
       }
+      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
       // Keep only places whose radius circle can actually reach the play area (no
       // cap — long lists are searchable in the chooser).
       feats = feats.filter((f) => distancePointToArea(f, g.gameArea) <= cat.radius);
@@ -1043,13 +1047,14 @@ export class Layers {
       const g = store.getCurrent();
       const { center, radius } = this._searchParams(g.gameArea);
       setMsg("Searching…");
-      let feats = [];
+      let feats = [], source = "google";
       try {
-        feats = await searchCategory(this.map, { center, radius, type: card.type, keyword: card.keyword });
+        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._inAreaFeatures(feats, g.gameArea);
-      if (!feats.length) { setMsg(`No ${card.label.toLowerCase()} found in the play area — try “Place my own”.`); return; }
+      if (!feats.length) { setMsg(`No ${card.label.toLowerCase()} found in the play area — try “Place my own”, or add a Custom category (☰ menu).`); return; }
       s.close();
+      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
       this._distanceSheet(card, {
         refType: "points", refLabel: card.label,
         refGeometry: { type: "MultiPoint", coordinates: feats.map((f) => [f.lng, f.lat]) },

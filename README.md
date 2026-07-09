@@ -65,6 +65,11 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - 🗺 Admin check: tap two points, compare admin divisions level by level (✓/✗/–).
   - Custom library (☰ menu): reusable custom Places categories (in Matching /
     Measuring / Tentacles) and saved pins (seed the "place my own" flows).
+- **Phase 10 — Optional Overpass fallback (Render Web Service)** ✅
+  - `server.js` Overpass proxy (multi-endpoint retry/backoff, broadened OSM tags),
+    deployed as a **separate** Render Web Service (`render.yaml`, `package.json`).
+  - Client falls back Google → Overpass on failure / thin results, gated on
+    `OVERPASS_PROXY_URL` (unset = Google-only). See **Backend (optional)** below.
 
 ## Run it locally
 
@@ -122,6 +127,22 @@ the Maps key is injected from an environment variable at build time by
    `https://jltg-hide-and-seek.onrender.com/*` (and keep the 4 API restrictions).
    **Without this, Maps requests are silently rejected in production even though local
    dev still works.**
+
+### Backend (optional) — Overpass proxy
+
+Phase 10 adds an optional **Overpass proxy** ([`server.js`](server.js)) used only as a
+*fallback* for Places-category search when Google Places fails or is quota-exhausted.
+The map engine stays Google Maps; this never replaces it. It's a **separate** Render
+Web Service — the Static Site above is unaffected, and if you don't deploy it the app
+simply uses Google Places only.
+
+- **Run locally:** `npm install` then `npm start` → serves on `:3000`
+  (`/health`, `/overpass?category=hospital&bbox=S,W,N,E`). Point the client at it by
+  setting `OVERPASS_PROXY_URL` in your `config.js` (e.g. `http://localhost:3000`).
+- **Deploy on Render:** the second service in [`render.yaml`](render.yaml)
+  (`type: web`, `runtime: node`, `plan: free`, `npm install` / `npm start`). Set its
+  `ALLOW_ORIGIN` to your Static Site's `*.onrender.com` URL, then set the Static Site's
+  `OVERPASS_PROXY_URL` env var to the backend's URL and redeploy.
 
 ## Project layout
 
