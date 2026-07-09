@@ -85,11 +85,23 @@ On a new device it asks once for your Maps API key (stored only on that device).
     (create/join by code, hider/seeker role). Gated on `MULTIPLAYER_URL` (falls back to
     `OVERPASS_PROXY_URL`); inert when unconfigured. Verified end-to-end. Design +
     v1 deviations: [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md).
-- **Phase 14 — Rebuild the Android APK** ⏳ blocked on a live Render URL + a device
-  - Turnkey runbook prepared: [`APK_REBUILD.md`](APK_REBUILD.md) +
-    [`twa-manifest.template.json`](twa-manifest.template.json). Rebuild the thin TWA
-    wrapper against the new `*.onrender.com` URL once the app is deployed (needs the
-    Android toolchain, a keystore, and a device to test — can't be done in CI).
+- **Phase 14 — Rebuild the Android APK** ✅ (device sanity-check still manual)
+  - [`download/JLTG.apk`](download/JLTG.apk) rebuilt + re-signed against the live
+    Render URL (`jltg-map-companion.onrender.com`, was GitHub Pages), packageId
+    `app.web.jltg.twa`, v1.1.0, apksigner v1/v2/v3 verified. Digital Asset Links at
+    [`.well-known/assetlinks.json`](.well-known/assetlinks.json) so it verifies as a
+    fullscreen TWA once deployed. New signing key ⇒ **uninstall the old app first**.
+    Runbook: [`APK_REBUILD.md`](APK_REBUILD.md).
+- **Phase 15 — Unified POI candidate picker** ✅
+  - One reusable chooser across Matching-nearest, Tentacles and Measuring-points:
+    auto-found candidates as **checkboxes** (tick which count) + **Add by tap** and
+    **Add by search** (text-search a place/address → confirm). Saved pins seed as
+    unticked candidates. Places `nearbySearch` now paginates (~60, not 20).
+- **Phase 16 — Admin-division tracing helper** ✅
+  - Drawing an Admin Division (1st–4th) offers a pre-draw sheet to toggle the
+    **official boundary** of the division you're in (via Data-Driven Styling) to trace
+    over. Only L1/L2/locality exist as DDS FeatureTypes, and rendering needs boundary
+    FeatureLayers enabled on the Map ID (the sheet says so + degrades gracefully).
 
 ## Run it locally
 
