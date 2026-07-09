@@ -15,6 +15,8 @@
 // there is one Node Web Service rather than two.
 
 import express from "express";
+import { createServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -143,4 +145,62 @@ function normalize(json) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-app.listen(PORT, () => console.log(`JLTG backend listening on :${PORT} (Overpass proxy at /overpass)`));
+// ---- Phase 13: Socket.IO multiplayer relay --------------------------------
+// A RELAY, not a store (Circuit pattern): rooms keyed by a short session code, only
+// ephemeral in-memory session state (last snapshot + membership) is kept. If the
+// server restarts, clients recover by having the host re-offer a snapshot. Lives in
+// this same Express app so there's one Node Web Service (also serves /overpass).
+const httpServer = createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: ALLOW_ORIGIN, methods: ["GET", "POST"] },
+});
+
+const sessions = new Map(); // code -> { hostDeviceId, members: Map<deviceId,{role}>, snapshot }
+
+io.on("connection", (socket) => {
+  let joinedCode = null;
+  let myDeviceId = null;
+
+  // Create or join a session room. First device to a code is the host (snapshot
+  // authority). Ack returns the host id + the cached snapshot (null if first in).
+  socket.on("session.join", ({ code, role, deviceId }, ack) => {
+    if (!code || !deviceId) { ack?.({ ok: false, error: "code and deviceId required" }); return; }
+    joinedCode = String(code).toUpperCase();
+    myDeviceId = deviceId;
+    socket.join(joinedCode);
+    let s = sessions.get(joinedCode);
+    if (!s) { s = { hostDeviceId: deviceId, members: new Map(), snapshot: null }; sessions.set(joinedCode, s); }
+    s.members.set(deviceId, { role });
+    ack?.({ ok: true, host: s.hostDeviceId, isHost: s.hostDeviceId === deviceId, snapshot: s.snapshot, members: [...s.members.keys()] });
+    // Tell existing members someone joined (host re-offers a fresh snapshot on this).
+    socket.to(joinedCode).emit("presence", { deviceId, role, joined: true, members: [...s.members.keys()] });
+  });
+
+  // Relay a game event to everyone else in the room; cache snapshots for late joiners.
+  socket.on("event", ({ code, event }) => {
+    const room = (code && String(code).toUpperCase()) || joinedCode;
+    if (!room || !event) return;
+    if (event.kind === "snapshot") {
+      const s = sessions.get(room);
+      if (s) s.snapshot = event.payload;
+    }
+    socket.to(room).emit("event", event);
+  });
+
+  socket.on("session.leave", () => cleanup());
+  socket.on("disconnect", () => cleanup());
+
+  function cleanup() {
+    if (!joinedCode) return;
+    const s = sessions.get(joinedCode);
+    if (s) {
+      s.members.delete(myDeviceId);
+      socket.to(joinedCode).emit("presence", { deviceId: myDeviceId, joined: false, members: [...s.members.keys()] });
+      if (s.members.size === 0) sessions.delete(joinedCode); // GC empty rooms
+    }
+    socket.leave(joinedCode);
+    joinedCode = null;
+  }
+});
+
+httpServer.listen(PORT, () => console.log(`JLTG backend listening on :${PORT} (Overpass proxy /overpass · multiplayer relay /socket.io)`));

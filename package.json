@@ -12,6 +12,7 @@
     "build:config": "node scripts/build-config.js"
   },
   "dependencies": {
-    "express": "^4.22.2"
+    "express": "^4.22.2",
+    "socket.io": "^4.8.3"
   }
 }

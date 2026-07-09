@@ -23,4 +23,9 @@ window.JLTG_CONFIG = {
   // category search falls back to OpenStreetMap via this proxy. Leave blank to
   // disable the fallback (Google Places only).
   OVERPASS_PROXY_URL: "",
+
+  // OPTIONAL (Phase 13): base URL of the Render backend for LIVE MULTIPLAYER sync
+  // (the same Node service as the Overpass proxy). Leave blank to fall back to
+  // OVERPASS_PROXY_URL; blank both to disable multiplayer entirely.
+  MULTIPLAYER_URL: "",
 };

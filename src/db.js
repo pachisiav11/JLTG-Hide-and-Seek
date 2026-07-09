@@ -4,9 +4,10 @@
 //   - zones      (keyPath "id")  — reusable named zone polygons (zone library, Phase 1)
 //   - categories (keyPath "id")  — reusable custom Places categories (Phase 9)
 //   - pins       (keyPath "id")  — reusable named location pins (Phase 9)
+//   - outbox     (keyPath "id")  — offline-queued multiplayer events (Phase 13)
 //   - settings   (keyPath "key") — lightweight app-wide settings
 const DB_NAME = "jltg";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -34,6 +35,10 @@ export function openDB() {
       }
       if (!db.objectStoreNames.contains("pins")) {
         db.createObjectStore("pins", { keyPath: "id" });
+      }
+      // Added in DB_VERSION 3 (Phase 13): offline-queued multiplayer events.
+      if (!db.objectStoreNames.contains("outbox")) {
+        db.createObjectStore("outbox", { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });

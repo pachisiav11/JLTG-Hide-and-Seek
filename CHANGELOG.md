@@ -32,17 +32,30 @@ bumping the version pill without a real build would misreport the outcome, so in
 - Added [`twa-manifest.template.json`](twa-manifest.template.json) mirroring the PWA
   manifest, with host/URL placeholders to fill with the Render URL.
 
-## Phase 13 — Live multiplayer sync (design pass only)
-Gated by design: the design doc comes first and **implementation is blocked pending
-review** (this phase changes the "no server, no account" premise in GUIDE.md §2).
-- Wrote [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md): session/role model layered on
-  the existing `Game`; a coarse semantic **event log** (append-on-collections +
-  last-writer-wins on scalars) that leans on the already order-independent
-  `computeActiveArea` so concurrent `step.add`s never conflict; a Render **Node +
-  Socket.IO** relay reusing the Phase 10 Express app (Circuit pattern, rooms keyed by
-  session code, relay-not-store); and a gelbh-style IndexedDB **outbox** with
-  retry/backoff so each device stays offline-resilient with IndexedDB as its source of
-  truth. No implementation code written yet — see the doc's §8 open questions.
+## Phase 13 — Live multiplayer sync (IMPLEMENTED)
+Design doc written first ([`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md)); the review
+gate was then explicitly overridden by the developer after Phases 7–12 were assured
+working in-browser, so v1 was built and verified end-to-end.
+- **Socket.IO relay** added to the existing Express service ([`server.js`](server.js)):
+  rooms keyed by a session code, presence, snapshot cache for late joiners, echo via
+  `socket.to(room)` — a relay, not a store. Same one Node Web Service as the Overpass
+  proxy (`render.yaml` unchanged; `socket.io` added to `package.json`).
+- **Client sync engine** ([`src/sync.js`](src/sync.js)): loads the Socket.IO client from
+  the backend (no build step), derives **semantic events by diffing the store** (no
+  mutation-site instrumentation), applies inbound events through the same `store.update`
+  (idempotent, echo-suppressed), an IndexedDB **`outbox`** (DB_VERSION→3) that queues
+  while offline and flushes on reconnect, and snapshot **adopt** (on join) / **union-merge**
+  (in-session). Gated on `MULTIPLAYER_URL` (falls back to `OVERPASS_PROXY_URL`); inert
+  when unconfigured.
+- **UI:** ☰ menu ▸ 📡 Multiplayer — create/join by code, pick role (hider/seeker),
+  presence + connection status, leave.
+- **GUIDE.md §2 amended:** "no server, no account" → "no account, optional relay"
+  (IndexedDB is still each device's source of truth; the app is unchanged with no
+  backend configured).
+- **Verified:** two headless clients (relay + snapshot + presence + cross-device event
+  delivery); a real browser client connecting to the live relay, applying inbound
+  events, suppressing echoes, and streaming its own `zone.add`/`step.add` edits to a
+  joined Node peer.
 
 ## Phase 12 — Presentation polish
 Client-side only; no hosting impact.

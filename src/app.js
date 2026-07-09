@@ -165,7 +165,17 @@ async function main() {
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
-    const games = new Games(zones, { boundaries, features, library });
+    // Multiplayer sync (Phase 13): only active if a backend URL is configured;
+    // otherwise it's inert and the menu shows "not configured".
+    let sync = null;
+    try {
+      const { Sync } = await import("./sync.js");
+      sync = new Sync();
+      sync.init();
+    } catch (e) {
+      console.warn("Multiplayer sync unavailable:", e);
+    }
+    const games = new Games(zones, { boundaries, features, library, sync });
     layers.init();
     hider.init();
 
@@ -187,7 +197,7 @@ async function main() {
     wireToolbar(zones, features, layers, hider);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, hider, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, hider, games, boundaries, library, sync, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

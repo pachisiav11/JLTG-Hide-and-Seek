@@ -78,11 +78,13 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Map / Satellite / Dark base-style toggle (Settings) + 🖨 Print / save map (PDF).
   - i18n scaffolding (`src/i18n.js` + `src/langs/en.js`; English only for now).
   - PWA "New version available — Reload" banner instead of a silent SW swap.
-- **Phase 13 — Live multiplayer sync** 📝 design pass (gated)
-  - Design doc written: [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md) — session/role
-    model, conflict handling, Render Node + Socket.IO relay (Circuit pattern), offline
-    queue. **Implementation is intentionally blocked pending review** (it changes the
-    "no server, no account" premise in `GUIDE.md` §2).
+- **Phase 13 — Live multiplayer sync** ✅ (v1, review gate overridden)
+  - Socket.IO relay in [`server.js`](server.js) (rooms by session code, snapshot cache,
+    presence) + client sync engine [`src/sync.js`](src/sync.js) (diff-derived events,
+    idempotent apply, offline `outbox`, snapshot adopt/merge). ☰ menu ▸ 📡 Multiplayer
+    (create/join by code, hider/seeker role). Gated on `MULTIPLAYER_URL` (falls back to
+    `OVERPASS_PROXY_URL`); inert when unconfigured. Verified end-to-end. Design +
+    v1 deviations: [`MULTIPLAYER_DESIGN.md`](MULTIPLAYER_DESIGN.md).
 - **Phase 14 — Rebuild the Android APK** ⏳ blocked on a live Render URL + a device
   - Turnkey runbook prepared: [`APK_REBUILD.md`](APK_REBUILD.md) +
     [`twa-manifest.template.json`](twa-manifest.template.json). Rebuild the thin TWA
@@ -161,6 +163,11 @@ simply uses Google Places only.
   (`type: web`, `runtime: node`, `plan: free`, `npm install` / `npm start`). Set its
   `ALLOW_ORIGIN` to your Static Site's `*.onrender.com` URL, then set the Static Site's
   `OVERPASS_PROXY_URL` env var to the backend's URL and redeploy.
+
+The **same** backend also hosts the Phase 13 **multiplayer relay** (`/socket.io`). To
+enable live sync, set the Static Site's `MULTIPLAYER_URL` to the backend URL (or just
+reuse `OVERPASS_PROXY_URL` — with none set, `MULTIPLAYER_URL` falls back to it). Then
+☰ menu ▸ 📡 Multiplayer lets one device create a session and others join by code.
 
 ## Project layout
 

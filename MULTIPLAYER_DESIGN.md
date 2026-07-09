@@ -1,9 +1,25 @@
 # Phase 13 — Live Multiplayer Sync — Design Doc
 
-> **Status: DESIGN — not yet implemented. Do not write implementation code until
-> this doc is reviewed and confirmed** (IMPROVEMENTS.md Phase 13, step 4). This phase
-> changes the "no server, no account" premise locked in [GUIDE.md](GUIDE.md) §2, so it
-> must be an explicit, discussed decision.
+> **Status: IMPLEMENTED (v1), 2026-07-09** — the review gate was explicitly overridden
+> by the developer after Phases 7–12 were assured working in-browser. Built per this
+> doc with two pragmatic v1 choices noted below; end-to-end verified (server relay +
+> snapshot + presence via two headless clients; a real browser client connecting to
+> the live relay, applying inbound events, suppressing echoes, and streaming its local
+> `zone.add`/`step.add` edits to a joined peer).
+>
+> **v1 deviations from the pure design (intentional, documented):**
+> 1. **Events are DIFF-DERIVED, not instrumented at each mutation site.** `src/sync.js`
+>    subscribes to the store and diffs the game against the last synced state to emit
+>    `zone.add/remove`, `step.add/update/remove`, `hider.set`, `game.rename`. This keeps
+>    the tool flows untouched (no call-site changes) and applies inbound events through
+>    the same `store.update` path (idempotent, echo-suppressed by `deviceId`).
+> 2. **Snapshot reconciliation uses union-merge, not a full Lamport CRDT.** On join a
+>    peer ADOPTS the host snapshot; in-session snapshots MERGE (union collections by id,
+>    last-writer-wins on scalars). Concurrent `step.add`s still never conflict (the
+>    reason in §3 holds). A Lamport clock is carried on events for future ordering work.
+>
+> Original gate (now satisfied): *this phase changes the "no server, no account" premise
+> in [GUIDE.md](GUIDE.md) §2* — §2 has been amended to "no account, optional relay."
 
 This is the single largest capability gap versus the `gelbh/jetlag` reference (session
 code + live sync across seeker/hider devices). The goal: two or more devices in the

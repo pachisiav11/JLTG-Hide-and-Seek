@@ -29,6 +29,7 @@ const centerLat = process.env.DEFAULT_CENTER_LAT || "1.2830";
 const centerLng = process.env.DEFAULT_CENTER_LNG || "103.8590";
 const zoom = process.env.DEFAULT_ZOOM || "12";
 const overpassProxy = process.env.OVERPASS_PROXY_URL || "";
+const multiplayerUrl = process.env.MULTIPLAYER_URL || "";
 
 if (!key) {
   console.warn(
@@ -55,6 +56,7 @@ window.JLTG_CONFIG = {
   DEFAULT_CENTER: { lat: ${Number(centerLat)}, lng: ${Number(centerLng)} },
   DEFAULT_ZOOM: ${Number(zoom)},
   OVERPASS_PROXY_URL: ${JSON.stringify(overpassProxy)},
+  MULTIPLAYER_URL: ${JSON.stringify(multiplayerUrl)},
 };
 `;
 

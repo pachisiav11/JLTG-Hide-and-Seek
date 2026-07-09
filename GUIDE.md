@@ -33,7 +33,15 @@ the map.
 | Map engine | **Google Maps JavaScript API** | Native custom overlays (circles/polygons), Transit layer, tilt/zoom. |
 | Geometry | **Turf.js** | Voronoi, perpendicular bisectors, buffers, polygon union/intersection/difference — the exact primitives every tool needs. |
 | Data provider | **Google Maps Platform (real API key)** | Accurate transit timings & Places (important for Singapore). Stays inside the free tier for personal use. |
-| Storage | **IndexedDB (local, on-device)** | Every game stored permanently and re-openable. No server, no account. |
+| Storage | **IndexedDB (local, on-device)** | Every game stored permanently and re-openable. No account. |
+
+> **Phase 13 amendment (optional live multiplayer).** The original "no server, no
+> account" premise is relaxed to **"no account, optional relay."** IndexedDB is still
+> each device's source of truth and the app works fully offline/single-device; when a
+> backend URL is configured, an **optional** Socket.IO relay (a relay, not a store —
+> [MULTIPLAYER_DESIGN.md](MULTIPLAYER_DESIGN.md)) lets devices in a session code share
+> zones/questions live. No login is ever required. With no backend configured the app
+> is exactly as before.
 
 **Not a native overlay.** The app renders its *own* Google Map. It is not injected
 into the stock Maps app. Functionally you keep 100% of Maps features because Google
