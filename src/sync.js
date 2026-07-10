@@ -60,6 +60,10 @@ export class Sync {
     localStorage.setItem(LS_DEVICE, this.deviceId);
     this.socket = null;
     this.session = null;      // { code, role, isHost }
+    // The game that was open BEFORE joining a session. Joining a session adopts the
+    // host's game as current; leaving restores this one so you leave the shared game
+    // too (not just the socket). Persisted in the saved session so it survives reload.
+    this._homeGameId = null;
     this.connected = false;
     this.lamport = 0;
     this._last = null;        // last-synced game snapshot (for diffing)
@@ -85,10 +89,14 @@ export class Sync {
   init() {
     // Derive + relay local changes by diffing the store against the last synced state.
     store.subscribe(() => { if (this.session && !this._applying) this._diffAndEmit(); });
-    // Optional auto-rejoin after a reload.
+    // Optional auto-rejoin after a reload. Carry the saved homeGameId through — by
+    // now the current game is already the session game, so it must NOT be recomputed
+    // from the store, or leaving after a reload would strand you in the shared game.
     try {
       const saved = JSON.parse(localStorage.getItem(LS_SESSION) || "null");
-      if (saved?.code && backendUrl()) this.join(saved.code, saved.role || "seeker").catch(() => {});
+      if (saved?.code && backendUrl()) {
+        this.join(saved.code, saved.role || "seeker", { homeGameId: saved.homeGameId ?? null }).catch(() => {});
+      }
     } catch (_) {}
   }
 
@@ -111,20 +119,27 @@ export class Sync {
   }
 
   // Create a session: server assigns us host; we seed the room with our snapshot.
+  // The home game IS our current game here (we don't adopt anyone), so leaving just
+  // stops sharing and keeps us in it.
   async create(role = "hider") {
     const code = uid("s").slice(-4).toUpperCase().replace(/[^A-Z0-9]/g, "X");
-    return this.join(code, role, { creating: true });
+    return this.join(code, role);
   }
 
-  async join(code, role = "seeker") {
+  // opts.homeGameId: on a FRESH join it defaults to the game currently open (the one
+  // to return to on leave); on an auto-rejoin after reload the caller passes the
+  // saved id explicitly, because by then the current game is already the session game.
+  async join(code, role = "seeker", opts = {}) {
     code = String(code).toUpperCase();
+    const homeGameId = opts.homeGameId !== undefined ? opts.homeGameId : (store.getCurrent()?.id || null);
     await this._connect();
     return new Promise((resolve, reject) => {
       this.socket.emit("session.join", { code, role, deviceId: this.deviceId }, (ack) => {
         if (!ack?.ok) { reject(new Error(ack?.error || "Join failed.")); return; }
         this.session = { code, role, isHost: ack.isHost };
+        this._homeGameId = homeGameId;
         this.members = ack.members || [this.deviceId];
-        localStorage.setItem(LS_SESSION, JSON.stringify({ code, role }));
+        localStorage.setItem(LS_SESSION, JSON.stringify({ code, role, homeGameId }));
         if (ack.snapshot) {
           this._adopt(ack.snapshot);        // joining an existing session → adopt its game
         } else {
@@ -137,14 +152,26 @@ export class Sync {
     });
   }
 
-  leave() {
+  // Leave the session AND the shared game: return to the game that was open before
+  // joining. For the host (home === the session game) this is a no-op switch and they
+  // keep their game. A joiner returns to their own game; if it was deleted meanwhile,
+  // fall back to a fresh game so they're never stranded in the now-unsynced board.
+  async leave() {
     if (this.socket && this.session) this.socket.emit("session.leave");
+    const home = this._homeGameId;
+    const sessionGameId = store.getCurrent()?.id || null;
     this.session = null;
     this.members = [];
     this._tombZones.clear();
     this._tombSteps.clear();
+    this._homeGameId = null;
+    this._last = null;
     localStorage.removeItem(LS_SESSION);
     this._status();
+    if (home && home !== sessionGameId) {
+      try { await store.openGame(home); }
+      catch (_) { await store.newGame({}); } // home game gone → don't strand the user
+    }
   }
 
   // ---- Outbound: diff the store and emit semantic events --------------------
@@ -198,6 +225,7 @@ export class Sync {
 
   // ---- Inbound: apply a remote event through the same store mutations --------
   _applyEvent(event) {
+    if (!this.session) return; // left the session → don't apply stray/late events to the home game
     if (!event || event.deviceId === this.deviceId) return; // echo suppression
     if (event.lamport > this.lamport) this.lamport = event.lamport; // clock catch-up
     this._applying = true;

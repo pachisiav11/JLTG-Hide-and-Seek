@@ -94,7 +94,12 @@ export class Games {
       const role = () => s.qa('input[name="mp-role"]').find((r) => r.checked)?.value || "seeker";
       if (inSession) {
         s.q("#mp-done").onclick = () => s.close();
-        s.q("#mp-leave").onclick = () => { sync.leave(); s.close(); toast("Left the session."); };
+        s.q("#mp-leave").onclick = async () => {
+          s.close();
+          await sync.leave();          // also switches back to your own game
+          this.zones?.fitToArea();
+          toast("Left the session — back to your own game.");
+        };
       } else {
         s.q("#mp-create").onclick = async () => {
           try { const ses = await sync.create(role()); s.close(); toast(`Session ${ses.code} created — share the code.`); }
