@@ -207,11 +207,14 @@ export class Layers {
     for (const gd of guides || []) {
       if (gd.type === "circle") {
         this.overlays.push(new google.maps.Circle({ strokeColor: primary, strokeOpacity: 0.9, strokeWeight: 2, fillOpacity: 0, zIndex: 5, center: gd.center, radius: gd.radius, map: this.map, clickable: false }));
-        if (gd.editable && step) this._editAnchor(step, gd.editable, gd.center, primary);
+        // A committed radar centre is LOCKED (its position is only adjustable during
+        // setup) and LABELLED "◎" so it reads as the radar centre, not a stray pin.
+        if (gd.editable && step) this._lockedAnchor(gd.center, "◎", "Radar centre");
       } else if (gd.type === "line") {
         this.overlays.push(new google.maps.Polyline({ strokeColor: primary, strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5, path: [gd.from, gd.to], map: this.map, clickable: false }));
       } else if (gd.type === "point") {
-        if (gd.editable && step) this._editAnchor(step, gd.editable, { lat: gd.lat, lng: gd.lng }, primary, gd.label);
+        // Committed thermometer A/B anchors: labelled + locked (see radar centre).
+        if (gd.editable && step) this._lockedAnchor({ lat: gd.lat, lng: gd.lng }, gd.label, `Point ${gd.label || ""}`.trim());
         else this.overlays.push(new google.maps.Marker({ position: { lat: gd.lat, lng: gd.lng }, label: gd.label || "", map: this.map }));
       } else if (gd.type === "outline") {
         // A drawn division / region boundary (bold) reads clearly as the dividing
@@ -226,27 +229,40 @@ export class Layers {
     }
   }
 
-  // A drag-to-reposition anchor for a placed point (Radar centre, Thermometer A/B).
-  // Correcting a mis-tapped point no longer means restarting the tool (Phase 7):
-  // dragging rewrites step.inputs[field], which recomputes + re-renders the region.
-  // A drag that lands outside the play area is rejected and snapped back.
-  _editAnchor(step, field, position, color, label) {
+  // A committed, LOCKED anchor marker (Radar centre, Thermometer A/B). The centre is
+  // positioned only DURING question setup (see _setupAnchor); once the question is
+  // committed the position is fixed, so this marker is non-draggable and just labels
+  // the point (so it isn't mistaken for a location/hider pin).
+  _lockedAnchor(position, label, title) {
+    this.overlays.push(new google.maps.Marker({
+      position, map: this.map, zIndex: 7, clickable: false,
+      title: title || "Locked point",
+      label: label ? { text: String(label), color: "#04252a", fontWeight: "700" } : undefined,
+    }));
+  }
+
+  // A DRAGGABLE preview anchor shown while a question is being set up, so the seeker
+  // can fine-tune the point before committing. Drags outside the play area are
+  // rejected and snapped back. Caller reads getPos() at commit and calls remove() on
+  // every exit path (cancel / close / add). After commit the point is locked.
+  _setupAnchor(position, label) {
+    const state = { pos: { ...position } };
     const marker = new google.maps.Marker({
-      position, map: this.map, draggable: true, zIndex: 7,
-      title: "Drag to reposition",
-      label: label ? { text: label, color: "#04252a", fontWeight: "700" } : undefined,
+      position, map: this.map, draggable: true, zIndex: 8,
+      title: "Drag to adjust — locks when you add the question",
+      label: label ? { text: String(label), color: "#04252a", fontWeight: "700" } : undefined,
     });
     marker.addListener("dragend", (e) => {
       const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
       const area = store.getCurrent()?.gameArea;
       if (area && window.turf && !this._inArea(p, area)) {
         toast("Keep the point inside the play area.");
-        this.render(); // snap the marker back to the stored position
+        marker.setPosition(state.pos); // snap back to the last valid position
         return;
       }
-      store.update((g) => { const s = g.history.find((x) => x.id === step.id); if (s) s.inputs[field] = p; });
+      state.pos = p;
     });
-    this.overlays.push(marker);
+    return { getPos: () => ({ ...state.pos }), remove: () => marker.setMap(null) };
   }
 
   _clear() {
@@ -677,11 +693,14 @@ export class Layers {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
     if (!pts) return this.openPanel();
-    const center = pts[0];
+    // Draggable preview: the centre can be nudged until the question is committed
+    // (map stays pannable via mapInteractive), then it's locked.
+    const anchor = this._setupAnchor(pts[0], "◎");
     const s = openSheet({
       title: "Radar",
+      mapInteractive: true,
       bodyHTML: `
-        <p class="muted">“Are you within this distance of the point?”</p>
+        <p class="muted">“Are you within this distance of the point?” Drag the ◎ centre to adjust it before adding — it locks once the question is added.</p>
         <label class="fieldlbl">Radius (metres)</label>
         <input id="r-radius" class="field" type="number" inputmode="numeric" value="1000" min="10" step="10" />
         <div class="seg" role="radiogroup" aria-label="Answer">
@@ -692,12 +711,13 @@ export class Layers {
           <button id="r-cancel" class="btn btn-ghost">Cancel</button>
           <button id="r-add" class="btn btn-primary">Add question</button>
         </div>`,
+      onClose: () => anchor.remove(), // covers cancel, the ✕, and add (all call close)
     });
     s.q("#r-cancel").onclick = () => s.close();
     s.q("#r-add").onclick = () => {
       const radius = Math.max(10, parseFloat(s.q("#r-radius").value) || 0);
       const side = s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in";
-      this.addStep("radar", { center, radius }, { side });
+      this.addStep("radar", { center: anchor.getPos(), radius }, { side });
       s.close();
       toast("Radar question added.");
     };
@@ -708,11 +728,14 @@ export class Layers {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
     if (!pts || pts.length < 2) return this.openPanel();
-    const [a, b] = pts;
+    // Draggable A/B previews: adjustable until the question is committed, then locked.
+    const anchorA = this._setupAnchor(pts[0], "A");
+    const anchorB = this._setupAnchor(pts[1], "B");
     const s = openSheet({
       title: "Thermometer",
+      mapInteractive: true,
       bodyHTML: `
-        <p class="muted">Moving A → B, are you hotter (closer) or colder (farther)?</p>
+        <p class="muted">Moving A → B, are you hotter (closer) or colder (farther)? Drag A or B to adjust before adding — they lock once the question is added.</p>
         <div class="seg" role="radiogroup" aria-label="Answer">
           <label><input type="radio" name="th-side" value="hotter" checked /> Hotter (closer to B)</label>
           <label><input type="radio" name="th-side" value="colder" /> Colder (closer to A)</label>
@@ -721,11 +744,12 @@ export class Layers {
           <button id="th-cancel" class="btn btn-ghost">Cancel</button>
           <button id="th-add" class="btn btn-primary">Add question</button>
         </div>`,
+      onClose: () => { anchorA.remove(); anchorB.remove(); },
     });
     s.q("#th-cancel").onclick = () => s.close();
     s.q("#th-add").onclick = () => {
       const side = s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter";
-      this.addStep("thermometer", { a, b }, { side });
+      this.addStep("thermometer", { a: anchorA.getPos(), b: anchorB.getPos() }, { side });
       s.close();
       toast("Thermometer question added.");
     };
