@@ -470,26 +470,6 @@ export function computeActiveArea(gameArea, steps) {
   return safeDiff(gameArea, removed);
 }
 
-// Optional computed-truth check (Phase 11). JLTG answers are always MANUAL; this
-// never overrides them. It reuses the elimination geometry the step already
-// produces: if the hider's known point falls INSIDE the region this step would
-// ELIMINATE, then the manual answer removes the hider's own location — a
-// geometric contradiction worth flagging ("conflict"). Returns:
-//   "conflict"    — the answer eliminates the hider's point (double-check it),
-//   "ok"          — the point survives this step,
-//   "unavailable" — no point, no game area, or the step has no computable region
-//                   (mirrors gelbh's "truth unavailable, compute manually" case).
-export function checkStepAgainstPoint(step, gameArea, point) {
-  if (!point || !gameArea) return "unavailable";
-  let eliminated;
-  try { ({ eliminated } = computeElimination(step, gameArea)); }
-  catch (_) { return "unavailable"; }
-  if (!eliminated) return "unavailable";
-  try {
-    return T().booleanPointInPolygon(T().point([point.lng, point.lat]), feat(eliminated)) ? "conflict" : "ok";
-  } catch (_) { return "unavailable"; }
-}
-
 // Short human-readable summary for the layers list.
 export function describeStep(step) {
   if (step.tool === "radar") {

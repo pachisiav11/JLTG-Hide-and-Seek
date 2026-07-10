@@ -4,7 +4,6 @@ import * as store from "./store.js";
 import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
-import { Hider } from "./hider.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
 
@@ -158,30 +157,18 @@ async function main() {
     const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
     const layers = new Layers(map, { boundaries });
-    const hider = new Hider(map);
     await Promise.all([zones.init(), features.init()]);
     // Reusable custom library (Phase 9): custom categories + pins. Attached to
     // layers so the tool flows can offer them, and to games for the menu manager.
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
-    // Multiplayer sync (Phase 13): only active if a backend URL is configured;
-    // otherwise it's inert and the menu shows "not configured".
-    let sync = null;
-    try {
-      const { Sync } = await import("./sync.js");
-      sync = new Sync();
-      sync.init();
-    } catch (e) {
-      console.warn("Multiplayer sync unavailable:", e);
-    }
-    const games = new Games(zones, { boundaries, features, library, sync });
+    const games = new Games(zones, { boundaries, features, library });
     layers.init();
-    hider.init(sync); // pass sync so the hider zone is redacted on seeker devices
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
-    // between games. Zones, layers and hider already clear on each store change;
+    // between games. Zones and layers already clear on each store change;
     // boundary reference overlays persist WITHIN a game and are cleared here only
     // on an actual game switch (id change), never on a normal question update.
     let lastGameId = store.getCurrent()?.id || null;
@@ -199,10 +186,10 @@ async function main() {
     features.setTransit(true);
     document.querySelector('#toolbar [data-act="transit"]')?.classList.add("active");
 
-    wireToolbar(zones, features, layers, hider);
+    wireToolbar(zones, features, layers);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, hider, games, boundaries, library, sync, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
@@ -216,7 +203,7 @@ function reflectGame(game) {
 }
 
 // Wire the floating toolbar to zone + feature actions.
-function wireToolbar(zones, features, layers, hider) {
+function wireToolbar(zones, features, layers) {
   const bar = document.getElementById("toolbar");
   if (!bar) return;
   const setActive = (act, on) =>
@@ -228,7 +215,6 @@ function wireToolbar(zones, features, layers, hider) {
     const act = btn.dataset.act;
     if (act === "zones") zones.openPanel();
     else if (act === "layers") layers.openPanel();
-    else if (act === "hider") hider.openPanel(layers);
     else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());

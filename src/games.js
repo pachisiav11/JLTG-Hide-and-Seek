@@ -5,12 +5,11 @@ import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null, sync = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
     this.library = library; // reusable custom categories + pins (Phase 9)
-    this.sync = sync; // live multiplayer sync (Phase 13)
   }
 
   // ---- Top menu ----
@@ -24,7 +23,6 @@ export class Games {
           <button id="mn-new" class="btn">➕ New game</button>
           <button id="mn-clear" class="btn">🧹 Clear board</button>
           <button id="mn-history" class="btn">🗂 Game history</button>
-          <button id="mn-multi" class="btn">📡 Multiplayer${this.sync?.inSession() ? ` · ${escapeHtml(this.sync.session.code)}` : ""}</button>
           <button id="mn-library" class="btn">📌 Custom library</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
@@ -37,7 +35,6 @@ export class Games {
     s.q("#mn-new").onclick = async () => { s.close(); await this.newGame(); };
     s.q("#mn-clear").onclick = () => { s.close(); this.clearBoard(); };
     s.q("#mn-history").onclick = () => { s.close(); this.openHistory(); };
-    s.q("#mn-multi").onclick = () => { s.close(); this.openMultiplayer(); };
     s.q("#mn-library").onclick = () => { s.close(); this.library ? this.library.openManager() : toast("Library unavailable."); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
@@ -55,66 +52,6 @@ export class Games {
   printMap() {
     toast("Opening print view… choose “Save as PDF” to export.", 3500);
     setTimeout(() => window.print(), 400);
-  }
-
-  // ---- Multiplayer (Phase 13) ----
-  openMultiplayer() {
-    const sync = this.sync;
-    if (!sync || !sync.isConfigured()) {
-      const s = openSheet({
-        title: "Multiplayer",
-        bodyHTML: `<p class="muted">Live sync isn't configured on this device. Set <code>MULTIPLAYER_URL</code> (or reuse <code>OVERPASS_PROXY_URL</code>) in <code>config.js</code> to your Render backend, then reload.</p>
-          <div class="sheet-actions"><button id="mp-close" class="btn btn-primary">OK</button></div>`,
-      });
-      s.q("#mp-close").onclick = () => s.close();
-      return;
-    }
-    const render = () => {
-      const inSession = sync.inSession();
-      const body = inSession
-        ? `<p class="muted">Session <strong>${escapeHtml(sync.session.code)}</strong> · you are the <strong>${escapeHtml(sync.session.role)}</strong>${sync.session.isHost ? " (host)" : ""}.</p>
-           <p class="muted" id="mp-status">${sync.connected ? "🟢 connected" : "🔴 offline (queuing changes)"} · ${sync.members.length} device${sync.members.length === 1 ? "" : "s"}</p>
-           <p class="muted">Share the code with the other device — everyone in the session sees zones, questions and the shrinking area live.</p>
-           <div class="sheet-actions"><button id="mp-leave" class="btn btn-ghost">Leave session</button><button id="mp-done" class="btn btn-primary">Done</button></div>`
-        : `<p class="muted">Play across devices: one creates a session and shares the code; the others join it. Each device keeps its own local save; edits sync live and queue while offline.</p>
-           <div class="row">
-             <button id="mp-create" class="btn btn-primary">➕ Create session</button>
-           </div>
-           <label class="fieldlbl">…or join with a code</label>
-           <div class="row">
-             <input id="mp-code" class="field" placeholder="e.g. 4F7Q" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase" />
-           </div>
-           <label class="fieldlbl">Your role</label>
-           <div class="seg">
-             <label><input type="radio" name="mp-role" value="seeker" checked/> Seeker</label>
-             <label><input type="radio" name="mp-role" value="hider"/> Hider</label>
-           </div>
-           <div class="sheet-actions"><button id="mp-cancel" class="btn btn-ghost">Cancel</button><button id="mp-join" class="btn btn-primary">Join</button></div>`;
-      const s = openSheet({ title: "Multiplayer", bodyHTML: body });
-      const role = () => s.qa('input[name="mp-role"]').find((r) => r.checked)?.value || "seeker";
-      if (inSession) {
-        s.q("#mp-done").onclick = () => s.close();
-        s.q("#mp-leave").onclick = async () => {
-          s.close();
-          await sync.leave();          // also switches back to your own game
-          this.zones?.fitToArea();
-          toast("Left the session — back to your own game.");
-        };
-      } else {
-        s.q("#mp-create").onclick = async () => {
-          try { const ses = await sync.create(role()); s.close(); toast(`Session ${ses.code} created — share the code.`); }
-          catch (e) { toast(e.message); }
-        };
-        s.q("#mp-join").onclick = async () => {
-          const code = s.q("#mp-code").value.trim().toUpperCase();
-          if (!code) return toast("Enter a session code.");
-          try { await sync.join(code, role()); this.zones?.fitToArea(); s.close(); toast(`Joined ${code}.`); }
-          catch (e) { toast(e.message); }
-        };
-        s.q("#mp-cancel").onclick = () => s.close();
-      }
-    };
-    render();
   }
 
   // ---- History browser ----
@@ -167,7 +104,7 @@ export class Games {
     toast("New game created.");
   }
 
-  // Wipe the current game's map content (zones, area, questions, hider) plus any
+  // Wipe the current game's map content (zones, area, questions) plus any
   // transient overlays, so a board restored from a previous session — e.g. a
   // stray thermometer left over from earlier play — can be blanked without
   // creating a new game. Keeps the game record (name/settings) and its history
@@ -176,7 +113,7 @@ export class Games {
     const s = openSheet({
       title: "Clear board?",
       bodyHTML: `
-        <p class="muted">Remove all zones, questions and the hider from <strong>this</strong> game, and clear any route/measure/boundary overlays. This can't be undone. Other saved games are untouched.</p>
+        <p class="muted">Remove all zones and questions from <strong>this</strong> game, and clear any route/measure/boundary overlays. This can't be undone. Other saved games are untouched.</p>
         <div class="sheet-actions">
           <button id="cb-cancel" class="btn btn-ghost">Cancel</button>
           <button id="cb-go" class="btn btn-primary">Clear board</button>
@@ -301,12 +238,6 @@ export class Games {
           ${radio("questionTimer", "120", String(st.questionTimer || 0), "2 minutes")}
           ${radio("questionTimer", "300", String(st.questionTimer || 0), "5 minutes")}
         </div>
-        <h3 class="sub">Computed-truth check</h3>
-        <p class="muted">When the hider's centre is set, flag any manual answer that would remove the hider's own location (a double-check hint — it never changes your answer).</p>
-        <div class="seg">
-          ${radio("truthCheck", "off", st.truthCheck ? "on" : "off", "Off")}
-          ${radio("truthCheck", "on", st.truthCheck ? "on" : "off", "On")}
-        </div>
         <h3 class="sub">Region boundaries (advanced)</h3>
         <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
         <input id="st-mapid" class="field" type="text" autocomplete="off" spellcheck="false" placeholder="Map ID (optional)" value="${escapeHtml(localStorage.getItem("jltg.mapId") || "")}" />
@@ -331,8 +262,7 @@ export class Games {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
       const questionTimer = parseInt(s.qa('input[name="questionTimer"]').find((r) => r.checked)?.value || "0", 10);
-      const truthCheck = (s.qa('input[name="truthCheck"]').find((r) => r.checked)?.value || "off") === "on";
-      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, truthCheck }));
+      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Persist the device-level map style (already applied live via the event).
@@ -381,9 +311,6 @@ export class Games {
           </ul>
           <p class="muted">Add your own reusable <strong>Custom library</strong> (☰ menu): custom Places categories appear in Matching / Measuring / Tentacles, and saved pins can seed the “place my own” flows — handy for a city with thin map data.</p>
 
-          <h3 class="sub">3 · The hider — 🎯 Hider</h3>
-          <p class="muted">Set the hiding-zone centre and radius; everything outside the radius is shaded. The radius is per game.</p>
-
           <h3 class="sub">Map tools</h3>
           <ul>
             <li><strong>🧭 Route</strong> — directions from your location / a tapped or searched place.</li>
@@ -393,8 +320,7 @@ export class Games {
           </ul>
 
           <h3 class="sub">Games &amp; saving</h3>
-          <p class="muted"><strong>📡 Multiplayer</strong> (☰ menu, if a backend is configured) — one device creates a session and shares the code; others join as hider/seeker and see zones, questions and the shrinking area live, with edits queued while offline.</p>
-          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON, or <strong>🖨 Print / save map (PDF)</strong>). Distance mode, units, colour theme, <strong>map style</strong> (Map / Satellite / Dark), an optional per-question <strong>timer</strong>, and a <strong>computed-truth check</strong> (flags a manual answer that would remove the hider's own location) all live in Settings.</p>
+          <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON, or <strong>🖨 Print / save map (PDF)</strong>). Distance mode, units, colour theme, <strong>map style</strong> (Map / Satellite / Dark), and an optional per-question <strong>timer</strong> all live in Settings.</p>
 
           <div class="sheet-actions">
             <button id="hlp-close" class="btn btn-primary">Got it</button>

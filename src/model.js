@@ -9,7 +9,6 @@ export const DEFAULT_SETTINGS = {
   distanceMode: "straight-line", // "straight-line" | "transit" | "walking"
   units: "metric",               // "metric" | "imperial"
   questionTimer: 0,              // Phase 11: soft countdown seconds per question (0 = off)
-  truthCheck: false,            // Phase 11: flag answers that eliminate the hider's point
 };
 
 function uid(prefix) {
@@ -33,7 +32,6 @@ export function createGame(overrides = {}) {
     updatedAt: now,
     zones: overrides.zones || [],          // Zone[]
     gameArea: overrides.gameArea || null,  // GeoJSON polygon (turf.union of zones)
-    hiderLock: overrides.hiderLock || { locked: false, point: null, stationName: null },
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     settings: { ...DEFAULT_SETTINGS, ...(overrides.settings || {}) },
     // activeArea is DERIVED (not authoritative) — recomputed from gameArea + enabled steps.
@@ -65,7 +63,7 @@ export function createStep({ tool, inputs = {}, answer = {}, enabled = true } = 
 // Shape validation. Run both on import AND whenever a game is read back from
 // IndexedDB (Phase 8), so a corrupted / partially-written record surfaces a clear
 // error here instead of throwing deep inside the renderer. Kept lenient about
-// optional/derived fields (gameArea, settings, hiderLock) so older valid saves and
+// optional/derived fields (gameArea, settings) so older valid saves and
 // in-progress games still pass — it rejects only structurally broken records.
 export function validateGame(obj) {
   if (!obj || typeof obj !== "object") return "Not an object";
