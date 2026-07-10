@@ -13,11 +13,23 @@ export class Hider {
   constructor(map) {
     this.map = map;
     this.overlays = [];
+    this.sync = null; // multiplayer handle (set in init) — used for role redaction
   }
 
-  init() {
+  init(sync = null) {
+    if (sync) this.sync = sync;
     store.subscribe(() => this.render());
+    // Re-render when the multiplayer role changes (join/leave) so redaction takes
+    // effect immediately, even without a store mutation.
+    this.sync?.onStatus?.(() => this.render());
     this.render();
+  }
+
+  // Role redaction (Phase 13 fast-follow): in a multiplayer session, a SEEKER must
+  // never see the hider's location — the whole point of the game. The hider's own
+  // device (role "hider") and solo play (no session) render the zone normally.
+  _redacted() {
+    return this.sync?.session?.role === "seeker";
   }
 
   isLocked() {
@@ -51,6 +63,7 @@ export class Hider {
 
   render() {
     this._clear();
+    if (this._redacted()) return; // seekers never see the hider's zone/point
     const g = store.getCurrent();
     const lock = g?.hiderLock;
     if (!(lock?.locked && lock.point)) return;

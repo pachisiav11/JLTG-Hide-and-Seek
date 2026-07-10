@@ -177,7 +177,7 @@ async function main() {
     }
     const games = new Games(zones, { boundaries, features, library, sync });
     layers.init();
-    hider.init();
+    hider.init(sync); // pass sync so the hider zone is redacted on seeker devices
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
