@@ -194,6 +194,11 @@ async function main() {
       }
     });
 
+    // Transit on by default — hiders often stay near transit lines, so seekers
+    // want the layer visible without having to find the toggle first.
+    features.setTransit(true);
+    document.querySelector('#toolbar [data-act="transit"]')?.classList.add("active");
+
     wireToolbar(zones, features, layers, hider);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();

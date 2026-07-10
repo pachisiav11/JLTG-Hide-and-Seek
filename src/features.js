@@ -31,6 +31,12 @@ export class MapFeatures {
   }
 
   // ---- Transit layer ----
+  // On by default (Hide & Seek hiders often stay near transit, so seekers want it
+  // visible from the start) — call once at boot; toggleTransit still flips it.
+  setTransit(on) {
+    if (!this.transit) this.transit = new google.maps.TransitLayer();
+    this.transit.setMap(on ? this.map : null);
+  }
   toggleTransit() {
     if (!this.transit) this.transit = new google.maps.TransitLayer();
     const on = this.transit.getMap() == null;
