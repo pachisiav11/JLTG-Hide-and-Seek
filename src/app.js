@@ -4,6 +4,7 @@ import * as store from "./store.js";
 import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
+import { Focus } from "./focus.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
 
@@ -157,6 +158,7 @@ async function main() {
     const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
     const layers = new Layers(map, { boundaries });
+    const focus = new Focus(map);
     await Promise.all([zones.init(), features.init()]);
     // Reusable custom library (Phase 9): custom categories + pins. Attached to
     // layers so the tool flows can offer them, and to games for the menu manager.
@@ -165,6 +167,7 @@ async function main() {
     layers.library = library;
     const games = new Games(zones, { boundaries, features, library });
     layers.init();
+    focus.init();
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
@@ -186,10 +189,10 @@ async function main() {
     features.setTransit(true);
     document.querySelector('#toolbar [data-act="transit"]')?.classList.add("active");
 
-    wireToolbar(zones, features, layers);
+    wireToolbar(zones, features, layers, focus);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
@@ -203,7 +206,7 @@ function reflectGame(game) {
 }
 
 // Wire the floating toolbar to zone + feature actions.
-function wireToolbar(zones, features, layers) {
+function wireToolbar(zones, features, layers, focus) {
   const bar = document.getElementById("toolbar");
   if (!bar) return;
   const setActive = (act, on) =>
@@ -215,6 +218,7 @@ function wireToolbar(zones, features, layers) {
     const act = btn.dataset.act;
     if (act === "zones") zones.openPanel();
     else if (act === "layers") layers.openPanel();
+    else if (act === "focus") focus.openPanel(layers);
     else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());

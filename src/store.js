@@ -124,6 +124,7 @@ export async function clearBoard() {
   current.zones = [];
   current.gameArea = null;
   current.history = [];
+  current.focusZone = { point: null, radius: null };
   await saveNow();
   emit();
   return current;

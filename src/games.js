@@ -113,7 +113,7 @@ export class Games {
     const s = openSheet({
       title: "Clear board?",
       bodyHTML: `
-        <p class="muted">Remove all zones and questions from <strong>this</strong> game, and clear any route/measure/boundary overlays. This can't be undone. Other saved games are untouched.</p>
+        <p class="muted">Remove all zones, questions and the target zone from <strong>this</strong> game, and clear any route/measure/boundary overlays. This can't be undone. Other saved games are untouched.</p>
         <div class="sheet-actions">
           <button id="cb-cancel" class="btn btn-ghost">Cancel</button>
           <button id="cb-go" class="btn btn-primary">Clear board</button>
@@ -313,6 +313,7 @@ export class Games {
 
           <h3 class="sub">Map tools</h3>
           <ul>
+            <li><strong>🎯 Target</strong> — once you've narrowed down where the hider is, drop a centre point and a radius; everything outside it is shaded, leaving the suspected area clear. Per game; a marker only (no radius) is fine too.</li>
             <li><strong>🧭 Route</strong> — directions from your location / a tapped or searched place.</li>
             <li><strong>🚆 Transit</strong> — toggle the transit layer.</li>
             <li><strong>📏 Measure</strong> — tap two points (drag to adjust) for distance + travel time.</li>

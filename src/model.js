@@ -32,6 +32,7 @@ export function createGame(overrides = {}) {
     updatedAt: now,
     zones: overrides.zones || [],          // Zone[]
     gameArea: overrides.gameArea || null,  // GeoJSON polygon (turf.union of zones)
+    focusZone: overrides.focusZone || { point: null, radius: null }, // solo target zone (point + radius)
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     settings: { ...DEFAULT_SETTINGS, ...(overrides.settings || {}) },
     // activeArea is DERIVED (not authoritative) — recomputed from gameArea + enabled steps.
