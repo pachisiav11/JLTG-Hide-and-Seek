@@ -1,4 +1,4 @@
-// Target zone (solo aid): when the seeker knows/suspects roughly where the hider
+// Hider zone (solo aid): when the seeker knows/suspects roughly where the hider
 // is, drop a centre point and a radius — everything OUTSIDE the radius is shaded
 // out, so the suspected area reads as the one clear spot. Purely local, per game;
 // stored as focusZone = { point:{lat,lng}, radius } (radius in metres, may be null
@@ -35,7 +35,7 @@ export class Focus {
       g.focusZone = { point, radius };
     });
     store.saveNow(); // persist immediately (a quick app-close shouldn't lose it)
-    toast(this._zone()?.radius ? "Target centre set." : "Target centre set — add a radius to shade the zone.");
+    toast(this._zone()?.radius ? "Hider centre set." : "Hider centre set — add a radius to shade the zone.");
   }
   setRadius(radius) {
     store.update((g) => {
@@ -47,7 +47,7 @@ export class Focus {
   clear() {
     store.update((g) => (g.focusZone = { point: null, radius: null }));
     store.saveNow();
-    toast("Target zone cleared.");
+    toast("Hider zone cleared.");
   }
 
   render() {
@@ -55,12 +55,12 @@ export class Focus {
     const zone = this._zone();
     if (!zone?.point) return;
 
-    // The target pin.
+    // The hider pin.
     this.overlays.push(new google.maps.Marker({
       position: zone.point,
       map: this.map,
-      title: "Target",
-      label: { text: "◎", color: "#04252a", fontWeight: "700" },
+      title: "Hider",
+      label: { text: "H", color: "#04252a", fontWeight: "700" },
       zIndex: 9999,
     }));
 
@@ -107,7 +107,7 @@ export class Focus {
     const zone = this._zone() || {};
     const pt = zone.point;
     const s = openSheet({
-      title: "Target zone",
+      title: "Hider zone",
       bodyHTML: `
         <p class="muted">If you know roughly where the hider is, set a centre and radius — everything outside the radius is shaded out.</p>
         <p>Centre: <strong>${pt ? `${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}` : "Not set"}</strong></p>
@@ -127,7 +127,7 @@ export class Focus {
     });
     s.q("#f-tap").onclick = async () => {
       s.close();
-      const pts = await layers.pick(1, "Tap the target-zone centre on the map.");
+      const pts = await layers.pick(1, "Tap the hider-zone centre on the map.");
       if (pts) this.setPoint(pts[0]);
     };
     s.q("#f-loc").onclick = () => {
@@ -143,7 +143,7 @@ export class Focus {
       const r = Math.max(0, parseFloat(s.q("#f-radius").value) || 0);
       this.setRadius(r);
       s.close();
-      toast(r > 0 ? "Target zone applied." : "Marker only — no shading.");
+      toast(r > 0 ? "Hider zone applied." : "Marker only — no shading.");
     };
     s.q("#f-noradius").onclick = () => { this.setRadius(null); s.close(); toast("Radius removed."); };
     s.q("#f-clear").onclick = () => { this.clear(); s.close(); };
