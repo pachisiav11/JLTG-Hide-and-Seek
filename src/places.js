@@ -116,6 +116,12 @@ function extractAdminLevels(results) {
   };
 }
 
+// How long to wait before spending a next-page token. Google's token needs ~2 s to
+// activate; calling sooner returns INVALID_REQUEST. This was 1600 ms — contradicting the
+// comment that sat beside it — so page 2 usually errored and the caller quietly resolved
+// page one, capping lists at exactly 20. Kept above 2 s, with one retry (see `retried`).
+const PAGE_TOKEN_MS = 2500;
+
 // Search a category near a centre. Resolves to [{ name, lat, lng }]. `keyword`
 // optionally narrows results (e.g. "McDonald's"). Radius is clamped to the API max.
 // nearbySearch returns only 20 per page; we follow pagination up to `maxPages`
@@ -134,6 +140,8 @@ export function searchCategory(map, { center, radius, type, keyword, maxPages = 
     const all = [];
     const seen = new Set();
     let pages = 0;
+    let pager = null;      // the pagination object from the last OK page
+    let retried = false;   // one retry per page token
     const handle = (results, status, pagination) => {
       const S = google.maps.places.PlacesServiceStatus;
       if (status === S.OK && results) {
@@ -146,16 +154,26 @@ export function searchCategory(map, { center, radius, type, keyword, maxPages = 
           all.push({ name: r.name || "(unnamed)", lat, lng });
         }
         pages++;
+        retried = false;
         if (pagination && pagination.hasNextPage && pages < maxPages) {
-          // The next-page token needs ~2 s to activate; calling too soon errors.
-          setTimeout(() => pagination.nextPage(), 1600);
+          pager = pagination;
+          setTimeout(() => pagination.nextPage(), PAGE_TOKEN_MS);
         } else {
           resolve(all);
         }
+      } else if (status === S.INVALID_REQUEST && pager && !retried) {
+        // The token wasn't active yet. Retry once instead of letting a page-2 failure
+        // resolve page one as though it were the complete result — that fallback is the
+        // likely reason lists came back with exactly 20 entries.
+        retried = true;
+        setTimeout(() => pager.nextPage(), PAGE_TOKEN_MS);
       } else if (status === S.ZERO_RESULTS) {
         resolve(all);
       } else if (all.length) {
-        resolve(all); // keep the pages we already have on a later-page error
+        // Genuinely stuck after a retry: keep what we have, but say so — a truncated list
+        // silently partitions the map from an arbitrary subset.
+        console.warn(`Places pagination stopped at ${status} after ${pages} page(s); returning ${all.length} results, which may be incomplete.`);
+        resolve(all);
       } else {
         reject(new Error(`Places search failed: ${status}`));
       }
