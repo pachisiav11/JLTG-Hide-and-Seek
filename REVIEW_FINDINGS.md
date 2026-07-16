@@ -554,6 +554,45 @@ multi-signal from day one — the flagship shipped the naive version and had to 
 two separate playtests broke. Do not treat Mumbai's clean data as evidence the naive version
 is fine.
 
+#### MEASURED 2026-07-16, 8 cities — took the advice, tested DC, and the trap does not reproduce
+
+F3 said Mumbai proves nothing about DC. Correct, so DC got measured — along with seven others.
+Relations, and what `route=subway` grouped by `ref || name` collapses to:
+
+| city | relations | subway rel → lines | the lines it produces |
+|---|---|---|---|
+| **Washington DC** | **145** | 16 → **6** | R, B, O, Y, G, S |
+| London | 509 | 84 → **11** | Northern, Central, Circle, District, Bakerloo, Jubilee, Piccadilly, Victoria, … |
+| Berlin | 208 | 18 → **9** | U1–U9 |
+| New York | 279 | 113 → **31** | 1, 2, 3, 4, 5, B, C, D, E, F, J, L, M, Z, … |
+| Paris | 371 | 37 → **17** | 1–14, 3bis, … |
+| Tokyo | 275 | 64 → **27** | G, M, H, Z, C, A, I, S, … |
+| Mumbai | 61 | 14 → **8** | 1, 2, 2B, 3, 4, 7, 9, 11 |
+| Singapore | 31 | 19 → **7** | EWL, NSL, CCL, NEL, DTL, TEL, JRL |
+
+**Bullet 1 (the mega-relation) does not reproduce in 8/8, DC included.** DC returns 145 relations
+and six clean Metro groups — not one blob. Those issues are years old and the data was fixed.
+This is *not* a licence to be naive (see below), but the specific shape F3 warns about is gone.
+
+**Bullet 2 (stop-node IDs ≠ station IDs) is structurally inapplicable to F1's fix.** F3 assumed
+line auto-sourcing means testing *"is station X on line Y"* — an ID/name-matching problem, hence
+the union-of-signals. Partitioning the board by **line geometry** never asks that question: there
+is no station↔line membership test anywhere in it, so there is no ID to mismatch. F3's fix is
+the right answer to a problem this approach does not have. Keep it filed for any actual
+*"same line?"* card, which would still need it.
+
+**What IS real, and is the same failure wearing different clothes: operator-level `ref`.**
+Tokyo's largest group is `KS` (12), which merges 京成本線 and 押上線 — genuinely different lines
+sharing one operator's ref. Paris does it too (`H`, 32 relations of Transilien). That is F3's
+over-grouping in miniature, and it would make a card fail to discriminate exactly as predicted.
+It lands **only on `route=train`**, which the Metro card excludes — but it is the thing to watch
+if a card ever sources long-distance rail. So: `ref` is line-identity for metro and
+operator-identity for some mainline networks. Don't assume it generalises.
+
+**Still owed regardless:** ≥2 lines must survive on the board or the card cannot discriminate at
+all — the mega-relation's actual symptom, reachable whenever a board has one line on it. That is
+handled as a degenerate case in the partition rather than trusted away.
+
 ### F4. A Google-native line-geometry option — **SUPERSEDED by G1; keep only as a fallback**
 `src/features.js:20` (DirectionsService already wired)
 

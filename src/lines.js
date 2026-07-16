@@ -27,7 +27,92 @@ const LINE_STYLE = {
 };
 const BASE = { clickable: false, zIndex: 0 };
 
-export const LINE_KIND_LABEL = { rail: "Rail lines", coastline: "Coastline", border: "Borders" };
+export const LINE_KIND_LABEL = { rail: "Rail lines", metro: "Metro lines", coastline: "Coastline", border: "Borders" };
+
+// ---- Grouping OSM route relations into the lines a player would name --------------------
+//
+// A route relation is not a line. OSM maps each SERVICE: Mumbai's Western Line is four
+// relations (fast/slow x both directions) on the same rails; Berlin's S85 is six; DC's Red
+// Line is several. Offering those as separate choices is not just noisy — they occupy
+// identical track, so the partition between them is meaningless noise, and the seeker is
+// asked to pick between two options that mean the same thing.
+//
+// `ref` is the grouping signal. Measured across 8 cities (2026-07-16), grouping `route=subway`
+// by ref collapses to exactly the lines a player names: DC -> R/B/O/Y/G/S, London -> Northern/
+// Central/Circle/District/…, Berlin -> U1–U9, Paris -> 1–14, Singapore -> EWL/NSL/CCL/NEL/DTL/
+// TEL/JRL, NYC -> 1/2/3/4/5/B/C/D/E/F/J/L/M/Z. Coverage is good but not total (DC 6/145 and
+// Mumbai 3/61 relations lack a ref), so name is the fallback.
+//
+// CAVEAT worth keeping in view (§F3): on `route=train`, ref is sometimes the OPERATOR, not the
+// line — Tokyo's `KS` merges two real lines, Paris's `H` merges 32 Transilien services. That
+// would over-group into one undiscriminating "line". It does not bite here because the metro
+// kind excludes train, but this function must not be pointed at mainline rail as-is.
+
+// "Metrorail Red Line: Shady Grove => Glenmont" -> "Metrorail Red Line"
+// "Line 1 (Versova → Ghatkopar)"                -> "Line 1"
+// "東京メトロ銀座線 : 浅草→渋谷"                  -> "東京メトロ銀座線"
+// "Rayburn Line Northbound"                     -> "Rayburn Line"
+// OSM writes the direction as a ":" or "(" suffix with no single convention, so cut at
+// whichever comes first and keep the head. Falls back to the whole name if that empties it.
+export function baseLineName(name) {
+  const s = String(name || "");
+  const cut = s.split(/[:(（]/)[0].trim();
+  // Some networks put the direction in a trailing WORD instead of a punctuated suffix (DC's
+  // Capitol Subway: "Rayburn Line Northbound" / "Rayburn Line Southbound"). Without this they
+  // stay two choices for one line — the same duplication the punctuated cut exists to remove.
+  // Anchored and whole-word, so it can only ever remove a real trailing direction.
+  const undirected = cut.replace(/\s+(north|south|east|west)bound$/i, "").trim();
+  return undirected || cut || s.trim();
+}
+
+// data: the /overpass/lines payload. Returns [{ key, ref, label, wayIds, paths }] where
+// `paths` is that line's geometry as several polylines (an OSM line is many ways, and they
+// need not join end-to-end).
+export function groupIntoLines(data) {
+  const groups = new Map();
+  for (const l of data?.lines || []) {
+    const key = l.ref || baseLineName(l.name);
+    if (!key) continue;
+    let g = groups.get(key);
+    if (!g) { g = { key, ref: l.ref || null, names: [], wayIds: new Set() }; groups.set(key, g); }
+    g.names.push(l.name);
+    // A Set, because the fast and slow services of one line share most of their track and
+    // would otherwise contribute the same way several times.
+    for (const id of l.wayIds || []) g.wayIds.add(id);
+  }
+
+  const out = [];
+  for (const g of groups.values()) {
+    const wayIds = [...g.wayIds];
+    const paths = wayIds.map((id) => data.ways?.[id]).filter((c) => c && c.length >= 2);
+    if (!paths.length) continue; // no geometry on this board — nothing to be nearest to
+    out.push({ key: g.key, ref: g.ref, label: pickLabel(g), wayIds, paths });
+  }
+
+  // Disambiguate only where it is actually needed: "Central Line" is a better label than
+  // "Central Line (C)", but two groups sharing one label is a seeker picking blind.
+  const seen = new Map();
+  for (const l of out) seen.set(l.label, (seen.get(l.label) || 0) + 1);
+  for (const l of out) if (seen.get(l.label) > 1 && l.ref) l.label = `${l.label} (${l.ref})`;
+
+  out.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  return out;
+}
+
+// The most common base name across the group's relations; shortest wins a tie. Prefer the
+// name over the ref because "Northern" reads and "R" does not.
+function pickLabel(g) {
+  const counts = new Map();
+  for (const n of g.names) {
+    const b = baseLineName(n);
+    if (b) counts.set(b, (counts.get(b) || 0) + 1);
+  }
+  let best = null, bestN = -1;
+  for (const [b, n] of counts) {
+    if (n > bestN || (n === bestN && b.length < best.length)) { best = b; bestN = n; }
+  }
+  return best || g.ref || g.key;
+}
 
 // The board bbox, padded and snapped.
 //

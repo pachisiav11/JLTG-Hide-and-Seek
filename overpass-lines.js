@@ -21,6 +21,22 @@
 // left visible here rather than quietly dropped.
 export const RAIL_ROUTE_TYPES = ["train", "subway", "light_rail", "tram", "monorail"];
 
+// What the "Metro Lines" card means, which is NOT the same set. Measured across 8 cities
+// (2026-07-16): `route=train` is intercity and suburban rail — in DC and New York the single
+// biggest group is 60+ relations of "Amtrak Northeast Regional", which nobody would call a
+// metro line; `route=tram` is street trams. Both are noise on this card.
+//
+// Excluding `train` also dodges a real trap. On mainline networks `ref` is sometimes the
+// OPERATOR, not the line: Tokyo's `KS` merges 京成本線 and 押上線, and Paris's `H` merges 32
+// Transilien services. Grouping those by ref produces one giant "line" that cannot
+// discriminate — §F3's over-grouping failure exactly. On `route=subway` the ref IS the line in
+// all 8 cities, so the card stays on the tags where the assumption actually holds.
+//
+// light_rail and monorail are IN deliberately: Berlin's S-Bahn, London's DLR, Singapore's LRT
+// and the Mumbai Monorail all read as "metro" to a player. The cost is small noise (DC's
+// light_rail includes the Capitol people-movers).
+export const METRO_ROUTE_TYPES = ["subway", "light_rail", "monorail"];
+
 // OSM admin_level for borders. Measured across 14 countries × 3 cities (2026-07-15):
 // level 4 is the first-order division in 14/14 — the one level that is safe to hardcode.
 // The SECOND-order division has no fixed level and varies WITHIN countries (Germany is
@@ -63,8 +79,8 @@ export function bboxIsValid(bbox) {
 // one pass with no join — but it emits every member ref anyway AND repeats shared way geometry
 // once per relation (Berlin: 19 720 member-geoms for 5 605 unique ways). Measured 10.5 MB vs
 // this 8.5 MB, and it loses the de-duplication the render depends on.
-function railQuery(bbox) {
-  const routes = RAIL_ROUTE_TYPES.join("|");
+function routeQuery(bbox, routeTypes) {
+  const routes = routeTypes.join("|");
   return `[out:json][timeout:90];
 relation["route"~"^(${routes})$"](${bbox})->.r;
 .r out body;
@@ -92,14 +108,15 @@ out geom;`;
 
 export function buildLinesQuery(kind, bbox, { level = DEFAULT_BORDER_LEVEL } = {}) {
   switch (kind) {
-    case "rail": return railQuery(bbox);
+    case "rail": return routeQuery(bbox, RAIL_ROUTE_TYPES);
+    case "metro": return routeQuery(bbox, METRO_ROUTE_TYPES);
     case "coastline": return coastlineQuery(bbox);
     case "border": return borderQuery(bbox, level);
     default: throw Object.assign(new Error(`Unknown line kind "${kind}".`), { badRequest: true });
   }
 }
 
-export const LINE_KINDS = ["rail", "coastline", "border"];
+export const LINE_KINDS = ["rail", "metro", "coastline", "border"];
 
 // ---- Shaping ---------------------------------------------------------------------------
 //

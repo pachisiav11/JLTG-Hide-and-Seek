@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS,
-  RAIL_ROUTE_TYPES, BORDER_LEVELS, DEFAULT_BORDER_LEVEL,
+  RAIL_ROUTE_TYPES, METRO_ROUTE_TYPES, BORDER_LEVELS, DEFAULT_BORDER_LEVEL,
 } from "../overpass-lines.js";
 
 const fixture = (n) => JSON.parse(readFileSync(new URL(`./fixtures/overpass-${n}.json`, import.meta.url), "utf8"));
@@ -53,7 +53,28 @@ test("the coastline query skips the relation step it has no use for", () => {
 
 test("an unknown kind is a 400, not a silent empty result", () => {
   assert.throws(() => buildLinesQuery("streets", BBOX), (e) => e.badRequest === true);
-  assert.deepEqual(LINE_KINDS, ["rail", "coastline", "border"]);
+  assert.deepEqual(LINE_KINDS, ["rail", "metro", "coastline", "border"]);
+});
+
+test("the metro kind excludes train and tram — the Metro Lines card means neither", () => {
+  const q = buildLinesQuery("metro", BBOX);
+  assert.deepEqual(METRO_ROUTE_TYPES, ["subway", "light_rail", "monorail"]);
+  for (const t of METRO_ROUTE_TYPES) assert.ok(q.includes(t), `metro should include ${t}`);
+  // `train` is intercity/suburban: in DC and NYC the single biggest group is 60+ relations of
+  // "Amtrak Northeast Regional". `tram` is streets. Both are noise on this card — and
+  // excluding train is also what keeps `ref` meaning the LINE rather than the operator
+  // (Tokyo's KS merges two real lines; Paris's H merges 32 Transilien services).
+  assert.doesNotMatch(q, /\btrain\b/, "route=train is intercity rail, not metro");
+  assert.doesNotMatch(q, /\btram\b/, "route=tram runs on streets");
+  // Same shape as rail otherwise — the silent-zero bug must not sneak back in via a new kind.
+  assert.match(q, /way\(r\.r\)/);
+  assert.ok(q.includes(`way(r.r)(${BBOX})`));
+});
+
+test("rail still includes train and tram — metro is a narrowing, not a replacement", () => {
+  const q = buildLinesQuery("rail", BBOX);
+  assert.match(q, /\btrain\b/);
+  assert.match(q, /\btram\b/);
 });
 
 test("bboxIsValid rejects the shapes that would silently return nothing", () => {
