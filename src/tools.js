@@ -189,8 +189,13 @@ function voronoiCells(features, gameArea) {
   try {
     raw = T().voronoi(T().featureCollection(pts), { bbox });
   } catch (e) {
-    console.warn("voronoi failed", e);
-    return { cells: features.map(() => null) };
+    // Do NOT swallow this. Returning all-null cells let the caller hand back
+    // `eliminated: null`, which nothing treats as an error: _render's per-step catch never
+    // incremented `failed`, so the "N questions failed" banner never appeared, and the step
+    // stayed checked and enabled while contributing zero shading. Degeneration is realistic
+    // — near-collinear seeds, i.e. stations along one straight rail line, exactly the Metro
+    // Lines and Station's Name Length candidate sets.
+    throw new Error(`Voronoi partition failed for ${features.length} candidates: ${e.message}`);
   }
   const cells = (raw.features || []).map((cell) => {
     if (!cell) return null;
@@ -198,6 +203,11 @@ function voronoiCells(features, gameArea) {
     const rings = cell.geometry.coordinates.map((ring) => ring.map(unproj));
     return safeIntersect(T().polygon(rings), gameArea);
   });
+  // turf can degenerate WITHOUT throwing: collinear seeds yield no usable cells at all.
+  // That is the same silent no-op question, so it gets the same treatment.
+  if (!cells.length || cells.every((c) => !c)) {
+    throw new Error(`Voronoi partition produced no usable cells for ${features.length} candidates (collinear?)`);
+  }
   return { cells };
 }
 
@@ -216,7 +226,9 @@ function voronoiTool(step, gameArea) {
   const { cells } = voronoiCells(features, gameArea);
   for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
   const selected = cells[featureIndex];
-  if (!selected) return { eliminated: null, guides };
+  // A null cell here means the partition degenerated for the answered candidate. Failing
+  // loudly lets the existing banner fire instead of leaving the question silently inert.
+  if (!selected) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
   const eliminated = keep ? safeDiff(gameArea, selected) : selected;
   return { eliminated, guides };
 }
@@ -300,7 +312,9 @@ function matchingNearestLine(step, gameArea) {
   bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
   let raw;
   try { raw = turf.voronoi(turf.featureCollection(allPts), { bbox }); }
-  catch (e) { console.warn("nearestLine voronoi failed", e); return { eliminated: null, guides }; }
+  // Same reasoning as voronoiCells: swallowing this returns `eliminated: null`, which no
+  // caller treats as an error, so the question stays enabled and silently does nothing.
+  catch (e) { throw new Error(`Nearest-line partition failed for ${lines.length} lines: ${e.message}`); }
   const chosen = lines.findIndex((l) => l.id === lineId);
   let keep = null;
   (raw.features || []).forEach((cell, i) => {
@@ -364,7 +378,7 @@ function tentacles(step, gameArea) {
     const { cells } = voronoiCells(features, gameArea);
     for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
     const cell = cells[featureIndex];
-    if (!cell) return { eliminated: null, guides };
+    if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
     // "Closest to P" ⇒ KEEP P's cell, eliminate everything else.
     return { eliminated: safeDiff(gameArea, cell), guides };
   }
@@ -390,7 +404,7 @@ function tentacles(step, gameArea) {
       const { cells } = voronoiCells(features, gameArea);
       for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
       cell = cells[featureIndex];
-      if (!cell) return { eliminated: null, guides };
+      if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
     }
     const keep = safeIntersect(cell, seeker);
     if (!keep) return { eliminated: null, guides };
@@ -417,7 +431,7 @@ function tentacles(step, gameArea) {
     const { cells } = voronoiCells(features, gameArea);
     for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
     cell = cells[featureIndex];
-    if (!cell) return { eliminated: null, guides };
+    if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
   }
   const keepRegion = safeIntersect(cell, circleOf(P));
   if (!keepRegion) return { eliminated: null, guides };

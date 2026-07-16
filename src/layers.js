@@ -69,6 +69,7 @@ export class Layers {
     this.overlays = [];
     this.redoStack = [];
     this._pick = null;
+    this.failedSteps = new Set(); // step ids whose geometry failed on the last render
   }
 
   init() {
@@ -178,6 +179,10 @@ export class Layers {
     // A single failing step is contained so it can't blank every other guide.
     let idx = 0;
     let failed = 0;
+    // Track WHICH steps failed, not just how many: a failing question stays checked and
+    // enabled, so without marking it in the Questions panel the banner tells the seeker
+    // that something broke but not what to disable.
+    this.failedSteps = new Set();
     for (const s of g.history) {
       if (!s.enabled) continue;
       const color = pal.steps[idx % pal.steps.length];
@@ -187,6 +192,7 @@ export class Layers {
         this._renderGuides(guides, s, color);
       } catch (e) {
         failed++;
+        this.failedSteps.add(s.id);
         console.error(`Guide render failed for step ${s.id} (${s.tool}); skipping it.`, e);
       }
     }
@@ -572,11 +578,12 @@ export class Layers {
     const canRedo = this.redoStack.length > 0;
     const rows = g.history.length
       ? g.history.map((s) => {
+          const broke = this.failedSteps?.has(s.id);
           return `
           <li>
             <label class="li-toggle">
               <input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""} />
-              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}</span>
+              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}${broke ? ` <span class="li-failed" title="This question could not be computed — its geometry degenerated. It is contributing no shading.">⚠ failed</span>` : ""}</span>
             </label>
             <span class="li-actions">
               <button class="btn btn-ghost btn-sm" data-rename="${s.id}">✏️</button>

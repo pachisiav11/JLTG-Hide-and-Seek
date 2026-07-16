@@ -338,6 +338,16 @@ textarea.field { resize: vertical; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
 .li-name.off { color: var(--text-dim); text-decoration: line-through; }
 
+/* A question whose geometry failed to compute. It stays checked and enabled but
+   contributes no shading, so it has to be visibly distinguishable from a working one. */
+.li-failed {
+  color: var(--danger, #f87171);
+  font-weight: 600;
+  font-size: 0.85em;
+  white-space: nowrap;
+  margin-left: 0.4em;
+}
+
 
 /* Context menu (long-press actions) */
 .ctx-menu {
