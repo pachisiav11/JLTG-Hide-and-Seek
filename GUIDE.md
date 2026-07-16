@@ -202,27 +202,41 @@ remaining area.
 
 ---
 
-### 5.5 Tentacles — segment the region by closest ___ among a listed set
+### 5.5 Tentacles — "of the ___ within my reach, which are you closest to?"
 
-- **Input:** the tool enumerates **all** features of a category within the region
-  (e.g. all **tourist attractions** in the zone), the hider reveals which one they're
-  closest to.
-- **Question:** "Of these N places, which are you closest to?"
-- **Geometry — Voronoi (midpoint-line partition):** this is the same math as Matching,
-  described the way you framed it:
-  1. Collect the N feature points (Places API, category-filtered, inside `gameArea`).
-  2. Between every pair of neighbouring points, the boundary is the **perpendicular
-     bisector through their midpoint** — collectively these midpoint-lines form the
-     **Voronoi diagram**. Use `turf.voronoi(points, { bbox })` and clip to `gameArea`.
-  3. Each resulting segment = "closest feature is *this* one".
-- **Elimination:**
-  - Keep the single segment for the revealed closest feature; shade all others.
-- **Render:** draw all midpoint-line boundaries + label each segment with its feature,
-  so the partition is legible.
+Implemented by the **seeker-radius model** (Phase 18). The card carries a FIXED radius
+centred on the **seeker**, and the question is only about places inside that reach — it is
+not an enumeration of the whole play area.
 
-> Matching and Tentacles share one Voronoi engine; they differ only in *how the
-> feature set is chosen* (nearest-of-all vs. a fixed enumerated list) and in the
-> answer semantics.
+- **Cards** (`src/data/questions.js`), two tiers by feature density:
+  - **2 km** — Museums, Libraries, Movie Theaters, Hospitals.
+  - **25 km** — Metro Lines *(sourced as metro stations — see §F1 of `REVIEW_FINDINGS.md`)*,
+    Zoos, Aquariums, Amusement Parks.
+- **Input:** the seeker drops their own centre, the app finds that category within the
+  card's radius, and the seeker confirms the candidate set. The hider answers with **one
+  candidate** or **"none — a miss"**.
+- **Geometry** (`tentacles()` in `src/tools.js`):
+  - **Miss** (`{ none: true }`) — the hider is outside the seeker's reach, so **eliminate
+    the inside of the seeker's circle**: `seekerCircle ∩ gameArea`.
+  - **Hit** (`{ featureIndex }`) — the hider is within reach AND closest to P, so the
+    surviving region is `cell(P) ∩ seekerCircle`; everything else is eliminated. With a
+    single candidate the whole area is P's cell, so it reduces to `area ∩ seekerCircle`.
+  - `cell(P)` is the Voronoi cell over the candidate points (same engine as Matching),
+    clipped to `gameArea` by `voronoiCells`.
+- **Candidate sourcing:** bounded to the card's radius around the seeker, NOT the whole
+  board (see §B6 of `REVIEW_FINDINGS.md` — a 2 km tentacle must not query a 300 km board).
+  Candidates are **not** filtered to inside `gameArea`: a place just outside the boundary
+  can genuinely be a hider's nearest, and dropping it inflates the surviving cells (§A3).
+- **Render:** the seeker circle plus the cell outlines, so the partition is legible.
+
+> Matching and Tentacles share one Voronoi engine. They differ in the answer contract:
+> Matching answers `{ featureIndex, keep }` (same/different), Tentacles answers
+> `{ featureIndex }` or `{ none: true }`. They are NOT interchangeable — reusing Matching's
+> shape for a Tentacles answer eliminated the hider's own cell (§A4).
+
+**Legacy note:** steps recorded before Phase 18 have no `center`. A `radius`-bearing legacy
+step uses per-POI circles (a miss eliminates their union); a legacy step with no radius at
+all is a plain nearest-cell partition. Both paths are kept so old games still recompute.
 
 ---
 
