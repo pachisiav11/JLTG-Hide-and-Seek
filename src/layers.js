@@ -215,11 +215,16 @@ export class Layers {
     // A single failing step is contained so it can't blank every other guide.
     let idx = 0;
     let failed = 0;
+    // Guarded on g.gameArea like the mask above — it was NOT, which is how removing every
+    // zone orphaned the guides: removeZone recomputes gameArea to null but never touches
+    // g.history, so radar circles and bisectors kept drawing on a map with no shading
+    // context, describing an area that no longer exists.
+    //
     // Adds to this.failedSteps (already seeded above by any union failures): a failing
     // question stays checked and enabled, so without marking it in the Questions panel the
     // banner tells the seeker something broke but not what to disable.
-    for (const s of g.history) {
-      if (!s.enabled) continue;
+    const liveSteps = g.gameArea ? g.history.filter((s) => s.enabled) : [];
+    for (const s of liveSteps) {
       const color = pal.steps[idx % pal.steps.length];
       idx++;
       try {
@@ -229,6 +234,14 @@ export class Layers {
         failed++;
         this.failedSteps.add(s.id);
         console.error(`Guide render failed for step ${s.id} (${s.tool}); skipping it.`, e);
+      }
+    }
+    // Questions outliving their zones is a real state (removing the last zone), not an
+    // error — so say what happened rather than leaving a blank map with no explanation.
+    if (!g.gameArea) {
+      const orphaned = g.history.filter((s) => s.enabled).length;
+      if (orphaned) {
+        notices.push(`${orphaned} question${orphaned === 1 ? "" : "s"} ${orphaned === 1 ? "is" : "are"} saved but can't be shown without a play area — add a zone (Zones ▸ Draw) to see ${orphaned === 1 ? "it" : "them"} again.`);
       }
     }
     if (failed) notices.push(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
