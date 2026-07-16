@@ -150,8 +150,14 @@ export class Layers {
     // the active area shrinks and the mask grows. With no questions yet, active ===
     // the game area, so this also signals the play area from the start.
     const notices = [];
+    // Populated before the mask is built, because computeActiveArea reports steps whose
+    // elimination could not be folded in — those are invisible otherwise.
+    this.failedSteps = new Set();
+    let dropped = 0;
     if (g.gameArea) {
-      const active = computeActiveArea(g.gameArea, g.history);
+      const active = computeActiveArea(g.gameArea, g.history, (id, reason) => {
+        if (reason === "union") { this.failedSteps.add(id); dropped++; }
+      });
       const isEmpty = active === EMPTY_AREA;
       // Shade the whole board when nothing survives. Falling back to `g.gameArea` here
       // would draw a fully-eliminated game pixel-identically to a fresh one — the one
@@ -179,10 +185,9 @@ export class Layers {
     // A single failing step is contained so it can't blank every other guide.
     let idx = 0;
     let failed = 0;
-    // Track WHICH steps failed, not just how many: a failing question stays checked and
-    // enabled, so without marking it in the Questions panel the banner tells the seeker
-    // that something broke but not what to disable.
-    this.failedSteps = new Set();
+    // Adds to this.failedSteps (already seeded above by any union failures): a failing
+    // question stays checked and enabled, so without marking it in the Questions panel the
+    // banner tells the seeker something broke but not what to disable.
     for (const s of g.history) {
       if (!s.enabled) continue;
       const color = pal.steps[idx % pal.steps.length];
@@ -197,6 +202,9 @@ export class Layers {
       }
     }
     if (failed) notices.push(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
+    // A dropped elimination is worse than a failed guide: the map looks healthy but is
+    // missing a region a question ruled out, so say so explicitly rather than lumping it in.
+    if (dropped) notices.push(`${dropped} question${dropped === 1 ? "'s" : "s'"} elimination could not be combined and ${dropped === 1 ? "is" : "are"} missing from the shading — the map may show area that is already ruled out.`);
     // One banner for both conditions: an unconditional _hideRenderError() here would
     // clear the empty-area notice raised above.
     if (notices.length) this._showRenderError(notices.join(" "));

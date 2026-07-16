@@ -523,7 +523,10 @@ export function computeElimination(step, gameArea) {
 // activeArea = gameArea \ union(all enabled eliminations). Because it's a pure set
 // difference, each elimination is computed against the FULL game area, making the
 // result order-independent (toggling any step recomputes correctly).
-export function computeActiveArea(gameArea, steps) {
+// `onFail(stepId, reason)` reports a step whose contribution could not be folded into the
+// mask. Without it these failures are invisible: the caller renders a board that looks
+// perfectly healthy while silently missing an elimination.
+export function computeActiveArea(gameArea, steps, onFail) {
   if (!gameArea) return null;
   const elims = [];
   for (const s of steps || []) {
@@ -532,12 +535,29 @@ export function computeActiveArea(gameArea, steps) {
     // not blank the whole active area — skip that step's contribution and continue.
     let eliminated = null;
     try { ({ eliminated } = computeElimination(s, gameArea)); }
-    catch (e) { console.error(`Step ${s.id} (${s.tool}) failed to compute; skipping it.`, e); continue; }
-    if (eliminated) elims.push(eliminated);
+    catch (e) {
+      console.error(`Step ${s.id} (${s.tool}) failed to compute; skipping it.`, e);
+      onFail?.(s.id, "compute");
+      continue;
+    }
+    if (eliminated) elims.push({ id: s.id, geom: eliminated });
   }
   if (!elims.length) return gameArea;
-  let removed = elims[0];
-  for (let i = 1; i < elims.length; i++) removed = safeUnion(removed, elims[i]) || removed;
+  let removed = elims[0].geom;
+  for (let i = 1; i < elims.length; i++) {
+    const merged = safeUnion(removed, elims[i].geom);
+    if (!merged) {
+      // safeUnion already swallowed its own exception and returned null. The old
+      // `|| removed` fallback then dropped this step's ENTIRE eliminated region from the
+      // mask — the board showed area as still-possible that a question had ruled out, with
+      // nothing thrown and no banner. Keep going (dropping one step beats blanking the
+      // board), but make the loss visible.
+      console.error(`Step ${elims[i].id}: union failed; its elimination is missing from the mask.`);
+      onFail?.(elims[i].id, "union");
+      continue;
+    }
+    removed = merged;
+  }
   // EMPTY_AREA (not null) when the eliminations cover everything, so the caller can
   // shade the whole board instead of falling back to it and showing a fresh game.
   return diffActive(gameArea, removed);
