@@ -27,26 +27,56 @@ function getService(map) {
 // Free-text place search. Resolves to [{ name, lat, lng, address }]. An optional
 // `{ location, radius }` biases results toward a centre (e.g. the seeker) so a
 // query like "derby" prefers the Derby near you over a namesake far away.
-export function searchText(map, query, { location, radius } = {}) {
+//
+// Paginates like searchCategory. It used to pass a plain callback that ignored textSearch's
+// third `pagination` argument, so every text search was capped at Google's first page of
+// 20 — and the match the seeker wanted could sit at rank 21+, unreachable at any cost.
+export function searchText(map, query, { location, radius, maxPages = 3 } = {}) {
   const svc = getService(map);
   const req = { query };
   if (location) { req.location = location; req.radius = Math.min(50000, Math.max(1, radius || 30000)); }
   return new Promise((resolve, reject) => {
-    svc.textSearch(req, (results, status) => {
+    const all = [];
+    const seen = new Set();
+    let pages = 0;
+    let pager = null;
+    let retried = false;
+    const handle = (results, status, pagination) => {
       const S = google.maps.places.PlacesServiceStatus;
       if (status === S.OK && results) {
-        resolve(results.filter((r) => r.geometry?.location).map((r) => ({
-          name: r.name || r.formatted_address || "(unnamed)",
-          address: r.formatted_address || "",
-          lat: r.geometry.location.lat(),
-          lng: r.geometry.location.lng(),
-        })));
+        for (const r of results) {
+          if (!r.geometry?.location) continue;
+          const lat = r.geometry.location.lat(), lng = r.geometry.location.lng();
+          const key = r.place_id || `${lat.toFixed(6)},${lng.toFixed(6)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          all.push({
+            name: r.name || r.formatted_address || "(unnamed)",
+            address: r.formatted_address || "",
+            lat, lng,
+          });
+        }
+        pages++;
+        retried = false;
+        if (pagination && pagination.hasNextPage && pages < maxPages) {
+          pager = pagination;
+          setTimeout(() => pagination.nextPage(), PAGE_TOKEN_MS); // same token wait as B1
+        } else {
+          resolve(all);
+        }
+      } else if (status === S.INVALID_REQUEST && pager && !retried) {
+        retried = true; // the token wasn't active yet — see searchCategory
+        setTimeout(() => pager.nextPage(), PAGE_TOKEN_MS);
       } else if (status === S.ZERO_RESULTS) {
-        resolve([]);
+        resolve(all);
+      } else if (all.length) {
+        console.warn(`Text search pagination stopped at ${status} after ${pages} page(s); returning ${all.length} results, which may be incomplete.`);
+        resolve(all);
       } else {
         reject(new Error(`Search failed: ${status}`));
       }
-    });
+    };
+    svc.textSearch(req, handle);
   });
 }
 

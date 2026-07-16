@@ -239,7 +239,10 @@ export class MapFeatures {
         try {
           const r = await searchText(this.map, q);
           if (!r.length) { s.q("#ps-res").innerHTML = '<li class="muted">No results.</li>'; return; }
-          s.q("#ps-res").innerHTML = r.slice(0, 8)
+          // No cap — the list scrolls. This used to slice to 8, which (on top of
+          // searchText not paginating at all) put the place the seeker wanted out of reach
+          // with no sign it existed.
+          s.q("#ps-res").innerHTML = r
             .map((x, i) => `<li><button class="btn btn-ghost btn-sm" data-i="${i}" style="text-align:left">${escapeHtml(x.name)}<br><span class="muted">${escapeHtml(x.address)}</span></button></li>`)
             .join("");
           s.qa("[data-i]").forEach((b) => (b.onclick = () => { done = true; s.close(); resolve(r[parseInt(b.dataset.i, 10)]); }));
