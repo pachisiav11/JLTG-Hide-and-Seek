@@ -9,7 +9,7 @@ import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from 
 import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
-import { openSheet, closeSheet, toast, escapeHtml, promptText } from "./ui.js";
+import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters } from "./ui.js";
 import { getPalette } from "./palette.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
@@ -706,13 +706,14 @@ export class Layers {
     // Draggable preview: the centre can be nudged until the question is committed
     // (map stays pannable via mapInteractive), then it's locked.
     const anchor = this._setupAnchor(pts[0], "◎");
+    const units = store.getCurrent()?.settings?.units || "metric";
     const s = openSheet({
       title: "Radar",
       mapInteractive: true,
       bodyHTML: `
         <p class="muted">“Are you within this distance of the point?” Drag the ◎ centre to adjust it before adding — it locks once the question is added.</p>
-        <label class="fieldlbl">Radius (metres)</label>
-        <input id="r-radius" class="field" type="number" inputmode="numeric" value="1000" min="10" step="10" />
+        <label class="fieldlbl">Radius</label>
+        ${distanceFieldHTML("r-radius", 1000, units)}
         <div class="seg" role="radiogroup" aria-label="Answer">
           <label><input type="radio" name="r-side" value="in" checked /> Yes — inside</label>
           <label><input type="radio" name="r-side" value="out" /> No — outside</label>
@@ -725,7 +726,8 @@ export class Layers {
     });
     s.q("#r-cancel").onclick = () => s.close();
     s.q("#r-add").onclick = () => {
-      const radius = Math.max(10, parseFloat(s.q("#r-radius").value) || 0);
+      // Always stored in metres, whatever unit was typed.
+      const radius = Math.max(10, readDistanceMeters(s, "r-radius", units) || 0);
       const side = s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in";
       this.addStep("radar", { center: anchor.getPos(), radius }, { side });
       s.close();
@@ -1212,12 +1214,13 @@ export class Layers {
 
   // Distance + within/beyond controls, shared by the buffer-based measuring cards.
   _distanceSheet(card, addInputs) {
+    const units = store.getCurrent()?.settings?.units || "metric";
     const s = openSheet({
       title: card.label,
       bodyHTML: `
         <p class="muted"><strong>Your</strong> distance to the nearest ${escapeHtml(card.label.toLowerCase())}. The app buffers by this distance, then keeps the side matching the hider's answer.</p>
-        <label class="fieldlbl">Your distance (metres)</label>
-        <input id="m-dist" class="field" type="number" inputmode="numeric" value="500" min="10" step="10" />
+        <label class="fieldlbl">Your distance</label>
+        ${distanceFieldHTML("m-dist", 500, units)}
         <label class="fieldlbl">The hider is…</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="m-side" value="in" checked/> Closer than me (within — keep inside)</label>
@@ -1230,7 +1233,8 @@ export class Layers {
     });
     s.q("#m-cancel2").onclick = () => s.close();
     s.q("#m-add").onclick = () => {
-      const distance = Math.max(10, parseFloat(s.q("#m-dist").value) || 0);
+      // Always stored in metres, whatever unit was typed.
+      const distance = Math.max(10, readDistanceMeters(s, "m-dist", units) || 0);
       const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
       this.addStep("measuring", { ...addInputs, distance }, { side });
       s.close();

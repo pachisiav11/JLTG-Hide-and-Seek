@@ -6,7 +6,7 @@
 // question/elimination engine.
 import * as store from "./store.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { openSheet, toast } from "./ui.js";
+import { openSheet, toast, distanceFieldHTML, readDistanceMeters } from "./ui.js";
 
 const MASK_STYLE = { strokeOpacity: 0, fillColor: "#020a0c", fillOpacity: 0.5, clickable: false };
 const ZONE_STYLE = { strokeColor: "#a78bfa", strokeOpacity: 0.95, strokeWeight: 2, fillOpacity: 0, clickable: false };
@@ -106,6 +106,7 @@ export class Focus {
   openPanel(layers) {
     const zone = this._zone() || {};
     const pt = zone.point;
+    const units = store.getCurrent()?.settings?.units || "metric";
     const s = openSheet({
       title: "Hider zone",
       bodyHTML: `
@@ -115,8 +116,8 @@ export class Focus {
           <button id="f-tap" class="btn btn-primary">📍 Set centre by tapping</button>
           <button id="f-loc" class="btn">🧭 My location</button>
         </div>
-        <label class="fieldlbl">Radius (metres) — shades everything outside this zone</label>
-        <input id="f-radius" class="field" type="number" inputmode="numeric" placeholder="e.g. 500" value="${zone.radius || ""}" min="0" step="10" />
+        <label class="fieldlbl">Radius — shades everything outside this zone</label>
+        ${distanceFieldHTML("f-radius", zone.radius ?? NaN, units, { placeholder: "e.g. 500" })}
         <div class="row">
           <button id="f-apply" class="btn btn-primary">Apply radius</button>
           <button id="f-noradius" class="btn">Marker only</button>
@@ -140,7 +141,8 @@ export class Focus {
     };
     s.q("#f-apply").onclick = () => {
       if (!pt) return toast("Set the zone centre first.");
-      const r = Math.max(0, parseFloat(s.q("#f-radius").value) || 0);
+      // Always stored in metres, whatever unit was typed.
+      const r = Math.max(0, readDistanceMeters(s, "f-radius", units) || 0);
       this.setRadius(r);
       s.close();
       toast(r > 0 ? "Hider zone applied." : "Marker only — no shading.");
