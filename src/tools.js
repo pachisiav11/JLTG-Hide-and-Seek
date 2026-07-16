@@ -81,7 +81,25 @@ function thermometer(step, gameArea) {
   const len = Math.hypot(dx, dy) || 1;
   dx /= len; dy /= len;                          // unit vector A→B
   const px = -dy, py = dx;                       // perpendicular (bisector direction)
-  const L = 3;                                   // ~330 km half-extent: covers any play area
+
+  // Half-extent of the eliminated strip. A fixed ±3° (~330 km) does NOT "cover any play
+  // area": Jet Lag is played across whole countries, and on a Japan-sized board a
+  // Tokyo→Osaka "hotter" left Sapporo — unambiguously colder — un-eliminated, because the
+  // strip simply didn't reach it. Derive the extent from the board instead: measure to the
+  // game area's furthest bbox corner IN PROJECTED UNITS (comparable to px/py/dx/dy) so the
+  // strip always overshoots, at any latitude and any board size.
+  let L = 3; // fallback only when there is no game area to measure against
+  if (gameArea) {
+    try {
+      const bb = T().bbox(feat(gameArea)); // [minLng,minLat,maxLng,maxLat]
+      const corners = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]];
+      let far = 0;
+      for (const [lng, lat] of corners) far = Math.max(far, Math.hypot(lng * k - mx, lat - my));
+      // 1.5x the furthest corner: the strip is convex, so covering every corner covers the
+      // whole board. Never shrink below the old constant.
+      L = Math.max(3, far * 1.5);
+    } catch (_) { /* keep the fallback */ }
+  }
 
   // Bisector endpoints, then offset the whole strip toward the eliminated side.
   const E1 = [mx + px * L, my + py * L];
@@ -103,7 +121,10 @@ function thermometer(step, gameArea) {
   if (gameArea) {
     try {
       const bb = T().bbox(feat(gameArea));
-      bisG = Math.min(L, Math.max((bb[2] - bb[0]), (bb[3] - bb[1])) * 0.75 || L);
+      // The lng span must be projected (x = lng·k) before being compared with the lat
+      // span or used alongside px/py — mixing raw degrees into projected space made the
+      // guide the wrong length, increasingly so away from the equator.
+      bisG = Math.min(L, Math.max((bb[2] - bb[0]) * k, bb[3] - bb[1]) * 0.75 || L);
     } catch (_) { /* keep default */ }
   }
   const G1 = unproj(mx + px * bisG, my + py * bisG);
