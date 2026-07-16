@@ -1245,7 +1245,10 @@ export class Layers {
       let feats = [], source = "google", reason = "primary";
       try {
         // Search the category within the tentacle radius OF THE SEEKER.
-        ({ feats, source, reason } = await searchCategoryResilient(this.map, { center, radius: cat.radius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: 0 }));
+        // boundToRadius: the tentacle's reach IS the question ("within 2 km of me"), so the
+        // OSM bbox must follow that disc. Querying the whole board here can time out, and
+        // the failure surfaces as an empty candidate list rather than an error.
+        ({ feats, source, reason } = await searchCategoryResilient(this.map, { center, radius: cat.radius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: 0, boundToRadius: true }));
       } catch (e) {
         toast(e.message);
         return this.openPanel();

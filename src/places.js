@@ -330,6 +330,16 @@ function areaBboxSWNE(gameArea, padMeters = 0) {
   } catch (_) { return null; }
 }
 
+// "S,W,N,E" bbox of a DISC: `radius` metres around `center`, optionally padded. Mirrors
+// areaBboxSWNE's flat-earth maths, which is fine at these scales.
+function discBboxSWNE(center, radius, padMeters = 0) {
+  const r = (radius || 0) + padMeters;
+  if (!center || !(r > 0)) return null;
+  const dLat = r / 111320;
+  const dLng = r / (111320 * Math.max(0.05, Math.cos((center.lat * Math.PI) / 180)));
+  return `${center.lat - dLat},${center.lng - dLng},${center.lat + dLat},${center.lng + dLng}`;
+}
+
 async function overpassCategory(proxyBase, category, bboxStr, keyword) {
   const base = proxyBase.replace(/\/+$/, "");
   const url = new URL(base + "/overpass");
@@ -352,10 +362,21 @@ async function overpassCategory(proxyBase, category, bboxStr, keyword) {
 //   fallback   — the primary errored
 //   thin       — the primary returned almost nothing
 //   uncapped   — Google hit its 60-cap and OSM had genuinely more
-export async function searchCategoryResilient(map, { center, radius, type, keyword, gameArea, padMeters = 0 }) {
+// `boundToRadius` marks `radius` as a REAL constraint on the question rather than a search
+// hint. Tentacles asks "which of these are you within 2 km of?" — that disc is the question.
+// Matching/Measuring pass a radius derived from the board's diagonal and clamped to
+// Google's 50 km ceiling; that is a Google limitation, not the seeker's intent, so those
+// must still query the whole play area.
+//
+// Without this, a 2 km Museums tentacle on a 300 km board fell back to an Overpass query
+// spanning the ENTIRE play area — which can time out, and the failure is only console.warn'd,
+// so the caller silently received an empty candidate list.
+export async function searchCategoryResilient(map, { center, radius, type, keyword, gameArea, padMeters = 0, boundToRadius = false }) {
   const proxy = window.JLTG_CONFIG?.OVERPASS_PROXY_URL;
   const cat = deriveOverpassCategory({ type, keyword });
-  const bbox = areaBboxSWNE(gameArea, padMeters);
+  const bbox = (boundToRadius && center && radius > 0)
+    ? discBboxSWNE(center, radius, padMeters)
+    : areaBboxSWNE(gameArea, padMeters);
   const canOverpass = !!(proxy && cat && bbox);
   // Only send a keyword to OSM for keyword-only cards (a place type is more reliable than
   // a name substring server-side).
