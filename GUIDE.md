@@ -226,6 +226,126 @@ remaining area.
 
 ---
 
+### 5.6 Linear & boundary features — worldwide auto-sourcing (method)
+
+Cards needing a **line** (Coastline, High Speed Train Line, International Border,
+Admin. Division Borders, Transit Line) have no Google source: the Maps JS API exposes
+no queryable line geometry, and `TransitLayer` is raster tiles with nothing to query.
+These are auto-sourced from **OpenStreetMap via the existing Overpass proxy**.
+
+**Principle: no city may be privileged.** Nothing here is regional. Bundled per-city
+geometry (the old `src/data/linear.js`, Mumbai-only, hand-traced) is rejected for this
+reason — it made one city better than every other. Auto-sourcing is worldwide or it
+doesn't ship.
+
+**Principle: fetch real geometry, never infer it.** Do not synthesise a line by joining
+stations. "Nearest station" ≠ "nearest line" wherever station spacing exceeds line
+spacing — exactly the dense metro cores where these cards get played (see §F1 of
+`REVIEW_FINDINGS.md`). OSM has the surveyed geometry; use it.
+
+**Principle: clip, don't tag-filter.** Restrict geometry to the play-area bbox rather
+than filtering by tag. Tag conventions vary by country, so a filter that looks correct
+locally silently drops features elsewhere. Clipping is tag-independent, and an express
+line contributes only the segment inside the board — which is semantically right.
+
+#### 5.6.1 Admin division levels — derive, never hardcode
+
+OSM tags boundaries `boundary=administrative` + `admin_level` (2–10). The mapping from
+level → "1st/2nd admin division" is **not fixed**, so the app derives it per play area.
+
+**Query** (verified — returns the areas *containing* a point; an `around:` query answers
+a different question and omits the enclosing country/state entirely):
+
+```
+[out:json][timeout:90];
+is_in(LAT,LON)->.a;
+area.a["boundary"="administrative"];
+out tags;
+```
+
+**Derivation:**
+1. Run the query at the play-area centre.
+2. **Discard level 2** (country) **and level 3.**
+3. Sort the remainder by `admin_level` ascending.
+4. Ordinal position ⇒ division: 1st = first entry, 2nd = second, and so on.
+5. **Show the returned name on the card** ("2nd Admin. Division: Cook County"), so the
+   seeker sees what they are actually being asked about.
+6. Several relations may share one level — handle duplicates, don't assume uniqueness.
+
+**Evidence** (measured 2026-07-15; 42 samples = 14 countries × 3 cities, each capital
+paired with two ordinary cities to expose capital bias; raw data in the spike cache):
+
+- **Level 4 = 1st division in 14/14 countries** — Maharashtra, Illinois, Bavaria, Osaka
+  Prefecture, New South Wales, Wales. This one assumption is safe.
+- **Step 2 (discard level 3) is load-bearing.** Without it the derivation breaks in 9/42
+  samples: Brazil's level 3 is a macro-region (*North Region*), France's is *Metropolitan
+  France*, and the Netherlands' level 3 is **"Netherlands" — the country repeated**. With
+  it, the derivation holds 42/42.
+- **The 2nd division has no fixed level, not even per country.** Japan uses **7** (levels
+  5 and 6 do not exist); the Netherlands uses **8** (no 5/6/7); the USA, Italy, South
+  Africa, South Korea and Australia use 6; India uses 5. Worse, it varies *within* a
+  country: France is 5 in Lyon (Rhône) but 6 in Toulouse (Haute-Garonne); the UK is 5 in
+  England (Greater Manchester) but 6 in Wales (Cardiff); Canada is 5 in Halifax but 6 in
+  Calgary; Germany is 5 in Munich/Cologne but **Berlin has none and jumps 4 → 9**.
+
+> **A per-country lookup table cannot work.** France, the UK, Canada and Germany each
+> disagree with *themselves*. Derive from the hierarchy at the play area, per game.
+
+Caveat, recorded honestly: ordinal derivation returns whatever OSM ranks next, which is
+occasionally a statistical rather than administrative region (Canada level 5 = *Golden
+Horseshoe*; Brazil level 5 = *Região Geográfica Intermediária*). The boundary is real and
+consistent for both players, so the question stays well-posed — step 5's visible name is
+what keeps it honest, and is not optional.
+
+#### 5.6.2 Coastline
+
+```
+[out:json][timeout:90];
+way["natural"="coastline"](BBOX);
+out geom;
+```
+
+Measured (2026-07-15): Mumbai 90 ways / 5152 vertices, Cape Town 107 / 4011, Sydney
+59 / 2188. Returned as **many open fragments, not one line** — and mostly unnamed (82 of
+90 in Mumbai). They do chain end-to-end (88 of 90 ways share an endpoint), so stitching is
+*possible* — but **not required**: buffer the fragments as a `MultiLineString` and turf
+handles it. Payload after slimming to 5 decimal places is 48–102 KB, fine for a phone.
+
+#### 5.6.3 Rail / transit lines
+
+Query **route relations**, not `railway=rail` (which returns every siding, yard and
+freight spur). Keep `name` in the payload even though the map draws no labels — the
+Matching `nearestLine` card consumes named geometry in exactly that shape. See §G1 of
+`REVIEW_FINDINGS.md` for the measured Mumbai numbers.
+
+**Streets stay hand-drawn.** Roads have no curated route-relation equivalent, so the
+"Street or Path" card keeps its manual trace. Auto-sourcing is additive — the hand-drawn
+path remains the floor that works everywhere.
+
+#### 5.6.4 Overpass reliability (endpoint order is wrong today)
+
+Measured over 61 live attempts: **22 succeeded (36%)** — a ~64% failure rate, worse than
+the ~50% previously recorded. Per endpoint:
+
+| endpoint | success |
+|---|---|
+| `overpass-api.de` | 7/25 (28%) |
+| `overpass.kumi.systems` | **0/18 (0%)** |
+| `maps.mail.ru/osm/tools/overpass` | **15/18 (83%)** |
+
+`server.js` tries these **in exactly the wrong order** — the 0%-success endpoint is tried
+second and the 83% endpoint last. Reorder it. Also required (per D3): sniff the body
+before parsing (Overpass returns HTTP **200** with an HTML error body when busy, which
+`resp.json()` reports as a bogus parse error), treat HTTP **400** as fatal rather than
+retrying it, and set a client-side fetch timeout — `fetch` has no default, so a stalled
+endpoint hangs forever while appearing to work.
+
+**Still unrun:** the Overpass-side clip (`relation(BBOX)->.r; way(r)(BBOX); out geom;`).
+If it works it pushes clipping server-side and avoids pulling 8.3 MB into the proxy; if
+not, clip in `normalize()`. Spike this before building §G1's render.
+
+---
+
 ## 6. Game-Control Features
 
 ### 6.1 Hider lock
