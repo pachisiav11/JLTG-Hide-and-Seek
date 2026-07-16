@@ -1311,6 +1311,9 @@ export class Layers {
         <p class="muted">${escapeHtml(cat.label)} within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
         ${this._featureListHTML("tt-feat", features)}
         <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
+        <div class="row">
+          <button id="tt-more" class="btn">➕ Add a candidate</button>
+        </div>
         <div class="sheet-actions">
           <button id="tt-cancel2" class="btn btn-ghost">Cancel</button>
           <button id="tt-add" class="btn btn-primary">Add question</button>
@@ -1319,6 +1322,15 @@ export class Layers {
     });
     this._wireFeatureSearch(s, "tt-feat");
     s.q("#tt-cancel2").onclick = () => s.close();
+    // Escape hatch: if the hider names a place the auto-find missed, re-enter the candidate
+    // picker seeded with what we already have, rather than forcing Cancel — which discarded
+    // the whole sub-flow (centre and all) and meant restarting from startTentacles.
+    s.q("#tt-more").onclick = async () => {
+      s.close();
+      const more = await this._assembleCandidates(cat, features, { minCount: 1, center, radius: cat.radius });
+      // Cancelling the picker returns to the chooser unchanged — it must not lose the flow either.
+      this._chooseTentacle(cat, more && more.length ? more : features, center);
+    };
     s.q("#tt-add").onclick = () => {
       // Require an explicit pick — see the matching sheet above; "0" as a default silently
       // recorded a candidate the seeker never chose.
