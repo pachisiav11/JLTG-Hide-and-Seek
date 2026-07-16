@@ -35,6 +35,10 @@ export function createGame(overrides = {}) {
     focusZone: overrides.focusZone || { point: null, radius: null }, // solo target zone (point + radius)
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     settings: { ...DEFAULT_SETTINGS, ...(overrides.settings || {}) },
+    // Provenance for imports. An import always gets a FRESH id (it must never overwrite an
+    // existing game), so this is the only trace of which record it came from. Null for
+    // games that were created here rather than imported.
+    importedFrom: overrides.importedFrom || null,
     // activeArea is DERIVED (not authoritative) — recomputed from gameArea + enabled steps.
   };
 }
@@ -94,4 +98,19 @@ export function normalizeGame(obj) {
     ...obj,
     settings: obj.settings,
   });
+}
+
+// Shape an exported game for import. ALWAYS mints a fresh id.
+//
+// normalizeGame keeps `overrides.id`, so importing a file exported from this device wrote
+// straight over the record already at that key: export mid-session, play three more
+// questions, re-import to compare the two, and the import silently destroyed those three
+// questions. An import must never be able to overwrite a game.
+//
+// normalizeGame itself must keep ids — it is also used when LOADING an existing game
+// (store.setCurrentSilent), where the id is exactly what you want to preserve. So this is
+// a separate step rather than a change to normalizeGame.
+export function prepareImport(obj) {
+  const { id: sourceId, ...rest } = obj || {};
+  return normalizeGame({ ...rest, id: undefined, importedFrom: sourceId || null });
 }

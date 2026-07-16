@@ -1,7 +1,7 @@
 // Game store: owns the "current game" and persists it to IndexedDB with a
 // debounced autosave. Higher-level UI talks to this rather than db.js directly.
 import * as db from "./db.js";
-import { createGame, validateGame, normalizeGame } from "./model.js";
+import { createGame, validateGame, normalizeGame, prepareImport } from "./model.js";
 
 const CURRENT_GAME_KEY = "currentGameId";
 const AUTOSAVE_DELAY_MS = 500;
@@ -152,7 +152,9 @@ export async function importGame(json) {
   const obj = typeof json === "string" ? JSON.parse(json) : json;
   const err = validateGame(obj);
   if (err) throw new Error(`Invalid game file: ${err}`);
-  const g = normalizeGame(obj);
+  // Always mints a fresh id so an import can never overwrite an existing game — see
+  // prepareImport. (duplicate() gets this right the same way, by stripping id first.)
+  const g = prepareImport(obj);
   await db.put("games", g);
   return g;
 }
