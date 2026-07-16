@@ -758,6 +758,56 @@ now to match the doc; flagged rather than silently decided.
 - **Cache hard.** Rail geometry is effectively static — cache per bbox in IndexedDB and it
   survives offline, which a tile overlay never will.
 
+#### CORRECTION 5 (2026-07-16) — names are NOT free, and the payload shape above is wrong
+
+Both corrections come from building it. The endpoint (`GET /overpass/lines`) is live.
+
+**Names cost a query step, and it's the cheapest of three options.** `out geom` on a *way*
+carries the **way's** tags, never the parent relation's name — so naming the geometry needs the
+relation→way membership, which means a second output step. Measured:
+
+| approach | Mumbai | Berlin | geometry duplicated? | names? |
+|---|---|---|---|---|
+| `way(r.r)(BBOX); out geom;` alone | 813 KB | 4 329 KB | no | **no** |
+| **`.r out body;` + clipped ways, joined** | **1 362 KB** | **8 475 KB** | **no** | yes |
+| `out geom(BBOX)` on the relations | 1 427 KB | 10 500 KB | **yes, 3.5×** | yes |
+
+`out geom(BBOX)` looks ideal — names and clipped geometry in one pass, no join — and it does
+work. It's still the worst option: it emits every member ref regardless *and* repeats shared way
+geometry once per relation (Berlin: 19 720 member-geoms for 5 605 unique ways). The join wins on
+size *and* keeps the de-duplication the render depends on.
+
+The cost is real but lands server-side only: Berlin ships ~93 k member refs to use ~19 k. The
+proxy does the join and the slimming, so none of it crosses the wire. Measured on a live Mumbai
+bbox: **303 KB of raw Overpass → a 30.7 KB response.**
+
+**The `[{name, ref, coords}]` shape is rejected — it serves one consumer and hurts the other.**
+Shipped shape:
+
+```json
+{ "kind":"rail",
+  "lines":[{ "name":"Western Line (fast): Virar => Churchgate", "ref":"W", "wayIds":[49180854, …] }],
+  "ways": { "49180854":[[19.13028,72.82139], …] },
+  "counts":{ "lines":21, "ways":45, "vertices":1397 } }
+```
+
+Geometry lives **once** in `ways`; `lines` reference it by id. Inlining coords per line repeats
+shared rails — Berlin 142 329 vertices against 46 095 unique, **3×** — and draws them 3.5 deep,
+which is precisely the blotchy overlap CORRECTION 2 warns about. This shape gives the render
+unique ways to stroke once, gives §F4/§F1 lossless per-line grouping via `wayIds`, and costs a
+third of the payload. No consumer has to de-dupe.
+
+**Two things the real data taught that a written fixture wouldn't have:** route relations list
+their stops as members (`{type:"node", role:"stop"}`) mixed in with the ways, so the member
+filter must test `type`, not presence; and most member refs point outside the bbox and must not
+join. `test/overpass-lines.test.mjs` runs against captured real responses for that reason.
+
+Verified live, all three kinds: rail returns the Harbour and Western locals **by name** — the
+exact lines Google's transit layer omits; `border&level=4` returns *Gujarat, Maharashtra, Dadra
+and Nagar Haveli and Daman and Diu*; `border&level=2` on the same box returns zero lines, which
+is correct (no international border crosses it) and is distinguishable from an outage, since a
+busy Overpass is a 502.
+
 #### CORRECTION 3 — Overpass reliability is worse than the proxy assumes → **now filed as D3**
 
 The spike found public Overpass failing ~half the time, including an HTTP-200-with-HTML-body

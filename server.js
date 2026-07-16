@@ -18,6 +18,7 @@ import express from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
+import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL } from "./overpass-lines.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,6 +96,44 @@ app.get("/overpass", async (req, res) => {
       return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
     }
     console.error(`Overpass proxy failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
+    res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
+  }
+});
+
+// GET /overpass/lines?kind=rail|coastline|border&bbox=S,W,N,E[&level=2|4]
+//
+// The line counterpart to /overpass. That route hardcodes `out center tags`, which collapses
+// every way to a centre point — right for POIs, useless for geometry — so lines need their own
+// output mode rather than a flag on the old one.
+//
+// The join and the slimming happen HERE, not on the client: the Overpass answer carries ~93k
+// member refs for Berlin to use ~19k of them, and none of that has any business crossing the
+// wire to a phone.
+app.get("/overpass/lines", async (req, res) => {
+  const kind = String(req.query.kind || "");
+  if (!LINE_KINDS.includes(kind)) {
+    return res.status(400).json({ error: `kind must be one of: ${LINE_KINDS.join(", ")}.` });
+  }
+  const bbox = String(req.query.bbox || "");
+  if (!bboxIsValid(bbox)) {
+    return res.status(400).json({ error: "bbox must be S,W,N,E with S<N, W<E and within ±90/±180." });
+  }
+  const level = req.query.level == null ? DEFAULT_BORDER_LEVEL : Number(req.query.level);
+  if (!Number.isInteger(level) || level < 1 || level > 11) {
+    return res.status(400).json({ error: "level must be an integer OSM admin_level (1-11)." });
+  }
+
+  try {
+    const json = await runOverpass(buildLinesQuery(kind, bbox, { level }));
+    const out = normalizeLines(kind, json);
+    res.json({ source: "overpass", ...out });
+  } catch (err) {
+    if (err.badRequest) return res.status(400).json({ error: err.message });
+    if (err.fatal) {
+      console.error("Overpass rejected the lines query (query bug, not an outage):", err.message);
+      return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
+    }
+    console.error(`Overpass lines (${kind}) failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
     res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
   }
 });
