@@ -62,6 +62,16 @@ function maskEverything(area) {
 // committed guides restyle per-palette/per-step in _renderGuides.
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
+// Google's nearbySearch radius ceiling. Not ours to raise — it is the API's hard maximum.
+const GOOGLE_MAX_RADIUS_M = 50000;
+
+// Google could not search the whole board. Say so: the partition is being built from
+// whatever fell inside a 50 km disc, and the seeker cannot tell that from a complete answer.
+function clampWarning(radius, wanted) {
+  const km = (m) => Math.round(m / 1000);
+  return `Google can only search ${km(radius)} km around the board's centre — your area needs ${km(wanted)} km, so places near the edges may be missing.`;
+}
+
 // Why OpenStreetMap supplied the candidates. For dense cards (stations and friends) OSM is
 // now the intended PRIMARY source, so the old blanket "Places was unavailable" would be a
 // plain lie — Places was never asked.
@@ -848,12 +858,21 @@ export class Layers {
   }
 
   // ---- Matching / Tentacles (shared Voronoi flow) ----
+  // Google's nearbySearch takes a radius around a POINT and hard-caps it at 50 km. On a
+  // board with a >100 km diagonal that disc cannot span the play area, so POIs near the
+  // edges are never found and the partition is computed from a subset — silently.
+  //
+  // For dense cards this is now moot: B2 sends those to Overpass, which takes the play
+  // area's POLYGON and has no radius at all. It still binds for Google-first cards, so
+  // `clamped` is reported and the caller warns rather than quietly under-searching.
   _searchParams(gameArea) {
     const turf = window.turf;
     const c = turf.centroid(turf.feature(gameArea)).geometry.coordinates; // [lng,lat]
     const bb = turf.bbox(turf.feature(gameArea));
     const diag = turf.distance([bb[0], bb[1]], [bb[2], bb[3]], { units: "meters" });
-    return { center: { lat: c[1], lng: c[0] }, radius: Math.min(50000, Math.max(500, (diag / 2) * 1.2)) };
+    const wanted = Math.max(500, (diag / 2) * 1.2);
+    const radius = Math.min(GOOGLE_MAX_RADIUS_M, wanted);
+    return { center: { lat: c[1], lng: c[0] }, radius, clamped: wanted > GOOGLE_MAX_RADIUS_M, wanted };
   }
 
   // ---- Matching (only the game's cards; reveal hider's value, keep region) ----
@@ -904,7 +923,7 @@ export class Layers {
     const setMsg = (t) => { const m = s.q("#mt-msg"); if (m) m.textContent = t; };
     s.q("#mt-auto").onclick = async () => {
       const g = store.getCurrent();
-      const { center, radius } = this._searchParams(g.gameArea);
+      const { center, radius, clamped, wanted } = this._searchParams(g.gameArea);
       setMsg("Searching…");
       let feats = [], source = "google", reason = "primary";
       try {
@@ -913,6 +932,7 @@ export class Layers {
       feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast(sourceToast(reason));
+      else if (clamped) toast(clampWarning(radius, wanted));
       // Refine the auto-found set: tick which count, add missing by tap/search
       // (search biased to the area centre).
       const chosen = await this._assembleCandidates(card, feats, { minCount: 2, center });
@@ -962,7 +982,7 @@ export class Layers {
   // Nearest transit station grouped by name letter-count.
   async _matchNameLength(card, s) {
     const g = store.getCurrent();
-    const { center, radius } = this._searchParams(g.gameArea);
+    const { center, radius, clamped, wanted } = this._searchParams(g.gameArea);
     s.q("#mt-status").textContent = "Searching stations…";
     let feats = [], source = "google", reason = "primary";
     try {
@@ -976,6 +996,7 @@ export class Layers {
     feats = this._nearAreaFeatures(feats, g.gameArea);
     s.close();
     if (source === "overpass") toast(sourceToast(reason));
+      else if (clamped) toast(clampWarning(radius, wanted));
 
     // This was the only POI card that skipped the candidate picker, so a seeker could not
     // add the station they actually meant. Now it behaves like every other POI card.
@@ -1229,6 +1250,8 @@ export class Layers {
         toast(e.message);
         return this.openPanel();
       }
+      // No clamp warning here: Tentacles searches a FIXED card radius (2 km / 25 km) around
+      // the seeker, not the play area's diagonal, so it can never hit Google's 50 km ceiling.
       if (source === "overpass") toast(sourceToast(reason));
       // Keep only places within the tentacle radius of the seeker (the reach).
       feats = feats.filter((f) => turf.distance([center.lng, center.lat], [f.lng, f.lat], { units: "meters" }) <= cat.radius);
@@ -1366,7 +1389,7 @@ export class Layers {
     const setMsg = (t) => { const m = s.q("#m-msg"); if (m) m.textContent = t; };
     s.q("#m-auto").onclick = async () => {
       const g = store.getCurrent();
-      const { center, radius } = this._searchParams(g.gameArea);
+      const { center, radius, clamped, wanted } = this._searchParams(g.gameArea);
       setMsg("Searching…");
       let feats = [], source = "google", reason = "primary";
       try {
@@ -1375,6 +1398,7 @@ export class Layers {
       feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast(sourceToast(reason));
+      else if (clamped) toast(clampWarning(radius, wanted));
       // Refine: tick which reference points count, add missing by tap/search
       // (search biased to the area centre).
       const chosen = await this._assembleCandidates(card, feats, { minCount: 1, center });
