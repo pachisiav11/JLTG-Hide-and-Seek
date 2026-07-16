@@ -17,17 +17,11 @@
 import express from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
+import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Public Overpass endpoints, tried in order with backoff. Any single instance can
-// be rate-limited or down, so we keep a few (cniehaus and gelbh both do this).
-const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-];
 
 // Density-ladder step 1: broaden tag matching before assuming data is missing. Each
 // category maps to several OSM tag alternatives so a thinly-tagged region still
@@ -90,8 +84,14 @@ app.get("/overpass", async (req, res) => {
     if (keyword) features = features.filter((f) => f.name.toLowerCase().includes(keyword));
     res.json({ source: "overpass", count: features.length, features });
   } catch (err) {
-    console.error("Overpass proxy failed:", err.message);
-    res.status(502).json({ error: "All Overpass endpoints failed.", detail: err.message });
+    // A malformed query is OUR bug and fails identically everywhere — report it as 400, not
+    // as "all endpoints failed", which would send someone hunting a phantom outage.
+    if (err.fatal) {
+      console.error("Overpass query rejected (this is a query bug, not an outage):", err.message);
+      return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
+    }
+    console.error(`Overpass proxy failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
+    res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
   }
 });
 
@@ -105,26 +105,6 @@ function buildQuery(tags, bbox) {
   return `[out:json][timeout:25];\n(\n${lines.join("\n")}\n);\nout center tags;`;
 }
 
-// Try each endpoint in turn with exponential backoff between attempts.
-async function runOverpass(query) {
-  let lastErr;
-  for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
-    const url = OVERPASS_ENDPOINTS[i];
-    try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(query),
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${url}`);
-      return await resp.json();
-    } catch (err) {
-      lastErr = err;
-      if (i < OVERPASS_ENDPOINTS.length - 1) await sleep(500 * (i + 1)); // 0.5s, 1s backoff
-    }
-  }
-  throw lastErr || new Error("no endpoints");
-}
 
 // Overpass elements → [{name,lat,lng}]. node has lat/lon; way/relation have center.
 function normalize(json) {
@@ -142,8 +122,6 @@ function normalize(json) {
   }
   return out;
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---- Phase 13: Socket.IO multiplayer relay --------------------------------
 // A RELAY, not a store (Circuit pattern): rooms keyed by a short session code, only
