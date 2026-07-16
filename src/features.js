@@ -84,13 +84,18 @@ export class MapFeatures {
     this.dir.renderer.setDirections({ routes: [] });
   }
 
-  // Clear all transient map features (directions route, measurement, transit
-  // layer). Used when switching games so nothing lingers from the previous one.
+  // Reset the per-board scratch state (a drawn route, an in-progress measurement) so
+  // nothing lingers from the previous game.
+  //
+  // Deliberately does NOT touch the transit layer. Transit is a map-VIEW preference, not
+  // per-game state, and Phase 22 made it on-by-default. Turning it off here desynced it
+  // from its toolbar button on every game switch: nothing removed the `.active` class, so
+  // after opening a game from history the button read "on" while the layer was off, and one
+  // tap "toggled it off" — actually turning it on.
   clearAll() {
     this.clearDirections();
     this.measure.active = false;
     this._clearMeasure();
-    if (this.transit) this.transit.setMap(null);
   }
 
   _getOrigin() {
