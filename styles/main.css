@@ -338,6 +338,18 @@ textarea.field { resize: vertical; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }
 .li-name.off { color: var(--text-dim); text-decoration: line-through; }
 
+/* An approximation warning shown inside a question sheet, at the point of use. Not an
+   error — the card works — but the seeker has to know when to distrust the partition. */
+.warn-note {
+  background: rgba(245, 158, 11, 0.12);
+  border-left: 3px solid var(--warn, #f59e0b);
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 /* A question whose geometry failed to compute. It stays checked and enabled but
    contributes no shading, so it has to be visibly distinguishable from a working one. */
 .li-failed {

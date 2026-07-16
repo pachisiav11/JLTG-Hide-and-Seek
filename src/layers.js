@@ -65,6 +65,27 @@ const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 
 // Google's nearbySearch radius ceiling. Not ours to raise — it is the API's hard maximum.
 const GOOGLE_MAX_RADIUS_M = 50000;
 
+// Surface a card's approximation AT THE POINT OF USE, not just as a parenthetical in the
+// category dropdown. "Metro Lines" is sourced as subway STATIONS and partitioned by a
+// Voronoi over them, because Google exposes no queryable transit-line geometry at all.
+// Stations sit on lines, but "nearest station" != "nearest line" wherever station spacing
+// exceeds line spacing — i.e. exactly the dense metro cores where this card gets played:
+//
+//   Lines A and B run parallel a few hundred metres apart. The hider stands beside line A,
+//   midway between its stations. The nearest STATION is on line B, so the station-Voronoi
+//   puts them in B's cell. The hider truthfully answers "closest to line A" and the seeker
+//   either cannot record it, or records it and eliminates the hider's real location.
+//
+// The seeker can only judge that if they're told. (Replacing the proxy with real OSM route
+// geometry is §G1 of REVIEW_FINDINGS.md; this warning is the honest interim and shouldn't
+// wait for it.)
+function approxWarning(cat) {
+  if (cat.id !== "subway_station") {
+    return `<p class="warn-note">⚠ This card is approximated ${escapeHtml(cat.approx)} — the partition may not match the answer exactly.</p>`;
+  }
+  return `<p class="warn-note">⚠ This partitions by nearest <strong>station</strong>, not nearest <strong>line</strong> — Google exposes no line geometry. Where two lines run closer together than their stations are spaced, the hider's nearest line may not be the nearest station's line. If their answer looks inconsistent with the map, trust them, not this.</p>`;
+}
+
 // Google could not search the whole board. Say so: the partition is being built from
 // whatever fell inside a 50 km disc, and the seeker cannot tell that from a complete answer.
 function clampWarning(radius, wanted) {
@@ -1309,6 +1330,7 @@ export class Layers {
       mapInteractive: true,
       bodyHTML: `
         <p class="muted">${escapeHtml(cat.label)} within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
+        ${cat.approx ? approxWarning(cat) : ""}
         ${this._featureListHTML("tt-feat", features)}
         <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
         <div class="row">
