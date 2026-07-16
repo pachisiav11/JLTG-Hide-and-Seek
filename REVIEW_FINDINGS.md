@@ -478,6 +478,23 @@ where two lines run close together — the same geometry as F1.
 sample adaptively near where lines converge. Cheap, and it tightens the one question type
 that currently has no automatic source at all.
 
+**Done 2026-07-16** — `lineStepMeters(gameArea)` = 1% of the board diagonal, clamped to
+[25 m, 400 m]. Took the scaling option, not adaptive sampling: adaptive costs a
+convergence-detection pass and this needed none. Because total line length grows with the
+board, a board-relative step holds the sample *count* roughly constant too — so small boards
+get finer without large boards getting slower. Bounds are judgement and are stated in the
+code: 25 m because these lines are finger-traced on a phone and below that tracing error
+dominates; 400 m because that was the old value and this should never be coarser than what
+it replaced.
+
+Worth recording precisely, because it's sharper than "±200 m": the real failure isn't coarse
+sampling, it's **phase**. Two lines 150 m apart, probe 60 m from A and 90 m from B. At a 400 m
+step, B's samples land out of phase with A's, so B's nearest sample is **91 m** from the probe
+while A's own nearest sample is **222 m** — the probe is handed to B, and answering "nearest A"
+truthfully gets the hider's real location eliminated. Same geometry as F1, arrived at from the
+sampling side. `test/line-step.test.mjs` reproduces exactly that, and keeps a large-board case
+pinned at the 400 m ceiling so the old behaviour stays visible rather than deleted.
+
 ### F3. The OSM trap — deferred, but write the fix down now **[R]**
 
 If §B2 lands and Overpass becomes primary, auto-sourcing transit lines becomes tempting.

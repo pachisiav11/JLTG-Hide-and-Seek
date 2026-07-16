@@ -241,6 +241,36 @@ function ringToPoly(ring) {
   return T().polygon([r]).geometry;
 }
 
+// Sampling step for the nearest-line Voronoi, derived from the board.
+//
+// A point Voronoi over samples spaced S metres apart approximates the true nearest-LINE
+// partition only to within ~S/2 of each line. The step used to be a flat 400 m, so that
+// error was a flat 200 m on every board: ~4% of a 5 km city-centre board — coarse exactly
+// where two lines run close and the answer is contested — while costing 500+ samples on a
+// 100 km board where 200 m is already invisible. Wrong at both ends, from one constant.
+//
+// Scaling the step with the board fixes both ends at once, and cheaply: total line length
+// grows with the board too, so a board-relative step holds the sample COUNT roughly
+// constant while holding relative accuracy constant. Bigger boards don't get slower.
+//
+// The bounds are judgement, not arithmetic, so they're stated:
+//   floor 25 m — these lines are traced by finger on a phone map. Below ~25 m the tracing
+//     error dominates and a finer step buys precision the input never had.
+//   ceiling 400 m — the previous fixed value. Keeps this change from ever being COARSER
+//     than what it replaced, whatever the board size.
+export const LINE_STEP_FRACTION = 0.01;
+export const LINE_STEP_MIN_M = 25;
+export const LINE_STEP_MAX_M = 400;
+
+export function lineStepMeters(gameArea) {
+  const turf = T();
+  const bb = turf.bbox(feat(gameArea));
+  // Board diagonal in ground metres — bbox degrees would make the step latitude-dependent.
+  const diagM = turf.distance([bb[0], bb[1]], [bb[2], bb[3]], { units: "meters" });
+  if (!Number.isFinite(diagM) || diagM <= 0) return LINE_STEP_MAX_M;
+  return Math.min(LINE_STEP_MAX_M, Math.max(LINE_STEP_MIN_M, diagM * LINE_STEP_FRACTION));
+}
+
 // Sample a drawn line ({lat,lng}[]) into GeoJSON points every ~stepMeters.
 function densifyLine(coords, stepMeters) {
   const turf = T();
@@ -294,8 +324,9 @@ function matchingNearestLine(step, gameArea) {
   if (!gameArea || !lines || !lines.length || lineId == null) return { eliminated: null, guides };
   const turf = T();
   const rawCoords = [], owner = [];
+  const stepM = lineStepMeters(gameArea);
   lines.forEach((ln, idx) => {
-    if ((ln.coords || []).length >= 2) for (const c of densifyLine(ln.coords, 400)) { rawCoords.push(c); owner.push(idx); }
+    if ((ln.coords || []).length >= 2) for (const c of densifyLine(ln.coords, stepM)) { rawCoords.push(c); owner.push(idx); }
   });
   if (rawCoords.length < 2) return { eliminated: null, guides };
   // Longitude-compress before the Voronoi (see voronoiCells) so cells match ground
