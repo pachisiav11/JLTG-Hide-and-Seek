@@ -313,22 +313,42 @@ function matchingNameLength(step, gameArea) {
   return { eliminated: keepMatch ? safeDiff(gameArea, union) : union, guides };
 }
 
-// Nearest of several hand-drawn lines/paths: densify every line to points, take
-// the point Voronoi, then keep OR eliminate the union of cells belonging to the
-// SEEKER's chosen line, depending on whether the hider answered "same" (`match`).
-function matchingNearestLine(step, gameArea) {
-  const { lines } = step.inputs;
-  const { lineId, match } = step.answer || {};
-  const keepMatch = match !== false; // default true = backward-compat "same"
-  const guides = (lines || []).map((ln) => ({ type: "polyline", coords: ln.coords }));
-  if (!gameArea || !lines || !lines.length || lineId == null) return { eliminated: null, guides };
+// A line's geometry as an array of paths of {lat,lng}.
+//
+// Two shapes exist and both are legitimate. A HAND-DRAWN line is one continuous path
+// (`coords`, {lat,lng} objects, because that is what the map hands back on tap). An
+// AUTO-SOURCED line is many OSM ways that need not join end to end (`paths`, compact
+// [lat,lng] pairs, because a metro line is thousands of vertices and the step is persisted
+// per game). Normalising here lets both share one partition instead of two near-copies.
+export function linePaths(ln) {
+  const raw = Array.isArray(ln?.paths) ? ln.paths : Array.isArray(ln?.coords) ? [ln.coords] : [];
+  return raw
+    .filter((p) => Array.isArray(p) && p.length >= 2)
+    .map((p) => p.map((c) => (Array.isArray(c) ? { lat: c[0], lng: c[1] } : c)));
+}
+
+// Nearest-LINE cells: cells[i] is the region of `gameArea` closer to lines[i] than to any
+// other line (or null). The point-Voronoi counterpart is voronoiCells; this is the same
+// contract for lines, so callers stay symmetric.
+//
+// Method: densify every line to points at lineStepMeters(gameArea), take the point Voronoi,
+// then UNION the cells owned by each line. That approximates the true nearest-line partition
+// to ~step/2 — see F2 for why the step is board-relative and why phase, not coarseness, is
+// what actually bites.
+export function lineCells(lines, gameArea) {
   const turf = T();
+  const empty = () => (lines || []).map(() => null);
+  if (!gameArea || !lines?.length) return { cells: empty() };
+
   const rawCoords = [], owner = [];
   const stepM = lineStepMeters(gameArea);
   lines.forEach((ln, idx) => {
-    if ((ln.coords || []).length >= 2) for (const c of densifyLine(ln.coords, stepM)) { rawCoords.push(c); owner.push(idx); }
+    for (const path of linePaths(ln)) {
+      for (const c of densifyLine(path, stepM)) { rawCoords.push(c); owner.push(idx); }
+    }
   });
-  if (rawCoords.length < 2) return { eliminated: null, guides };
+  if (rawCoords.length < 2) return { cells: empty() };
+
   // Longitude-compress before the Voronoi (see voronoiCells) so cells match ground
   // distance, not planar lng/lat — otherwise the chosen line's region is skewed.
   const lat0 = rawCoords.reduce((s, c) => s + c[1], 0) / rawCoords.length;
@@ -341,20 +361,36 @@ function matchingNearestLine(step, gameArea) {
   let bbox = turf.bbox(turf.featureCollection([...allPts, ...corners]));
   const padX = (bbox[2] - bbox[0]) * 0.15 || 0.05, padY = (bbox[3] - bbox[1]) * 0.15 || 0.05;
   bbox = [bbox[0] - padX, bbox[1] - padY, bbox[2] + padX, bbox[3] + padY];
+
   let raw;
   try { raw = turf.voronoi(turf.featureCollection(allPts), { bbox }); }
   // Same reasoning as voronoiCells: swallowing this returns `eliminated: null`, which no
   // caller treats as an error, so the question stays enabled and silently does nothing.
   catch (e) { throw new Error(`Nearest-line partition failed for ${lines.length} lines: ${e.message}`); }
-  const chosen = lines.findIndex((l) => l.id === lineId);
-  let keep = null;
+
+  const cells = empty();
   (raw.features || []).forEach((cell, i) => {
-    if (cell && owner[i] === chosen) {
-      const unpoly = turf.polygon(cell.geometry.coordinates.map((ring) => ring.map(unproj)));
-      const clip = safeIntersect(unpoly, gameArea);
-      if (clip) keep = keep ? safeUnion(keep, clip) : clip;
-    }
+    const idx = owner[i];
+    if (!cell || idx == null) return;
+    const unpoly = turf.polygon(cell.geometry.coordinates.map((ring) => ring.map(unproj)));
+    const clip = safeIntersect(unpoly, gameArea);
+    if (clip) cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip;
   });
+  return { cells };
+}
+
+// Nearest of several lines: keep OR eliminate the chosen line's region, depending on whether
+// the hider answered "same" (`match`).
+function matchingNearestLine(step, gameArea) {
+  const { lines } = step.inputs;
+  const { lineId, match } = step.answer || {};
+  const keepMatch = match !== false; // default true = backward-compat "same"
+  const guides = (lines || []).flatMap((ln) => linePaths(ln).map((coords) => ({ type: "polyline", coords })));
+  if (!gameArea || !lines || !lines.length || lineId == null) return { eliminated: null, guides };
+  const chosen = lines.findIndex((l) => l.id === lineId);
+  if (chosen < 0) return { eliminated: null, guides };
+  const { cells } = lineCells(lines, gameArea);
+  const keep = cells[chosen];
   if (!keep) return { eliminated: null, guides };
   // Match → keep the chosen line's region; no-match → eliminate it.
   return { eliminated: keepMatch ? safeDiff(gameArea, keep) : keep, guides };
@@ -389,9 +425,22 @@ function matchingRegion(step, gameArea) {
 // this change carry no `center` and fall back to the old per-POI-circle behavior so
 // old saved/imported games still eliminate correctly.
 function tentacles(step, gameArea) {
-  const { features, radius, center } = step.inputs;
+  const { features, lines, radius, center } = step.inputs;
   const { featureIndex, none } = step.answer || {};
   const R = radius; // metres
+
+  // Metro Lines is answered with a LINE, not a point (F1): "of the metro lines within R of
+  // me, which are you nearest?". Sourcing it as subway_station and partitioning by a Voronoi
+  // over STATIONS answers a different question — wherever station spacing exceeds line
+  // spacing, the nearest station can sit on a line the hider is not beside, so a truthful
+  // "nearest line A" gets recorded as B and eliminates the hider's real position.
+  //
+  // Only the PARTITION differs. The fixed seeker radius, the keep-cell-∩-circle rule and the
+  // miss case are identical for points and lines, so both modes share everything below and
+  // fork only on how cells are built.
+  const isLines = Array.isArray(lines) && lines.length > 0;
+  const items = isLines ? lines : features;
+  const buildCells = () => (isLines ? lineCells(lines, gameArea) : voronoiCells(items, gameArea)).cells;
 
   // ---- Pre-rebuild steps with no radius (plain nearest-cell partition) ----
   // These must NOT be handed to voronoiTool. That is Matching-shaped and destructures
@@ -401,12 +450,12 @@ function tentacles(step, gameArea) {
   // said they were CLOSEST to. The inverse of the truth, silently.
   if (radius == null) {
     const guides = [];
-    if (!gameArea || !features || features.length < 2 || featureIndex == null) {
+    if (!gameArea || !items || items.length < 2 || featureIndex == null) {
       // `{ none: true }` has no meaning here: with no radius there are no circles and
       // every point is nearest to something, so there is nothing to eliminate.
       return { eliminated: null, guides };
     }
-    const { cells } = voronoiCells(features, gameArea);
+    const cells = buildCells();
     for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
     const cell = cells[featureIndex];
     if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
@@ -415,7 +464,7 @@ function tentacles(step, gameArea) {
   }
 
   const guides = [];
-  if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
+  if (!gameArea || !items || !items.length || !R) return { eliminated: null, guides };
   const circleGeom = (lng, lat) => T().circle([lng, lat], R / 1000, { units: "kilometers", steps: 64 }).geometry;
 
   // ---- Seeker-centric model (new steps carry `center`) --------------------
@@ -426,13 +475,14 @@ function tentacles(step, gameArea) {
     if (none) return { eliminated: safeIntersect(seeker, gameArea), guides };
 
     if (featureIndex == null) return { eliminated: null, guides };
-    const P = features[featureIndex];
-    if (!P) return { eliminated: null, guides };
+    if (!items[featureIndex]) return { eliminated: null, guides };
+    // Draw the lines themselves, so the seeker can see what the cells were built from.
+    if (isLines) for (const ln of lines) for (const coords of linePaths(ln)) guides.push({ type: "polyline", coords });
     // Hit: within reach AND closest to P. With one candidate the whole area is P's
     // cell, so keep = area ∩ seeker circle.
     let cell = gameArea;
-    if (features.length >= 2) {
-      const { cells } = voronoiCells(features, gameArea);
+    if (items.length >= 2) {
+      const cells = buildCells();
       for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
       cell = cells[featureIndex];
       if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
@@ -443,6 +493,10 @@ function tentacles(step, gameArea) {
   }
 
   // ---- Legacy per-POI-circle model (old steps without a seeker `center`) --
+  // Points only. `lines` is newer than the seeker-centric rebuild, so a line step always
+  // carries a `center` and never reaches here; a hand-built one without a center has no
+  // per-POI circle to draw, so it eliminates nothing rather than guessing.
+  if (isLines) return { eliminated: null, guides };
   const circleOf = (f) => circleGeom(f.lng, f.lat);
   if (none) {
     let union = null;

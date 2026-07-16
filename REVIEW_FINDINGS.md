@@ -483,6 +483,35 @@ customer. (It was F4 that was going to fix this; F4 is superseded.)
 warn in `_chooseTentacle` that the partition is by station, not line, so the seeker knows when
 to distrust it. That warning is cheap and shouldn't wait for G1.
 
+**DONE 2026-07-16 — the card is answered with a line now.** `lineKind: "metro"` sources real
+OSM geometry through G1's proxy, `groupIntoLines()` turns route relations into lines, and
+`lineCells()` partitions by nearest *line*. The station Voronoi survives only as a fallback.
+
+**The bug reproduces, and the fix is measured against it.** `test/tentacles-lines.test.mjs`
+builds the scenario above to scale — two lines 400 m apart, stations 3 km apart, hider 100 m
+from line A and level with B's station — and asserts three things: the station partition
+**does** eliminate the hider's true position, the line partition **does not**, and the two
+disagree on identical geometry. That last one is what makes it the fix rather than the fixture.
+
+Verified end to end in the browser on a real Mumbai board: 12 route relations → **7 lines**
+(Line 1/2/2B/3/7/11 + Green), both directions collapsed, sorted by distance from the seeker.
+Answering "nearest Line 3" **keeps Line 3's region and eliminates all six rivals** — checked
+per line with an on-board probe. 57% of the board eliminated, zero failed steps, no console
+errors. The step stores the geometry (44 KB), not a reference to it, so the partition
+recomputes identically for the life of the game even if OSM is edited or the cache is cleared.
+
+**The fallback is deliberate and must stay loud.** Overpass returned **two 502s before a 200**
+during this very verification — ~64% of individual calls fail, and that is the normal case,
+not an outage. So no proxy / Overpass down / no metro on the board falls back to the station
+Voronoi, and `approxWarning` was rewritten to say *that is what happened* rather than
+describing the card. A silent fallback would put the seeker back on the approximate question
+without telling them, which is worse than the original bug.
+
+**Not fixed, and worth naming:** two lines on *identical* track (Berlin's S41/S42 Ring, which
+carry different refs but share rails) still partition arbitrarily between each other — the
+cells are decided by densification jitter. It is narrow, but it is the same class of problem
+one level down. The seeker can untick one of them.
+
 ### F2. Hand-drawn lines are sampled at 400 m **[V]**
 `src/tools.js:249` · `src/tools.js:196` (`densifyLine`)
 

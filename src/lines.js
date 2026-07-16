@@ -180,6 +180,38 @@ export async function loadLines(kind, bbox, { level = null, proxyBase = null, no
   }
 }
 
+// Candidate lines for a Tentacles card: the lines of `kind` within `radius` of the seeker,
+// grouped into what a player would name. Returns [] when there is no proxy or Overpass is
+// down, so the caller can fall back visibly rather than showing an empty question.
+//
+// Fetched for the whole BOARD, then filtered to the seeker's reach — not fetched for the
+// reach disc. A line inside the reach carries geometry that runs off across the board, and
+// its Voronoi cell depends on where that geometry actually goes; querying only the disc would
+// truncate it and bend the cell.
+export async function candidateLines(kind, gameArea, center, radius) {
+  const bbox = boardBbox(gameArea);
+  if (!bbox) return [];
+  const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
+  const data = await loadLines(kind, bbox, { proxyBase });
+  const grouped = groupIntoLines(data);
+
+  const turf = window.turf;
+  const from = turf.point([center.lng, center.lat]);
+  const within = [];
+  for (const l of grouped) {
+    // The card asks about lines "within R of me", so a line is a candidate iff any part of it
+    // comes within R — measured to the LINE, not to a station on it.
+    let best = Infinity;
+    for (const p of l.paths) {
+      const d = turf.pointToLineDistance(from, turf.lineString(p.map(([lat, lng]) => [lng, lat])), { units: "meters" });
+      if (d < best) best = d;
+    }
+    if (best <= radius) within.push({ ...l, distance: best });
+  }
+  within.sort((a, b) => a.distance - b.distance);
+  return within;
+}
+
 export class Lines {
   constructor(map) {
     this.map = map;

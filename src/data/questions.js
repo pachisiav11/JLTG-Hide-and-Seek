@@ -7,9 +7,15 @@
 
 // ---- Tentacles ----------------------------------------------------------
 // Fixed-radius "of these, which are you closest to?" cards. The 2 km tier is
-// dense/local features; the 25 km tier is sparse/regional ones. "Metro Lines"
-// has no queryable line geometry from Google, so we proxy it with metro stations
-// (stations sit on the lines) — an automatic approximation.
+// dense/local features; the 25 km tier is sparse/regional ones.
+//
+// "Metro Lines" is the odd one: it is answered with a LINE, and Google exposes no
+// queryable line geometry at all (TransitLayer is raster tiles). It used to be proxied
+// with metro stations — stations sit on the lines — but that answers a different
+// question wherever station spacing exceeds line spacing (F1). `lineKind` sources real
+// line geometry from OSM via the Overpass proxy instead. `type` is retained as the
+// fallback for when no proxy is configured or Overpass is down, and `approx` is the
+// warning shown ONLY on that fallback path.
 export const TENTACLES = [
   // 2 km tier
   { id: "museum", label: "Museums", type: "museum", radius: 2000 },
@@ -17,7 +23,7 @@ export const TENTACLES = [
   { id: "movie_theater", label: "Movie Theaters", type: "movie_theater", radius: 2000 },
   { id: "hospital", label: "Hospitals", type: "hospital", radius: 2000 },
   // 25 km tier
-  { id: "subway_station", label: "Metro Lines", type: "subway_station", radius: 25000, approx: "via metro stations" },
+  { id: "subway_station", label: "Metro Lines", lineKind: "metro", type: "subway_station", radius: 25000, approx: "via metro stations" },
   { id: "zoo", label: "Zoos", type: "zoo", radius: 25000 },
   { id: "aquarium", label: "Aquariums", type: "aquarium", radius: 25000 },
   { id: "amusement_park", label: "Amusement Parks", type: "amusement_park", radius: 25000 },

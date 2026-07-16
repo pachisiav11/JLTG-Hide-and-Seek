@@ -62,28 +62,33 @@ function maskEverything(area) {
 // committed guides restyle per-palette/per-step in _renderGuides.
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
+// Distinct colours for the Metro Lines candidate list (F1), so the radio list and the map
+// agree at a glance. Deliberately NOT OSM's `colour` tag: two lines can share a colour, and
+// the whole point here is telling candidates apart. Not palette-driven either — these are
+// identity, not semantics, so the colour-blind toggle has nothing to restyle.
+const TENTACLE_LINE_COLOURS = ["#f472b6", "#38bdf8", "#facc15", "#4ade80", "#c084fc", "#fb923c", "#22d3ee", "#f87171"];
+
 // Google's nearbySearch radius ceiling. Not ours to raise — it is the API's hard maximum.
 const GOOGLE_MAX_RADIUS_M = 50000;
 
 // Surface a card's approximation AT THE POINT OF USE, not just as a parenthetical in the
-// category dropdown. "Metro Lines" is sourced as subway STATIONS and partitioned by a
-// Voronoi over them, because Google exposes no queryable transit-line geometry at all.
-// Stations sit on lines, but "nearest station" != "nearest line" wherever station spacing
-// exceeds line spacing — i.e. exactly the dense metro cores where this card gets played:
+// category dropdown.
+//
+// For Metro Lines this is now the FALLBACK story, not the card's story: F1 sources real OSM
+// line geometry and partitions by line, and only drops back to a station Voronoi when there
+// is no proxy configured, Overpass is down, or the board has no metro. So this warning fires
+// only on that path — which is exactly when the seeker needs it, because the question has
+// quietly reverted to the approximate one:
 //
 //   Lines A and B run parallel a few hundred metres apart. The hider stands beside line A,
 //   midway between its stations. The nearest STATION is on line B, so the station-Voronoi
 //   puts them in B's cell. The hider truthfully answers "closest to line A" and the seeker
 //   either cannot record it, or records it and eliminates the hider's real location.
-//
-// The seeker can only judge that if they're told. (Replacing the proxy with real OSM route
-// geometry is §G1 of REVIEW_FINDINGS.md; this warning is the honest interim and shouldn't
-// wait for it.)
 function approxWarning(cat) {
   if (cat.id !== "subway_station") {
     return `<p class="warn-note">⚠ This card is approximated ${escapeHtml(cat.approx)} — the partition may not match the answer exactly.</p>`;
   }
-  return `<p class="warn-note">⚠ This partitions by nearest <strong>station</strong>, not nearest <strong>line</strong> — Google exposes no line geometry. Where two lines run closer together than their stations are spaced, the hider's nearest line may not be the nearest station's line. If their answer looks inconsistent with the map, trust them, not this.</p>`;
+  return `<p class="warn-note">⚠ Couldn't load real line geometry, so this fell back to partitioning by nearest <strong>station</strong>, not nearest <strong>line</strong>. Where two lines run closer together than their stations are spaced, the hider's nearest line may not be the nearest station's line. If their answer looks inconsistent with the map, trust them, not this.</p>`;
 }
 
 // Google could not search the whole board. Say so: the partition is being built from
@@ -1240,8 +1245,11 @@ export class Layers {
     const g = store.getCurrent();
     if (!g?.gameArea) return toast("Add zones first to define the search area.");
     const rTxt = (r) => (r >= 1000 ? `${r / 1000} km` : `${r} m`);
+    // `approx` describes a card whose automatic source is a PROXY for the real feature. A card
+    // with a lineKind sources the real thing and keeps `approx` only to word its fallback, so
+    // advertising the proxy up front would now be false.
     const opts = TENTACLES.map((c) =>
-      `<option value="${c.id}">${escapeHtml(c.label)} · ${rTxt(c.radius)}${c.approx ? ` (${escapeHtml(c.approx)})` : ""}</option>`
+      `<option value="${c.id}">${escapeHtml(c.label)} · ${rTxt(c.radius)}${c.approx && !c.lineKind ? ` (${escapeHtml(c.approx)})` : ""}</option>`
     ).join("");
     const { cats } = await this._customCategoryOptions();
     const customOptsR = cats.length
@@ -1288,6 +1296,24 @@ export class Layers {
       s.close();
       const center = await pickCentre(cat);
       if (!center) return this.openPanel();
+
+      // Metro Lines: source real line geometry rather than proxying with stations (F1).
+      // Falls back to the station path — visibly, with the approximation warning — when there
+      // is no proxy, Overpass is down, or the board genuinely has no metro. A silent fallback
+      // would hide that the seeker is back on the approximate question.
+      if (cat.lineKind) {
+        toast("Finding metro lines…");
+        try {
+          const { candidateLines } = await import("./lines.js");
+          const lines = await candidateLines(cat.lineKind, g.gameArea, center, cat.radius);
+          if (lines.length) return this._chooseTentacleLines(cat, lines, center);
+          toast(`No metro lines within ${rTxt(cat.radius)} of you — falling back to stations.`);
+        } catch (e) {
+          console.warn("metro line sourcing failed", e);
+          toast("Couldn't load metro lines — falling back to stations.");
+        }
+      }
+
       toast("Searching…");
       const turf = window.turf;
       let feats = [], source = "google", reason = "primary";
@@ -1311,6 +1337,63 @@ export class Layers {
       const chosen = await this._assembleCandidates(cat, feats, { minCount: 1, center, radius: cat.radius });
       if (!chosen || !chosen.length) return this.openPanel();
       this._chooseTentacle(cat, chosen, center);
+    };
+  }
+
+  // Metro Lines, answered with a LINE (F1). Mirrors _chooseTentacle, but the candidates are
+  // lines rather than points: the map draws each one, and the step stores its geometry so the
+  // partition recomputes deterministically even if OSM changes later.
+  _chooseTentacleLines(cat, lines, center) {
+    const rTxt = cat.radius >= 1000 ? `${cat.radius / 1000} km` : `${cat.radius} m`;
+    const temp = [];
+    // Number the lines to match the list, and colour every path of a line identically — a
+    // line is many OSM ways and must read as one thing.
+    lines.forEach((l, i) => {
+      const colour = TENTACLE_LINE_COLOURS[i % TENTACLE_LINE_COLOURS.length];
+      for (const path of l.paths) {
+        temp.push(new google.maps.Polyline({
+          path: path.map(([lat, lng]) => ({ lat, lng })),
+          strokeColor: colour, strokeOpacity: 0.95, strokeWeight: 4, zIndex: 6, clickable: false, map: this.map,
+        }));
+      }
+    });
+    temp.push(new google.maps.Marker({ position: center, label: { text: "C", color: "#04252a", fontWeight: "700" }, title: "Your location", map: this.map }));
+    temp.push(new google.maps.Circle({ center, radius: cat.radius, map: this.map, strokeColor: "#38bdf8", strokeOpacity: 0.9, strokeWeight: 2, fillColor: "#38bdf8", fillOpacity: 0.06, clickable: false }));
+
+    const list = lines.map((l, i) => {
+      const swatch = TENTACLE_LINE_COLOURS[i % TENTACLE_LINE_COLOURS.length];
+      const km = l.distance >= 1000 ? `${(l.distance / 1000).toFixed(1)} km` : `${Math.round(l.distance)} m`;
+      return `<label><input type="radio" name="tt-line" value="${i}"/> <span class="line-dot" style="background:${swatch}"></span> ${escapeHtml(l.label)} <span class="muted">· ${km} away</span></label>`;
+    }).join("");
+
+    const s = openSheet({
+      title: "Tentacles",
+      mapInteractive: true,
+      bodyHTML: `
+        <p class="muted">Metro lines within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
+        ${lines.length < 2 ? `<p class="warn-note">⚠ Only one line is in range, so this can only tell you whether the hider is within ${rTxt} of you — it can't distinguish between lines.</p>` : ""}
+        <div class="seg">${list}</div>
+        <div class="seg"><label><input type="radio" name="tt-line" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
+        <div class="sheet-actions">
+          <button id="ttl-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="ttl-add" class="btn btn-primary">Add question</button>
+        </div>`,
+      onClose: () => temp.forEach((o) => o.setMap(null)),
+    });
+    s.q("#ttl-cancel").onclick = () => s.close();
+    s.q("#ttl-add").onclick = () => {
+      const chosen = s.qa('input[name="tt-line"]').find((r) => r.checked);
+      if (!chosen) return toast("Choose which line they're closest to, or None for a miss.");
+      const val = chosen.value;
+      // Store the geometry, not a reference to it: the partition must recompute identically
+      // for the life of the game even if OSM is edited or the cache is cleared. `id` is what
+      // describeStep and the Matching flow key on.
+      const stored = lines.map((l, i) => ({ id: `ln_${i}_${l.key}`, label: l.label, paths: l.paths }));
+      const inputs = { category: cat.id, categoryLabel: cat.label, radius: cat.radius, lines: stored, center };
+      const answer = val === "none" ? { none: true } : { featureIndex: parseInt(val, 10) };
+      this.addStep("tentacles", inputs, answer);
+      s.close();
+      toast("Tentacles question added.");
     };
   }
 

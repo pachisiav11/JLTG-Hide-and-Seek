@@ -213,11 +213,21 @@ not an enumeration of the whole play area.
 
 - **Cards** (`src/data/questions.js`), two tiers by feature density:
   - **2 km** — Museums, Libraries, Movie Theaters, Hospitals.
-  - **25 km** — Metro Lines *(sourced as metro stations — see §F1 of `REVIEW_FINDINGS.md`)*,
-    Zoos, Aquariums, Amusement Parks.
+  - **25 km** — Metro Lines, Zoos, Aquariums, Amusement Parks.
 - **Input:** the seeker drops their own centre, the app finds that category within the
   card's radius, and the seeker confirms the candidate set. The hider answers with **one
   candidate** or **"none — a miss"**.
+- **Metro Lines is answered with a LINE, not a point** (`lineKind: "metro"`). It is the one
+  card whose candidates are lines, sourced from OSM via §5.6 and partitioned by
+  `lineCells()` — nearest *line*, not nearest station. It used to proxy the question with
+  metro stations, which answers a different question wherever station spacing exceeds line
+  spacing (§F1 of `REVIEW_FINDINGS.md`). Everything else about the card is unchanged: same
+  fixed seeker radius, same keep-cell-∩-reach rule, same miss.
+  - OSM route relations are **services, not lines** — one per direction, and per fast/slow.
+    They are grouped by `ref` into the line a player would name (`groupIntoLines()`).
+  - The **station path survives as a fallback** for no proxy / Overpass down / no metro on
+    the board, and says so at the point of use. It must stay visible: a silent fallback puts
+    the seeker back on the approximate question without telling them.
 - **Geometry** (`tentacles()` in `src/tools.js`):
   - **Miss** (`{ none: true }`) — the hider is outside the seeker's reach, so **eliminate
     the inside of the seeker's circle**: `seekerCircle ∩ gameArea`.
@@ -259,6 +269,15 @@ doesn't ship.
 stations. "Nearest station" ≠ "nearest line" wherever station spacing exceeds line
 spacing — exactly the dense metro cores where these cards get played (see §F1 of
 `REVIEW_FINDINGS.md`). OSM has the surveyed geometry; use it.
+
+**Principle: a route relation is not a line.** OSM maps each *service*: one relation per
+direction, and per fast/slow variant, on the same rails. Offering those as separate
+candidates asks the seeker to choose between options that mean the same thing, and
+partitions between geometry that is identical. Group by `ref` — measured across 8 cities to
+collapse `route=subway` to exactly the player's list (DC → R/B/O/Y/G/S, London → the Tube
+lines, Berlin → U1–U9). **But only on metro tags:** on `route=train`, `ref` is sometimes the
+*operator* (Tokyo's `KS` merges two real lines; Paris's `H` merges 32 Transilien services),
+which over-groups into one line that cannot discriminate.
 
 **Principle: clip, don't tag-filter.** Restrict geometry to the play-area bbox rather
 than filtering by tag. Tag conventions vary by country, so a filter that looks correct

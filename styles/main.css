@@ -350,6 +350,19 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
+/* Colour key for the Metro Lines candidate list — ties each radio option to the line drawn
+   on the map behind the sheet. Inline background: the colour is per-candidate, assigned in
+   layers.js from TENTACLE_LINE_COLOURS. */
+.line-dot {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  margin-right: 0.15em;
+  vertical-align: baseline;
+  flex: none;
+}
+
 /* A question whose geometry failed to compute. It stays checked and enabled but
    contributes no shading, so it has to be visibly distinguishable from a working one. */
 .li-failed {
