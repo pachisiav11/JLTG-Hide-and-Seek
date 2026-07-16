@@ -175,6 +175,29 @@ export function distanceUnitWord(units = "metric") {
   return units === "imperial" ? "feet or miles" : "metres or km";
 }
 
+// ---- Filtered radio-list selection ---------------------------------------------------
+// Decide what should be checked after a name filter is applied to a pick-exactly-one list.
+//
+// Filtering used to set `display` only and never touch `checked`, so typing "Waterloo",
+// seeing only Waterloo and pressing Add recorded whatever was still checked BEHIND the
+// filter — index 0 by default, a different and now-invisible station. Pure, so the rule is
+// testable without a DOM (layers.js can't be imported under node).
+//
+//   visibleIdx      — indices still visible after filtering
+//   checkedIdx      — index currently checked within the list, or null
+//   externalChecked — an option OUTSIDE the list is chosen (Tentacles' "None — a miss")
+//
+// Returns the index that should end up checked, or null for "nothing — make them pick".
+export function repairRadioSelection({ visibleIdx, checkedIdx = null, externalChecked = false }) {
+  // A deliberate out-of-list choice is never overridden by filtering.
+  if (externalChecked) return null;
+  // The seeker can still see their choice: keep it.
+  if (checkedIdx != null && visibleIdx.includes(checkedIdx)) return checkedIdx;
+  // Their choice is hidden (or absent). One visible match is unambiguous — that is what
+  // the filter implies. Otherwise clear it and require an explicit pick.
+  return visibleIdx.length === 1 ? visibleIdx[0] : null;
+}
+
 // A small single-field text prompt as a bottom sheet. Resolves to the string or null.
 export function promptText({ title, label = "", value = "", placeholder = "", cta = "Save", mapInteractive = false } = {}) {
   return new Promise((resolve) => {

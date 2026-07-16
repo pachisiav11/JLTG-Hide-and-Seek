@@ -9,7 +9,7 @@ import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from 
 import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
-import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters } from "./ui.js";
+import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
@@ -429,13 +429,45 @@ export class Layers {
   }
 
   // Wire a _featureListHTML search box to show/hide items by name substring.
+  //
+  // Filtering used to set `display` only and never touch `checked`. So typing "Waterloo",
+  // seeing only Waterloo, and hitting Add recorded whatever was still checked BEHIND the
+  // filter — index 0 by default, a different and now-invisible station. The wrong question
+  // was committed silently, and describeStep then reported the wrong name.
   _wireFeatureSearch(sheet, name) {
     const box = sheet.q(`[data-search="${name}"]`);
     if (!box) return;
     const items = sheet.qa(`[data-list="${name}"] .feat-item`);
     box.addEventListener("input", () => {
       const q = box.value.trim().toLowerCase();
-      items.forEach((el) => { el.style.display = !q || el.dataset.name.includes(q) ? "" : "none"; });
+      const visible = [];
+      items.forEach((el) => {
+        const show = !q || el.dataset.name.includes(q);
+        el.style.display = show ? "" : "none";
+        if (show) visible.push(el);
+      });
+
+      // Only radio lists (pick exactly one) need selection repair. The candidate picker is
+      // a CHECKBOX list — "tick which ones count" — where ticks are deliberate and a hidden
+      // tick is still a real choice. Touching those would be its own silent bug.
+      const inputs = items.map((el) => el.querySelector("input"));
+      if (!inputs.some((i) => i && i.type === "radio")) return;
+
+      const visibleIdx = [];
+      inputs.forEach((inp, i) => { if (inp && items[i].style.display !== "none") visibleIdx.push(i); });
+      const checkedIdx = inputs.findIndex((inp) => inp && inp.checked);
+      // An option outside the filtered list (Tentacles' "None — a miss") must survive.
+      const externalChecked = sheet.qa(`input[name="${name}"]`)
+        .some((r) => r.checked && !r.closest(".feat-item"));
+
+      const want = repairRadioSelection({
+        visibleIdx,
+        checkedIdx: checkedIdx === -1 ? null : checkedIdx,
+        externalChecked,
+      });
+      if (!externalChecked) {
+        inputs.forEach((inp, i) => { if (inp) inp.checked = i === want; });
+      }
     });
   }
 
@@ -881,7 +913,12 @@ export class Layers {
     this._wireFeatureSearch(s2, "mt-feat");
     s2.q("#mt-cancel2").onclick = () => s2.close();
     s2.q("#mt-add").onclick = () => {
-      const featureIndex = parseInt(s2.qa('input[name="mt-feat"]').find((r) => r.checked)?.value ?? "0", 10);
+      // Require an explicit pick. Defaulting to "0" here was the second mouth of the same
+      // bug: with the checked item filtered away, Add silently recorded a station the
+      // seeker never chose and could not see.
+      const picked = s2.qa('input[name="mt-feat"]').find((r) => r.checked);
+      if (!picked) return toast("Choose which one is nearest to you first.");
+      const featureIndex = parseInt(picked.value, 10);
       const keep = (s2.qa('input[name="mt-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
       this.addStep("matching", { mode: "nearest", category: card.id, categoryLabel: card.label, features: feats }, { featureIndex, keep });
       s2.close();
@@ -1180,7 +1217,11 @@ export class Layers {
     this._wireFeatureSearch(s, "tt-feat");
     s.q("#tt-cancel2").onclick = () => s.close();
     s.q("#tt-add").onclick = () => {
-      const val = s.qa('input[name="tt-feat"]').find((r) => r.checked)?.value ?? "0";
+      // Require an explicit pick — see the matching sheet above; "0" as a default silently
+      // recorded a candidate the seeker never chose.
+      const chosen = s.qa('input[name="tt-feat"]').find((r) => r.checked);
+      if (!chosen) return toast("Choose which one they're closest to, or None for a miss.");
+      const val = chosen.value;
       const inputs = { category: cat.id, categoryLabel: cat.label, radius: cat.radius, features, center };
       const answer = val === "none" ? { none: true } : { featureIndex: parseInt(val, 10) };
       this.addStep("tentacles", inputs, answer);
