@@ -27,10 +27,6 @@ export class Focus {
   _zone() {
     return store.getCurrent()?.focusZone || null;
   }
-  point() {
-    return this._zone()?.point || null;
-  }
-
   setPoint(point) {
     store.update((g) => {
       const radius = g.focusZone?.radius || null; // keep any existing radius
