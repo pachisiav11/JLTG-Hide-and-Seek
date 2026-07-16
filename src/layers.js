@@ -87,7 +87,6 @@ export class Layers {
     this.map = map;
     this.boundaries = boundaries || null; // for the admin-division tracing helper (DDS)
     this.overlays = [];
-    this.redoStack = [];
     this._pick = null;
     this.failedSteps = new Set(); // step ids whose geometry failed on the last render
   }
@@ -101,10 +100,10 @@ export class Layers {
   }
 
   // ---- History operations ----
+  // The redo stack lives on the game record (see model.js), so it survives a reload.
   addStep(tool, inputs, answer) {
     const step = createStep({ tool, inputs, answer, enabled: true });
-    store.update((g) => g.history.push(step));
-    this.redoStack = [];
+    store.update((g) => { g.history.push(step); g.redoStack = []; });
     this._afterAdd(step);
     return step;
   }
@@ -120,31 +119,42 @@ export class Layers {
     store.update((g) => {
       const s = g.history.find((x) => x.id === id);
       if (s) s.enabled = !s.enabled;
+      g.redoStack = []; // a manual toggle makes the pending redo meaningless
     });
-    this.redoStack = [];
   }
   remove(id) {
-    store.update((g) => (g.history = g.history.filter((x) => x.id !== id)));
-    this.redoStack = [];
+    store.update((g) => {
+      g.history = g.history.filter((x) => x.id !== id);
+      g.redoStack = []; // ...and would otherwise point at a step that no longer exists
+    });
   }
   undo() {
     const g = store.getCurrent();
-    const enabled = g.history.filter((s) => s.enabled);
+    const enabled = (g?.history || []).filter((s) => s.enabled);
     if (!enabled.length) return toast("Nothing to undo.");
     const last = enabled[enabled.length - 1];
     store.update((gg) => {
       const s = gg.history.find((x) => x.id === last.id);
       if (s) s.enabled = false;
+      (gg.redoStack ||= []).push(last.id);
     });
-    this.redoStack.push(last.id);
   }
   redo() {
-    const id = this.redoStack.pop();
-    if (!id) return toast("Nothing to redo.");
-    store.update((g) => {
-      const s = g.history.find((x) => x.id === id);
-      if (s) s.enabled = true;
+    const g = store.getCurrent();
+    if (!g?.redoStack?.length) return toast("Nothing to redo.");
+    let redone = null;
+    store.update((gg) => {
+      // Skip ids whose step has since vanished rather than silently doing nothing.
+      while (gg.redoStack.length && !redone) {
+        const id = gg.redoStack.pop();
+        const s = gg.history.find((x) => x.id === id);
+        if (s) { s.enabled = true; redone = s; }
+      }
     });
+    if (!redone) toast("Nothing to redo.");
+  }
+  canRedo() {
+    return (store.getCurrent()?.redoStack?.length || 0) > 0;
   }
 
   // ---- Rendering ----
@@ -654,7 +664,7 @@ export class Layers {
   // ---- Panel ----
   openPanel() {
     const g = store.getCurrent();
-    const canRedo = this.redoStack.length > 0;
+    const canRedo = this.canRedo();
     const rows = g.history.length
       ? g.history.map((s) => {
           const broke = this.failedSteps?.has(s.id);

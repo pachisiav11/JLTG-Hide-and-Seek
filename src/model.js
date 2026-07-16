@@ -34,6 +34,12 @@ export function createGame(overrides = {}) {
     gameArea: overrides.gameArea || null,  // GeoJSON polygon (turf.union of zones)
     focusZone: overrides.focusZone || { point: null, radius: null }, // solo target zone (point + radius)
     history: overrides.history || [],      // Step[] — ordered, each toggleable
+    // Step ids undone and awaiting redo, most recent last. Lives on the GAME, not on the
+    // Layers instance: as instance state it died on reload, so undoing a question and
+    // reloading before pressing Redo made canRedo permanently false for that step.
+    // It cannot be derived from history instead — nothing records WHEN a step was disabled,
+    // so an undone step is indistinguishable from one toggled off manually long ago.
+    redoStack: overrides.redoStack || [],
     settings: { ...DEFAULT_SETTINGS, ...(overrides.settings || {}) },
     // Provenance for imports. An import always gets a FRESH id (it must never overwrite an
     // existing game), so this is the only trace of which record it came from. Null for
