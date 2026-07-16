@@ -8,6 +8,33 @@ function T() {
   return window.turf;
 }
 
+// Bound a candidate feature set to the neighbourhood of `area` WITHOUT dropping legitimate
+// partition seeds.
+//
+// This replaces a containment filter that kept only features inside the play area, on the
+// reasoning that the hider is in the zone so outside places "could never be nearest". That
+// is backwards. A POI outside the board can genuinely be the nearest to a hider near the
+// boundary — a city board whose nearest Commercial Airport lies 30 km beyond the edge is
+// the ordinary case, not an edge case. Dropping that seed makes the surviving seeds'
+// Voronoi cells LARGER than the true cells, so a "No — different" answer eliminates an
+// oversized region: the area where the hider actually is.
+//
+// Seeds outside the board are harmless — voronoiCells clips the resulting CELLS to the game
+// area, so an outside seed contributes only by correctly shrinking its neighbours. The pad
+// here is a sanity bound on a large Overpass return, never a correctness filter, so it is
+// deliberately generous: a full board-span (min ~0.5°, ~55 km) on every side.
+export function featuresNearArea(feats, area) {
+  if (!area || !window.turf || !Array.isArray(feats)) return feats;
+  try {
+    const bb = T().bbox(T().feature(area)); // [minLng,minLat,maxLng,maxLat]
+    const padX = Math.max(bb[2] - bb[0], 0.5);
+    const padY = Math.max(bb[3] - bb[1], 0.5);
+    return feats.filter((f) =>
+      f.lng >= bb[0] - padX && f.lng <= bb[2] + padX &&
+      f.lat >= bb[1] - padY && f.lat <= bb[3] + padY);
+  } catch (_) { return feats; } // never block on a geometry error
+}
+
 // [[lat,lng],...] ring -> Turf polygon feature (auto-closed).
 export function ringToTurf(latlngs) {
   const ring = latlngs.map(([lat, lng]) => [lng, lat]);

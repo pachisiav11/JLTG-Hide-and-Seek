@@ -4,7 +4,7 @@
 // for Radar and Thermometer (guide §5.1, §5.2, §6.2).
 import * as store from "./store.js";
 import { createStep } from "./model.js";
-import { geojsonToPathGroups } from "./geo.js";
+import { geojsonToPathGroups, featuresNearArea } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
@@ -393,12 +393,11 @@ export class Layers {
     } catch (_) { return true; } // never block on a geometry error
   }
 
-  // Keep only candidate features inside the play area — the hider is in the zone,
-  // so places they could never be nearest to shouldn't distort the partition. No
-  // effect without an area / turf.
-  _inAreaFeatures(feats, area) {
-    if (!area || !window.turf) return feats;
-    return feats.filter((f) => this._inArea(f, area));
+  // Bound the candidate set without dropping legitimate partition seeds (see
+  // featuresNearArea in geo.js — it lives there because it is pure geometry, and so it can
+  // be tested without a DOM).
+  _nearAreaFeatures(feats, area) {
+    return featuresNearArea(feats, area);
   }
 
   // A searchable radio list of candidate features. No cap on how many are shown
@@ -829,7 +828,7 @@ export class Layers {
       try {
         ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
-      feats = this._inAreaFeatures(feats, g.gameArea);
+      feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
       // Refine the auto-found set: tick which count, add missing by tap/search
@@ -886,8 +885,8 @@ export class Layers {
     // (e.g. "Shinjuku Station (South Exit)") that aren't part of the name players
     // compare, then collapse whitespace before counting.
     const nameLen = (n) => ((n.replace(/\s*\([^)]*\)/g, "").match(/\p{L}/gu)) || []).length;
-    feats = this._inAreaFeatures(feats, g.gameArea).map((f) => ({ ...f, len: nameLen(f.name) }));
-    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations in the play area. Need at least 2.`; return; }
+    feats = this._nearAreaFeatures(feats, g.gameArea).map((f) => ({ ...f, len: nameLen(f.name) }));
+    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations in or near the play area. Need at least 2.`; return; }
     s.close();
     const temp = feats.map((f) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${f.len}`, map: this.map }));
     const lengths = [...new Set(feats.map((f) => f.len))].sort((a, b) => a - b);
@@ -1258,7 +1257,7 @@ export class Layers {
       try {
         ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
-      feats = this._inAreaFeatures(feats, g.gameArea);
+      feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
       if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
       // Refine: tick which reference points count, add missing by tap/search
