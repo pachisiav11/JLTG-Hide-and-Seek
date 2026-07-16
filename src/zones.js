@@ -29,9 +29,11 @@ export class Zones {
     // Polygon/Polyline are in the core 'maps' library (already loaded). We draw
     // zones with a custom click-to-add tool (the old DrawingManager was removed
     // from the Maps JS API in v3.65).
+    // subscribe() renders synchronously when a current game exists (app.js awaits
+    // store.init() first), so an explicit this.render() here just rebuilt every overlay a
+    // second time at boot. See layers.js init().
     store.subscribe(() => this.render());
     window.addEventListener("jltg:palette", () => this.render());
-    this.render();
   }
 
   // ---- Custom polygon drawing ----

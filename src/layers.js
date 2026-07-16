@@ -92,11 +92,15 @@ export class Layers {
   }
 
   init() {
+    // subscribe() invokes the callback synchronously when a current game exists, and
+    // app.js awaits store.init() (which always sets one) before constructing us — so this
+    // IS the first render. An explicit this.render() here made every overlay get built,
+    // torn down and rebuilt at boot: on a country-scale area that is a duplicated
+    // turf.difference plus a full Google Polygon rebuild, for nothing.
     store.subscribe(() => this.render());
     // Live-restyle every overlay when the colour palette toggles (Phase 7),
     // without re-fetching anything.
     window.addEventListener("jltg:palette", () => this.render());
-    this.render();
   }
 
   // ---- History operations ----

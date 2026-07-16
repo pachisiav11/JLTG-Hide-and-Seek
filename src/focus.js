@@ -18,8 +18,10 @@ export class Focus {
   }
 
   init() {
+    // subscribe() renders synchronously when a current game exists (app.js awaits
+    // store.init() first), so an explicit this.render() here just rebuilt the overlay a
+    // second time at boot. See layers.js init().
     store.subscribe(() => this.render());
-    this.render();
   }
 
   _zone() {
