@@ -182,12 +182,33 @@ export function searchCategory(map, { center, radius, type, keyword, maxPages = 
   });
 }
 
-// ---- Overpass fallback (Phase 10) --------------------------------------------
-// Google Places is the DEFAULT; Overpass (via the Render proxy) is a FALLBACK for
-// when Places fails / is quota-exhausted or returns too few results. Gated on a
-// configured OVERPASS_PROXY_URL — with none, this is a no-op and Google-only.
+// ---- Source strategy: Overpass vs Google -------------------------------------
+// Overpass (via the Render proxy) is the PRIMARY source for dense categories; Google
+// Places is primary for the rest, with Overpass consulted on failure, a thin result, or
+// Google's cap. Gated on a configured OVERPASS_PROXY_URL — with none, this is Google-only.
+//
+// Why: Google's nearbySearch queries a RADIUS AROUND A POINT and hard-caps at 60 results
+// (3 pages x 20). Overpass queries a REGION and has no top-N cap at all — only a timeout.
+// Measured: a Mumbai bbox returned 75 route relations and 7115 ways with no cap.
+//
+// The old rule was `if (!googleErr && feats.length >= THIN) return google` with THIN = 2.
+// In London, Google returns its 60-station cap, 60 >= 2, and the ~400-station OSM dataset
+// was never consulted. Overpass only ever fired on API *failure*, never for *completeness*
+// — so the cap, not the data, decided the partition.
 
-const THIN = 2; // fewer than this ⇒ try the OSM fallback
+const THIN = 2; // fewer than this ⇒ Google clearly didn't answer; consult OSM
+
+// Google's nearbySearch hard cap. A result AT the cap is truncated BY DEFINITION: it is
+// the ceiling, not the answer. Treat it as a reason to consult the uncapped source.
+const GOOGLE_CAP = 60;
+
+// Categories whose true count inside one play area routinely exceeds Google's 60-cap, so
+// the cap would silently partition the map from an arbitrary subset. These go to Overpass
+// FIRST. Every mature tool in this space made the same call, for the same reason.
+const DENSE_CATEGORIES = new Set([
+  "train_station", "subway_station", "bus_station",
+  "restaurant", "school", "place_of_worship", "park",
+]);
 
 // Client-supported category keys (must mirror server CATEGORY_TAGS). A card's
 // Google `type` is used directly when it's one of these; keyword-only cards map by
@@ -232,27 +253,67 @@ async function overpassCategory(proxyBase, category, bboxStr, keyword) {
   return (json.features || []).map((f) => ({ name: f.name, lat: f.lat, lng: f.lng }));
 }
 
-// Google Places first; on error or a thin result, fall back to Overpass (if
-// configured) over the game-area bbox. Returns { feats, source: "google"|"overpass" }.
-// A per-category, per-area decision — not a global source switch (IMPROVEMENTS §10).
+// Resolve a category to points, choosing the source per category and per area (not a
+// global switch — IMPROVEMENTS §10).
+//
+// Returns { feats, source: "google"|"overpass", reason }, where `reason` says WHY that
+// source won, so callers can word the toast honestly: "overpass" is now the intended
+// primary for dense cards, not evidence that Places broke.
+//   primary    — the source we chose first, and it worked
+//   fallback   — the primary errored
+//   thin       — the primary returned almost nothing
+//   uncapped   — Google hit its 60-cap and OSM had genuinely more
 export async function searchCategoryResilient(map, { center, radius, type, keyword, gameArea, padMeters = 0 }) {
-  let feats = [], googleErr = null;
-  try { feats = await searchCategory(map, { center, radius, type, keyword }); }
-  catch (e) { googleErr = e; }
-  if (!googleErr && feats.length >= THIN) return { feats, source: "google" };
-
   const proxy = window.JLTG_CONFIG?.OVERPASS_PROXY_URL;
   const cat = deriveOverpassCategory({ type, keyword });
   const bbox = areaBboxSWNE(gameArea, padMeters);
-  if (proxy && cat && bbox) {
+  const canOverpass = !!(proxy && cat && bbox);
+  // Only send a keyword to OSM for keyword-only cards (a place type is more reliable than
+  // a name substring server-side).
+  const osmKeyword = !type && keyword ? keyword : "";
+  const askOverpass = () => overpassCategory(proxy, cat, bbox, osmKeyword);
+
+  // ---- Dense cards: Overpass FIRST -------------------------------------------------
+  // The whole point of B2. Google cannot answer "every station on this board" — its cap
+  // decides the answer instead of the data.
+  if (canOverpass && DENSE_CATEGORIES.has(cat)) {
     try {
-      // Only send a keyword to OSM for keyword-only cards (a place type is more
-      // reliable than a name substring server-side).
-      const osm = await overpassCategory(proxy, cat, bbox, !type && keyword ? keyword : "");
-      if (googleErr) { if (osm.length) return { feats: osm, source: "overpass" }; }
-      else if (osm.length > feats.length) return { feats: osm, source: "overpass" };
+      const osm = await askOverpass();
+      if (osm.length) return { feats: osm, source: "overpass", reason: "primary" };
+      // An empty OSM answer is not authoritative (thin mapping, odd tagging) — ask Google.
+    } catch (e) {
+      // Overpass fails ~64% of individual attempts; the proxy retries hard (see D3), so
+      // reaching here means it really is unavailable. Google's capped answer beats none.
+      console.warn("Overpass primary failed; falling back to Google:", e.message);
+    }
+    let feats = [];
+    try { feats = await searchCategory(map, { center, radius, type, keyword }); }
+    catch (googleErr) { throw googleErr; } // both sources failed — surface it
+    return { feats, source: "google", reason: "fallback" };
+  }
+
+  // ---- Everything else: Google first ------------------------------------------------
+  let feats = [], googleErr = null;
+  try { feats = await searchCategory(map, { center, radius, type, keyword }); }
+  catch (e) { googleErr = e; }
+
+  // Consult OSM when Google failed, said almost nothing, OR hit its cap. That last case is
+  // the one THIN could never catch: 60 >= 2, so a truncated list looked complete.
+  const capped = feats.length >= GOOGLE_CAP;
+  if (canOverpass && (googleErr || feats.length < THIN || capped)) {
+    try {
+      const osm = await askOverpass();
+      if (googleErr) {
+        if (osm.length) return { feats: osm, source: "overpass", reason: "fallback" };
+      } else if (osm.length > feats.length) {
+        return { feats: osm, source: "overpass", reason: capped ? "uncapped" : "thin" };
+      }
     } catch (e) { console.warn("Overpass fallback failed:", e.message); }
   }
   if (googleErr && !feats.length) throw googleErr; // nothing worked
-  return { feats, source: "google" };
+  if (capped) {
+    // Still capped: the partition is being built from an arbitrary 60. Say so.
+    console.warn(`Places returned its ${GOOGLE_CAP}-result cap for "${type || keyword}" and OSM could not improve on it — the candidate list may be truncated.`);
+  }
+  return { feats, source: "google", reason: "primary" };
 }

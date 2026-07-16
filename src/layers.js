@@ -62,6 +62,16 @@ function maskEverything(area) {
 // committed guides restyle per-palette/per-step in _renderGuides.
 const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 3, zIndex: 5 };
 
+// Why OpenStreetMap supplied the candidates. For dense cards (stations and friends) OSM is
+// now the intended PRIMARY source, so the old blanket "Places was unavailable" would be a
+// plain lie — Places was never asked.
+function sourceToast(reason) {
+  if (reason === "primary") return "Using OpenStreetMap — the complete list for this area.";
+  if (reason === "uncapped") return "Using OpenStreetMap — Google capped at 60 results.";
+  if (reason === "thin") return "Using OpenStreetMap — Google returned very few results.";
+  return "Using OpenStreetMap (Places was unavailable).";
+}
+
 export class Layers {
   constructor(map, { boundaries } = {}) {
     this.map = map;
@@ -877,13 +887,13 @@ export class Layers {
       const g = store.getCurrent();
       const { center, radius } = this._searchParams(g.gameArea);
       setMsg("Searching…");
-      let feats = [], source = "google";
+      let feats = [], source = "google", reason = "primary";
       try {
-        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
+        ({ feats, source, reason } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
-      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
+      if (source === "overpass") toast(sourceToast(reason));
       // Refine the auto-found set: tick which count, add missing by tap/search
       // (search biased to the area centre).
       const chosen = await this._assembleCandidates(card, feats, { minCount: 2, center });
@@ -1175,15 +1185,15 @@ export class Layers {
       if (!center) return this.openPanel();
       toast("Searching…");
       const turf = window.turf;
-      let feats = [], source = "google";
+      let feats = [], source = "google", reason = "primary";
       try {
         // Search the category within the tentacle radius OF THE SEEKER.
-        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius: cat.radius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: 0 }));
+        ({ feats, source, reason } = await searchCategoryResilient(this.map, { center, radius: cat.radius, type: cat.type, keyword: cat.keyword, gameArea: g.gameArea, padMeters: 0 }));
       } catch (e) {
         toast(e.message);
         return this.openPanel();
       }
-      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
+      if (source === "overpass") toast(sourceToast(reason));
       // Keep only places within the tentacle radius of the seeker (the reach).
       feats = feats.filter((f) => turf.distance([center.lng, center.lat], [f.lng, f.lat], { units: "meters" }) <= cat.radius);
       if (!feats.length) toast(`No ${cat.label.toLowerCase()} within ${rTxt(cat.radius)} of you — add your own below.`);
@@ -1322,13 +1332,13 @@ export class Layers {
       const g = store.getCurrent();
       const { center, radius } = this._searchParams(g.gameArea);
       setMsg("Searching…");
-      let feats = [], source = "google";
+      let feats = [], source = "google", reason = "primary";
       try {
-        ({ feats, source } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
+        ({ feats, source, reason } = await searchCategoryResilient(this.map, { center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea }));
       } catch (e) { setMsg(e.message); return; }
       feats = this._nearAreaFeatures(feats, g.gameArea);
       s.close();
-      if (source === "overpass") toast("Using OpenStreetMap (Places was unavailable).");
+      if (source === "overpass") toast(sourceToast(reason));
       // Refine: tick which reference points count, add missing by tap/search
       // (search biased to the area centre).
       const chosen = await this._assembleCandidates(card, feats, { minCount: 1, center });
