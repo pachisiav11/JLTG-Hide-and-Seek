@@ -366,6 +366,23 @@ API, so a small dataset ships with the app". But `_measureLine` unconditionally 
 and correct the README. Related idea from the research: a bundled simplified Natural Earth
 coastline generalises this beyond Mumbai.
 
+**Done 2026-07-16 — deleted.** Took the delete option, and the brief settled it rather than
+taste: *"the exact lines used automatically, without my input. mumbai should not have an
+advantage in any stage."* Wiring the module would have done the opposite — it is Mumbai-only
+and hand-traced, so wiring it hands Mumbai two accurate reference lines and every other board
+nothing. §5.6/G1 sources coastline, rail and borders from Overpass worldwide instead.
+
+Confirmed dead before deleting, not assumed: `LINEAR_FEATURES` had **no importer anywhere** —
+its only two references were the module's own `findLinear` helper and the service-worker
+precache list. The `ref: "line"` cards (coastline, rail, borders) are all hand-drawn today via
+`_drawShape` (`layers.js:1495`), which is why no path reached the data.
+
+Corrected alongside: `README.md:34-35` (promised the bundled GeoJSON by filename),
+`GUIDE.md` §Phase 4 (planned it) and the §5.4 difficulty note (still suggested bundling as the
+answer). `service-worker.js` SHELL_ASSETS entry removed and `CACHE_VERSION` bumped to v60 —
+`cache.addAll` is atomic, so leaving the entry would have failed every SW install silently.
+That coupling has now bitten twice (E2, then E1), so `test/shell-assets.test.mjs` enforces it.
+
 ### E2. `i18n.js` and `langs/en.js` are dead but precached **[V]**
 `src/i18n.js` · `src/langs/en.js` · `service-worker.js:22`
 
@@ -683,7 +700,7 @@ out geom;
 
 I did not get to run this one. If it works it's strictly better; if not, clip in `normalize()`.
 
-#### CORRECTION 3 (2026-07-16) — ran it. The idea is right; **the query above is broken.**
+#### CORRECTION 4 (2026-07-16) — ran it. The idea is right; **the query above is broken.**
 
 Measured, not reasoned. Two separate results:
 

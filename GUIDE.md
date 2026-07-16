@@ -198,7 +198,10 @@ remaining area.
     matching side.
 - **Difficulty note:** accuracy depends on having good reference geometry. Point
   categories (stations, hospitals) are easy via Places; linear features (coastline,
-  rivers, rail lines) may need a small bundled GeoJSON dataset for the play zones.
+  rivers, rail lines) have no Places source at all. These were once going to ship as a
+  bundled per-zone GeoJSON dataset; that approach is rejected (§5.6) because it only ever
+  covered the zones someone had hand-traced. They are hand-drawn today and auto-sourced
+  from Overpass worldwide by §5.6.
 
 ---
 
@@ -477,7 +480,9 @@ Each phase ends with the **end-of-phase ritual (§9): commit + push to the publi
 
 **Phase 4 — Measuring**
 - Buffer-based threshold + comparison.
-- Bundle GeoJSON for linear features (coastline/rail) for the supported zones.
+- ~~Bundle GeoJSON for linear features (coastline/rail) for the supported zones.~~
+  Shipped as `src/data/linear.js` (Mumbai only, hand-traced), never wired to any code path,
+  deleted 2026-07-16. Superseded by §5.6: source these from Overpass worldwide.
 - **Commit + push.**
 
 **Phase 5 — Hider lock & auto-answer**
