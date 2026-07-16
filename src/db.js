@@ -5,9 +5,10 @@
 //   - categories (keyPath "id")  — reusable custom Places categories (Phase 9)
 //   - pins       (keyPath "id")  — reusable named location pins (Phase 9)
 //   - outbox     (keyPath "id")  — offline-queued multiplayer events (Phase 13)
+//   - lines      (keyPath "key") — cached Overpass linear geometry per bbox (§G1)
 //   - settings   (keyPath "key") — lightweight app-wide settings
 const DB_NAME = "jltg";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -39,6 +40,13 @@ export function openDB() {
       // Added in DB_VERSION 3 (Phase 13): offline-queued multiplayer events.
       if (!db.objectStoreNames.contains("outbox")) {
         db.createObjectStore("outbox", { keyPath: "id" });
+      }
+      // Added in DB_VERSION 4 (§G1): rail/coastline/border geometry from Overpass, keyed by
+      // kind+level+bbox. Cached hard because it is effectively static, the fetch is slow and
+      // fails often, and unlike a tile overlay this survives offline — which is the point on a
+      // board where you are walking around with no signal.
+      if (!db.objectStoreNames.contains("lines")) {
+        db.createObjectStore("lines", { keyPath: "key" });
       }
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });

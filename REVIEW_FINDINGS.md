@@ -808,6 +808,33 @@ and Nagar Haveli and Daman and Diu*; `border&level=2` on the same box returns ze
 is correct (no international border crosses it) and is distinguishable from an outage, since a
 busy Overpass is a 502.
 
+#### DONE 2026-07-16 — the client half, verified in the browser
+
+`src/lines.js` (fetch + IndexedDB cache + render), a 🚄 Rail toolbar toggle, `lines` store at
+`DB_VERSION` 4. Run against a real Mumbai board (`19.029,72.79,19.161,72.91`):
+
+- **49 lines, 230 segments, 4 702 vertices, 102 KB** — and the list is the ask, met: *Western
+  Line (fast/slow, both directions)*, *Central Line (fast/slow, to Kalyan / Kasara / Khopoli)*,
+  *Harbour Line (CSMT→Panvel, CSMT→Goregaon)*, alongside Metro Lines 1/2/2B/3/7/11. The
+  suburban locals draw. That was the whole §G ask.
+- 230 polylines attached, **all at zIndex 0** (under `MASK_BASE`'s 1), uniform weight 3, one
+  colour. Track outside the board dims under the mask rather than stopping dead at the edge.
+- Toggle off clears every overlay; second load **26 ms** from IndexedDB against a multi-second
+  Overpass fetch. Zero console errors.
+- 1 514 drawn vertices fall outside the board bbox — **not a bug, it's `truncatedWays: 0`
+  showing up in the browser.** Ways that cross the edge come back whole, so lines continue
+  off-board under the shading instead of being clipped mid-air.
+
+The cache ladder is cache → network → **stale cache**. The last rung matters more than it
+looks: this is played outdoors, ~64% of individual Overpass calls fail, and a month-old rail
+line beats a blank map — with a toast that says it's an offline copy. A tile overlay cannot do
+that at all, which is §G2's other problem beyond the licence.
+
+**Still open (deliberately):** `lines[].wayIds` is carried and tested but has no consumer yet —
+it exists so **F1/F4** can partition by *line* instead of by a Voronoi over stations. Wiring
+that is the next step, and it retires F1 rather than adding to it. Coastline and border are
+served by the endpoint and fetchable, but only rail has a toolbar button so far.
+
 #### CORRECTION 3 — Overpass reliability is worse than the proxy assumes → **now filed as D3**
 
 The spike found public Overpass failing ~half the time, including an HTTP-200-with-HTML-body

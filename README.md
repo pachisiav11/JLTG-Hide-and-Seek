@@ -20,6 +20,11 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - Draw zones (custom click-to-draw tool) and import zones (GeoJSON or coordinate lists).
   - Reusable zone library; assemble the game area with `turf.union`.
   - Native features: transit-layer toggle, "Directions here" on long-press, distance-between-taps.
+  - **🚄 Rail** draws real rail geometry from OpenStreetMap via the Overpass proxy, worldwide.
+    Google's transit layer is raster tiles from its own feed inventory — it takes no options and
+    you cannot add an agency — so in Mumbai it draws the Metro but not the Western / Central /
+    Harbour locals, which are the lines that decide the game. This draws them. Needs
+    `OVERPASS_PROXY_URL`; cached per board in IndexedDB, so it survives going offline mid-game.
 - **Phase 2 — Core tools** ✅
   - **Radar** (centre + radius circle) and **Thermometer** (perpendicular bisector).
   - Toggleable shaded elimination layers; `activeArea` recomputed as game area minus enabled eliminations.

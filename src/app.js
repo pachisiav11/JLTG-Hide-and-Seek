@@ -5,6 +5,7 @@ import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Focus } from "./focus.js";
+import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
 
@@ -159,6 +160,7 @@ async function main() {
     const features = new MapFeatures(map);
     const layers = new Layers(map, { boundaries });
     const focus = new Focus(map);
+    const lines = new Lines(map);
     await Promise.all([zones.init(), features.init()]);
     // Reusable custom library (Phase 9): custom categories + pins. Attached to
     // layers so the tool flows can offer them, and to games for the menu manager.
@@ -181,6 +183,10 @@ async function main() {
         lastGameId = id;
         boundaries?.clear();
         features.clearAll();
+        // Lines are fetched for a specific board bbox, so they are meaningless on the next
+        // game — and stale rail drawn over a different city is worse than none.
+        lines.clear();
+        document.querySelector('#toolbar [data-act="rail"]')?.classList.remove("active");
       }
     });
 
@@ -189,10 +195,10 @@ async function main() {
     features.setTransit(true);
     document.querySelector('#toolbar [data-act="transit"]')?.classList.add("active");
 
-    wireToolbar(zones, features, layers, focus);
+    wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
@@ -206,7 +212,7 @@ function reflectGame(game) {
 }
 
 // Wire the floating toolbar to zone + feature actions.
-function wireToolbar(zones, features, layers, focus) {
+function wireToolbar(zones, features, layers, focus, lines) {
   const bar = document.getElementById("toolbar");
   if (!bar) return;
   const setActive = (act, on) =>
@@ -222,6 +228,11 @@ function wireToolbar(zones, features, layers, focus) {
     else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());
+    // Async: the first press fetches from Overpass (slow, and fails often), later presses hit
+    // the IndexedDB cache. toggle() toasts its own progress and returns the settled state.
+    else if (act === "rail") {
+      lines.toggle("rail", store.getCurrent()?.gameArea).then((on) => setActive("rail", on));
+    }
     else if (act === "locate") {
       if (store.getCurrent()?.zones?.length) zones.fitToArea();
       else toast("No zones yet — add one from the Zones tool.");

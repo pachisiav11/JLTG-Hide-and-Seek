@@ -22,6 +22,10 @@ window.JLTG_CONFIG = {
   // "https://jltg-backend.onrender.com". When set, a failed / thin Google Places
   // category search falls back to OpenStreetMap via this proxy. Leave blank to
   // disable the fallback (Google Places only).
+  //
+  // Also powers the 🚄 Rail toolbar button (§G1), which draws real rail geometry from
+  // OpenStreetMap — including the suburban locals Google's transit layer omits. Without
+  // this URL that button can only report that no proxy is configured.
   OVERPASS_PROXY_URL: "",
 
   // OPTIONAL (Phase 13): base URL of the Render backend for LIVE MULTIPLAYER sync
