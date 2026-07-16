@@ -5,7 +5,7 @@
 import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep } from "./tools.js";
+import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
 import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
@@ -30,19 +30,33 @@ const ACTIVE_BASE = { fillOpacity: 0, strokeOpacity: 0.95, strokeWeight: 3, clic
 // but well short of hemispheric scale — renders the hole correctly while still
 // covering any realistic pan/zoom around a game. Padding scales with the area size
 // and is clamped to stay local; corners are clamped to valid lat/lng.
+function paddedRect(area) {
+  const turf = window.turf;
+  const bb = turf.bbox(turf.feature(area)); // [minX,minY,maxX,maxY]
+  const span = Math.max(bb[2] - bb[0], bb[3] - bb[1]);
+  const pad = Math.min(40, Math.max(8, span * 3)); // ~880 km min, never near-global
+  const minX = Math.max(-179.9, bb[0] - pad), maxX = Math.min(179.9, bb[2] + pad);
+  const minY = Math.max(-85, bb[1] - pad), maxY = Math.min(85, bb[3] + pad);
+  return turf.polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]);
+}
+
 function maskOutside(area) {
   const turf = window.turf;
   if (!turf || !area) return null;
   try {
-    const bb = turf.bbox(turf.feature(area)); // [minX,minY,maxX,maxY]
-    const span = Math.max(bb[2] - bb[0], bb[3] - bb[1]);
-    const pad = Math.min(40, Math.max(8, span * 3)); // ~880 km min, never near-global
-    const minX = Math.max(-179.9, bb[0] - pad), maxX = Math.min(179.9, bb[2] + pad);
-    const minY = Math.max(-85, bb[1] - pad), maxY = Math.min(85, bb[3] + pad);
-    const rect = turf.polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]);
-    const diff = turf.difference(turf.featureCollection([rect, turf.feature(area)]));
+    const diff = turf.difference(turf.featureCollection([paddedRect(area), turf.feature(area)]));
     return diff ? diff.geometry : null;
   } catch (e) { console.warn("mask failed", e); return null; }
+}
+
+// The same rectangle with NO hole — shade everything. Used when the active area is empty,
+// where masking "outside the active area" would otherwise fall back to the game area and
+// draw a fully-eliminated board as if it were untouched.
+function maskEverything(area) {
+  const turf = window.turf;
+  if (!turf || !area) return null;
+  try { return paddedRect(area).geometry; }
+  catch (e) { console.warn("mask failed", e); return null; }
 }
 // Neutral style for the live line-drawing preview (Matching ▸ nearest-line). The
 // committed guides restyle per-palette/per-step in _renderGuides.
@@ -134,18 +148,26 @@ export class Layers {
     // everything OUTSIDE it and outline its edge. As questions eliminate regions
     // the active area shrinks and the mask grows. With no questions yet, active ===
     // the game area, so this also signals the play area from the start.
+    const notices = [];
     if (g.gameArea) {
       const active = computeActiveArea(g.gameArea, g.history);
-      const mask = maskOutside(active || g.gameArea);
+      const isEmpty = active === EMPTY_AREA;
+      // Shade the whole board when nothing survives. Falling back to `g.gameArea` here
+      // would draw a fully-eliminated game pixel-identically to a fresh one — the one
+      // state where the seeker most needs to be told something is wrong.
+      const mask = isEmpty ? maskEverything(g.gameArea) : maskOutside(active || g.gameArea);
       if (mask) {
         for (const group of geojsonToPathGroups(mask)) {
           this.overlays.push(new google.maps.Polygon({ ...MASK_BASE, ...pal.mask, paths: group, map: this.map }));
         }
       }
-      if (active) {
+      if (active && !isEmpty) {
         for (const group of geojsonToPathGroups(active)) {
           this.overlays.push(new google.maps.Polygon({ ...ACTIVE_BASE, strokeColor: pal.active, paths: group, map: this.map }));
         }
+      }
+      if (isEmpty) {
+        notices.push("Every question combined rules out the whole area — check the most recent answer.");
       }
     }
 
@@ -168,7 +190,10 @@ export class Layers {
         console.error(`Guide render failed for step ${s.id} (${s.tool}); skipping it.`, e);
       }
     }
-    if (failed) this._showRenderError(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
+    if (failed) notices.push(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
+    // One banner for both conditions: an unconditional _hideRenderError() here would
+    // clear the empty-area notice raised above.
+    if (notices.length) this._showRenderError(notices.join(" "));
     else this._hideRenderError();
   }
 

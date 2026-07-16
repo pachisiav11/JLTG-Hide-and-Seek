@@ -16,6 +16,22 @@ function safeDiff(a, b) {
     return r ? r.geometry : null;
   } catch (e) { console.warn("difference failed", e); return null; }
 }
+
+// The active area is EMPTY: every enabled question, combined, rules out the whole board.
+// This is a real and meaningful state — usually a mis-entered answer or an inconsistent
+// hider — and is NOT the same as "no game area" and NOT an error. Callers must tell it
+// apart from null, or a fully-eliminated game renders identically to a fresh one (A1).
+export const EMPTY_AREA = Object.freeze({ __emptyArea: true });
+
+// Set difference for the ACTIVE AREA specifically. Unlike safeDiff, "nothing remains" is
+// a legitimate answer here rather than "this step eliminates nothing", so an empty result
+// is reported as EMPTY_AREA and null is reserved for an actual failure.
+function diffActive(a, b) {
+  try {
+    const r = T().difference(T().featureCollection([feat(a), feat(b)]));
+    return r ? r.geometry : EMPTY_AREA;
+  } catch (e) { console.warn("active-area difference failed", e); return null; }
+}
 function safeIntersect(a, b) {
   try {
     const r = T().intersect(T().featureCollection([feat(a), feat(b)]));
@@ -467,7 +483,9 @@ export function computeActiveArea(gameArea, steps) {
   if (!elims.length) return gameArea;
   let removed = elims[0];
   for (let i = 1; i < elims.length; i++) removed = safeUnion(removed, elims[i]) || removed;
-  return safeDiff(gameArea, removed);
+  // EMPTY_AREA (not null) when the eliminations cover everything, so the caller can
+  // shade the whole board instead of falling back to it and showing a fresh game.
+  return diffActive(gameArea, removed);
 }
 
 // Short human-readable summary for the layers list.
