@@ -347,8 +347,28 @@ function tentacles(step, gameArea) {
   const { features, radius, center } = step.inputs;
   const { featureIndex, none } = step.answer || {};
   const R = radius; // metres
-  // Pre-rebuild tentacles steps had no fixed radius (plain nearest-cell partition).
-  if (radius == null) return voronoiTool(step, gameArea);
+
+  // ---- Pre-rebuild steps with no radius (plain nearest-cell partition) ----
+  // These must NOT be handed to voronoiTool. That is Matching-shaped and destructures
+  // `{ featureIndex, keep }`, but a tentacles answer only ever carries `{ featureIndex }`
+  // or `{ none: true }`. `keep` came back undefined, so `keep ? safeDiff(...) : selected`
+  // took the falsy branch and eliminated `selected` — shading exactly the cell the hider
+  // said they were CLOSEST to. The inverse of the truth, silently.
+  if (radius == null) {
+    const guides = [];
+    if (!gameArea || !features || features.length < 2 || featureIndex == null) {
+      // `{ none: true }` has no meaning here: with no radius there are no circles and
+      // every point is nearest to something, so there is nothing to eliminate.
+      return { eliminated: null, guides };
+    }
+    const { cells } = voronoiCells(features, gameArea);
+    for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
+    const cell = cells[featureIndex];
+    if (!cell) return { eliminated: null, guides };
+    // "Closest to P" ⇒ KEEP P's cell, eliminate everything else.
+    return { eliminated: safeDiff(gameArea, cell), guides };
+  }
+
   const guides = [];
   if (!gameArea || !features || !features.length || !R) return { eliminated: null, guides };
   const circleGeom = (lng, lat) => T().circle([lng, lat], R / 1000, { units: "kilometers", steps: 64 }).geometry;
