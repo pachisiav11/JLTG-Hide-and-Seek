@@ -7,7 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPathGroups, featuresNearArea } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
-import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
+import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -559,12 +559,31 @@ export class Layers {
           }
           render();
         };
-        // Add by search: text-search a place/address, confirm which result(s) to add.
+        // Find or add by name. Checks the LOCAL list first (B7): after B1–B3 the complete
+        // set for the play area is already in memory, so the place the seeker means is
+        // usually right here. Going straight to Google both wasted a round trip and, worse,
+        // ADDED A DUPLICATE of a station already in the list — seeding the Voronoi twice at
+        // one spot. Google is the fall-through for a genuine miss.
         s.q("#cand-search").onclick = async () => {
-          const query = await promptText({ title: `Search for a ${card.label.toLowerCase()}`, label: "Place or address", value: "", cta: "Search", mapInteractive: true });
+          const query = await promptText({ title: `Find a ${card.label.toLowerCase()}`, label: "Name (or address)", value: "", cta: "Find", mapInteractive: true });
           if (query == null || !query.trim()) { render(); return; }
+
+          const local = matchNames(feats.map((f) => f.name), query.trim());
+          if (local.length) {
+            // Tick the matches rather than re-adding them, and untick the rest so the
+            // seeker sees exactly what they asked for.
+            const best = feats[local[0]];
+            for (const i of local) feats[i].on = true;
+            drawMarkers();
+            toast(local.length === 1
+              ? `Found “${best.name}” — ticked.`
+              : `Found ${local.length} matches for “${query.trim()}” — ticked. Best: “${best.name}”.`);
+            render();
+            return;
+          }
+
           let results = [];
-          try { toast("Searching…"); results = await searchText(this.map, query.trim(), { location: center || undefined, radius }); }
+          try { toast("Not in the list — searching…"); results = await searchText(this.map, query.trim(), { location: center || undefined, radius }); }
           catch (e) { toast(e.message); render(); return; }
           if (!results.length) { toast("No matches — try a more specific name."); render(); return; }
           s.close();

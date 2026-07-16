@@ -182,6 +182,65 @@ export function searchCategory(map, { center, radius, type, keyword, maxPages = 
   });
 }
 
+// ---- Local name matching (B7) ------------------------------------------------
+// After B1–B3 the complete candidate set for the play area is already in memory, so
+// resolving a typed station name is a pure client-side filter with no round trip.
+
+// Generic designators players don't say: "Waterloo Station" is just "Waterloo".
+//
+// Deliberately NARROW. "Terminus", "Terminal", "Junction" and "Halt" are NOT noise — they
+// distinguish real, separate stations. Measured against live OSM data: stripping "terminus"
+// collapsed Mumbai's "Bandra" and "Bandra Terminus" (different stations on different
+// services) into one name, so typing "Bandra" ranked the Terminus first. Over-stripping
+// silently conflates distinct places, which is the one thing this matcher must never do.
+// "Gare de Lyon" likewise keeps "gare" — that IS how people say it.
+const NAME_NOISE = /\b(railway|metro|subway|underground|tube|station|stn)\b/g;
+
+// Fold case and accents, drop "(South Exit)" qualifiers and punctuation, then drop the
+// generic suffixes. Accent folding matters: a seeker types "Sao Paulo", OSM says
+// "São Paulo".
+export function normalizeName(s) {
+  const base = String(s || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // strip combining accents
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const stripped = base.replace(NAME_NOISE, " ").replace(/\s+/g, " ").trim();
+  // A name made ENTIRELY of noise ("Bus Station") would otherwise vanish.
+  return stripped || base;
+}
+
+// Rank names against a typed query. Returns indices best-first; [] means no local hit, so
+// the caller should fall through to a real search. Deliberately not an edit-distance
+// matcher: prefix and token matching covers real typing, and a loose fuzzy match that
+// silently picks the wrong station is exactly the failure this app cannot afford.
+export function matchNames(names, query) {
+  const q = normalizeName(query);
+  if (!q) return [];
+  const qTokens = q.split(" ").filter(Boolean);
+  const scored = [];
+  names.forEach((name, i) => {
+    const n = normalizeName(name);
+    if (!n) return;
+    let score = 0;
+    if (n === q) score = 100;                      // exact
+    else if (n.startsWith(q)) score = 80;          // "waterlo" -> "waterloo"
+    else if (n.includes(q)) score = 60;            // "loo" -> "waterloo"
+    else {
+      const nTokens = new Set(n.split(" ").filter(Boolean));
+      const hits = qTokens.filter((t) => nTokens.has(t)).length;
+      if (hits === qTokens.length && hits > 0) score = 50; // every typed word present
+      else if (hits > 0) score = 20 + hits;
+    }
+    if (score) scored.push({ i, score, n });
+  });
+  // Best first; ties broken by the shorter name, which is the more exact match.
+  scored.sort((a, b) => b.score - a.score || a.n.length - b.n.length);
+  return scored.map((s) => s.i);
+}
+
 // ---- Source strategy: Overpass vs Google -------------------------------------
 // Overpass (via the Render proxy) is the PRIMARY source for dense categories; Google
 // Places is primary for the rest, with Overpass consulted on failure, a thin result, or
