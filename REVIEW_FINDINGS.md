@@ -815,6 +815,28 @@ alone. Whether `tram` belongs in the route set at all is a **game-design** quest
 technical one — trams run on streets, and the brief was "everything except streets". Left in for
 now to match the doc; flagged rather than silently decided.
 
+**RESOLVED 2026-07-16 — the question was wrong, not the answer.** Ruled on: *"tram is a valid
+method of rail, but every method should be able to be turned on/off by the user (for eg, in mumbai
+i am planning to play only on some metro lines, so i would want to hide train lines and some
+metros)."*
+
+That reframes it. This was never "which modes belong in the query" — the query should return
+everything, because **which modes and lines are in play is a property of the board, and the player
+decides it.** Dropping `tram` from the query would have been a designer quietly deciding a game
+rule for every city at once, and it would not have helped here anyway: the actual Mumbai need is
+hiding `train` *and individual metro lines*, which no tag-level choice can express.
+
+So: every mode is switchable, and so is every individual line, stored per game
+(`game.railFilter`). Verified on a live Mumbai board — 271 ways drawn with everything on; hiding
+`train` drops it to 48 (the 7 metro lines); hiding metro Line 1 as well drops it to 42, persisted
+as `{hiddenRoutes:["train"], hiddenLines:["subway:1"]}`.
+
+The filter also drives the **Metro Lines card's candidates** — a card offering a line nobody is
+playing on asks the hider a question they cannot answer — and says when it does: *"N more lines
+are in range but hidden by your rail filter."* That warning is not decoration. A filter silently
+changing which eliminations are possible is the §A class of bug, so the one thing it must never
+be is quiet.
+
 #### Still true from before
 
 - **`out geom` is the whole point.** `server.js:105` hardcodes `out center tags;`, which
@@ -897,6 +919,19 @@ The cache ladder is cache → network → **stale cache**. The last rung matters
 looks: this is played outdoors, ~64% of individual Overpass calls fail, and a month-old rail
 line beats a blank map — with a toast that says it's an offline copy. A tile overlay cannot do
 that at all, which is §G2's other problem beyond the licence.
+
+**The cache needed a payload version, and finding out why cost a live bug.** The key was
+`kind:level:bbox`. When the payload gained a `route` per line (for the mode filter), entries
+cached under the old shape were still served — for up to the 30-day TTL — and `groupIntoLines`
+keyed them `"?:1"` instead of `"subway:1"`, so the rail filter matched nothing and **silently
+filtered nothing**. Nothing threw: the JSON parsed, the lines drew, only the behaviour was
+wrong. Caught only because a hidden line kept appearing in the Metro Lines card.
+
+Key is now `v{PAYLOAD_VERSION}:kind:level:bbox`, so a shape change is a cache miss rather than
+a quiet lie, and old-version entries are pruned once per session (~100 KB each, unreadable
+forever). **Bump `PAYLOAD_VERSION` in `src/lines.js` whenever `normalizeLines`' output shape
+changes** — the same discipline as `CACHE_VERSION` in the service worker, and for the same
+reason: a client-side cache outlives the deploy that filled it.
 
 **Still open (deliberately):** `lines[].wayIds` is carried and tested but has no consumer yet —
 it exists so **F1/F4** can partition by *line* instead of by a Voronoi over stations. Wiring

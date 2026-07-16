@@ -1305,8 +1305,11 @@ export class Layers {
         toast("Finding metro lines…");
         try {
           const { candidateLines } = await import("./lines.js");
-          const lines = await candidateLines(cat.lineKind, g.gameArea, center, cat.radius);
-          if (lines.length) return this._chooseTentacleLines(cat, lines, center);
+          const { lines, hidden } = await candidateLines(cat.lineKind, g.gameArea, center, cat.radius);
+          if (lines.length) return this._chooseTentacleLines(cat, lines, center, hidden);
+          // Everything in range hidden by the rail filter is a DIFFERENT problem from no metro
+          // here, and falling back to stations would quietly re-offer the lines they excluded.
+          if (hidden) { toast(`All ${hidden} metro line${hidden > 1 ? "s" : ""} in range are hidden by your rail filter.`); return this.openPanel(); }
           toast(`No metro lines within ${rTxt(cat.radius)} of you — falling back to stations.`);
         } catch (e) {
           console.warn("metro line sourcing failed", e);
@@ -1343,7 +1346,7 @@ export class Layers {
   // Metro Lines, answered with a LINE (F1). Mirrors _chooseTentacle, but the candidates are
   // lines rather than points: the map draws each one, and the step stores its geometry so the
   // partition recomputes deterministically even if OSM changes later.
-  _chooseTentacleLines(cat, lines, center) {
+  _chooseTentacleLines(cat, lines, center, hidden = 0) {
     const rTxt = cat.radius >= 1000 ? `${cat.radius / 1000} km` : `${cat.radius} m`;
     const temp = [];
     // Number the lines to match the list, and colour every path of a line identically — a
@@ -1371,6 +1374,7 @@ export class Layers {
       mapInteractive: true,
       bodyHTML: `
         <p class="muted">Metro lines within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
+        ${hidden ? `<p class="warn-note">⚠ ${hidden} more line${hidden > 1 ? "s are" : " is"} in range but hidden by your rail filter, so ${hidden > 1 ? "they are" : "it is"} excluded from this partition. That's right if you're not playing on ${hidden > 1 ? "them" : "it"} — but the hider must be answering about the same set you are.</p>` : ""}
         ${lines.length < 2 ? `<p class="warn-note">⚠ Only one line is in range, so this can only tell you whether the hider is within ${rTxt} of you — it can't distinguish between lines.</p>` : ""}
         <div class="seg">${list}</div>
         <div class="seg"><label><input type="radio" name="tt-line" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>

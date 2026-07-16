@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { squareArea } from "./helpers/turf-env.mjs"; // also installs window.turf, which boardBbox reads
-import { boardBbox, loadLines as rawLoadLines } from "../src/lines.js";
+import { boardBbox, loadLines as rawLoadLines, cacheKey } from "../src/lines.js";
 
 // A stand-in for IndexedDB, injected the same way overpass.js takes fetchImpl.
 const store = new Map();
@@ -55,7 +55,7 @@ test("a fresh cache entry is served without touching the network", async () => {
   store.clear();
   let called = 0;
   globalThis.fetch = async () => { called++; throw new Error("should not be called"); };
-  store.set("rail:-:B", { key: "rail:-:B", fetchedAt: 1000, data: payload() });
+  store.set(cacheKey("rail","B"), { key: cacheKey("rail","B"), fetchedAt: 1000, data: payload() });
   const out = await loadLines("rail", "B", { proxyBase: "http://x", now: 1000 + 60_000 });
   assert.equal(out.from, "cache");
   assert.equal(called, 0);
@@ -66,12 +66,12 @@ test("a network answer is cached for next time", async () => {
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload() });
   const out = await loadLines("rail", "B", { proxyBase: "http://x", now: 5000 });
   assert.equal(out.from, "network");
-  assert.equal(store.get("rail:-:B").fetchedAt, 5000);
+  assert.equal(store.get(cacheKey("rail","B")).fetchedAt, 5000);
 });
 
 test("a STALE entry is served when the network fails — the offline case", async () => {
   store.clear();
-  store.set("rail:-:B", { key: "rail:-:B", fetchedAt: 0, data: payload() });
+  store.set(cacheKey("rail","B"), { key: cacheKey("rail","B"), fetchedAt: 0, data: payload() });
   globalThis.fetch = async () => { throw new Error("network down"); };
   // Well past the TTL, so this would have re-fetched had the network been up.
   const out = await loadLines("rail", "B", { proxyBase: "http://x", now: 400 * 24 * 3600 * 1000 });
@@ -105,7 +105,7 @@ test("no proxy configured is a clear message, not a silent blank", async () => {
 
 test("a stale entry still serves when no proxy is configured", async () => {
   store.clear();
-  store.set("rail:-:B", { key: "rail:-:B", fetchedAt: 0, data: payload() });
+  store.set(cacheKey("rail","B"), { key: cacheKey("rail","B"), fetchedAt: 0, data: payload() });
   const out = await loadLines("rail", "B", { proxyBase: null, now: 400 * 24 * 3600 * 1000 });
   assert.equal(out.from, "cache-stale");
 });
@@ -120,11 +120,30 @@ test("an unusable IndexedDB degrades to network-only instead of failing", async 
   } finally { dbThrows = false; }
 });
 
+test("a cache entry written for an OLDER payload shape is not served to new code", async () => {
+  // Found live. The payload gained a `route` per line so modes could be filtered without
+  // refetching. Entries cached before that have no route, so groupIntoLines keys them "?:1"
+  // instead of "subway:1" — the rail filter then matches nothing and silently filters
+  // nothing. Nothing throws: the JSON parses, the lines draw, only the behaviour is wrong,
+  // and the TTL is 30 days. The cache key carries a payload version so the shape change is
+  // a miss rather than a quiet lie.
+  store.clear();
+  const v1Shape = { lines: [{ name: "Line 1", ref: "1", wayIds: [1] }], ways: { 1: [[19, 72], [19.1, 72.1]] }, counts: { lines: 1, ways: 1, vertices: 2 } };
+  for (const staleKey of ["rail:-:B", "v1:rail:-:B"]) {
+    store.set(staleKey, { key: staleKey, fetchedAt: Date.now(), data: v1Shape });
+  }
+  let fetched = 0;
+  globalThis.fetch = async () => { fetched++; return { ok: true, status: 200, json: async () => payload() }; };
+  const out = await loadLines("rail", "B", { proxyBase: "http://x" });
+  assert.equal(out.from, "network", "an old-shaped entry must be a cache MISS, not served");
+  assert.equal(fetched, 1);
+});
+
 test("border levels get distinct cache keys", async () => {
   store.clear();
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload() });
   await loadLines("border", "B", { level: 2, proxyBase: "http://x" });
   await loadLines("border", "B", { level: 4, proxyBase: "http://x" });
   // A shared key would show country borders where state borders were asked for.
-  assert.deepEqual([...store.keys()].sort(), ["border:2:B", "border:4:B"]);
+  assert.deepEqual([...store.keys()].sort(), [cacheKey("border","B",2), cacheKey("border","B",4)].sort());
 });

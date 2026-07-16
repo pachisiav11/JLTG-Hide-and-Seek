@@ -350,9 +350,35 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
-/* Colour key for the Metro Lines candidate list — ties each radio option to the line drawn
-   on the map behind the sheet. Inline background: the colour is per-candidate, assigned in
-   layers.js from TENTACLE_LINE_COLOURS. */
+/* Rail filter: one block per transport mode, its lines indented under it. The mode head is a
+   checkbox for the whole mode; the indented rows are individual lines. */
+.mode-block {
+  margin: 0.6rem 0;
+  border-left: 2px solid rgba(148, 163, 184, 0.25);
+  padding-left: 0.55rem;
+}
+.mode-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-bottom: 0.25rem;
+}
+.mode-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-left: 1.4rem;
+}
+.mode-lines label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.9rem;
+}
+
+/* Colour key for the Metro Lines candidate list and the rail filter — ties each option to the
+   line drawn on the map behind the sheet. Inline background: the colour is per-candidate
+   (layers.js TENTACLE_LINE_COLOURS) or per-mode (lines.js ROUTE_MODES). */
 .line-dot {
   display: inline-block;
   width: 0.7em;

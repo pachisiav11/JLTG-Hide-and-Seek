@@ -25,6 +25,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
     you cannot add an agency — so in Mumbai it draws the Metro but not the Western / Central /
     Harbour locals, which are the lines that decide the game. This draws them. Needs
     `OVERPASS_PROXY_URL`; cached per board in IndexedDB, so it survives going offline mid-game.
+  - Every **mode** (metro, light rail, train, tram, monorail) and every **individual line** can be
+    switched off, per game — "we're only playing the Blue and Red lines" is a real setup, and a
+    tram is a real way to travel, so which ones count is the player's call. Coloured by mode; the
+    filter also decides which lines the Metro Lines card offers, and says when it hides any.
 - **Phase 2 — Core tools** ✅
   - **Radar** (centre + radius circle) and **Thermometer** (perpendicular bisector).
   - Toggleable shaded elimination layers; `activeArea` recomputed as game area minus enabled eliminations.

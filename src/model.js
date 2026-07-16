@@ -40,6 +40,17 @@ export function createGame(overrides = {}) {
     // It cannot be derived from history instead — nothing records WHEN a step was disabled,
     // so an undone step is indistinguishable from one toggled off manually long ago.
     redoStack: overrides.redoStack || [],
+    // Which rail modes and individual lines are IN PLAY on this board (§G1). Stored as what's
+    // HIDDEN, not what's shown, so a mode or line that appears later — a new metro opens, or
+    // OSM starts tagging monorails here — defaults to visible rather than silently missing
+    // because an older game never listed it.
+    //
+    // Per GAME, not per app: "we're playing on the Blue and Red lines only" is a property of
+    // this board, and the next game on the same city may use different ones.
+    railFilter: {
+      hiddenRoutes: overrides.railFilter?.hiddenRoutes || [], // OSM route values: "tram", "train", …
+      hiddenLines: overrides.railFilter?.hiddenLines || [],   // group keys: "subway:1", "train:W", …
+    },
     settings: { ...DEFAULT_SETTINGS, ...(overrides.settings || {}) },
     // Provenance for imports. An import always gets a FRESH id (it must never overwrite an
     // existing game), so this is the only trace of which record it came from. Null for

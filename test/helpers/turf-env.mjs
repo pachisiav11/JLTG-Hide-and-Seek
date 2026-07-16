@@ -21,8 +21,14 @@ if (!loaded || typeof loaded.area !== "function") {
 }
 
 globalThis.turf = loaded;
-globalThis.window = globalThis.window || {};
-globalThis.window.turf = loaded; // src/tools.js reads window.turf
+
+// A browser-shaped `window`, minimal on purpose. src/tools.js reads window.turf, and modules
+// that reach store.js pick up its import-time `window.addEventListener("pagehide", …)` — a
+// real listener that must exist to import, but has nothing to do in Node. This is the whole
+// shim: enough surface to load the modules under test, not a DOM.
+const noopEvents = { addEventListener: () => {}, removeEventListener: () => {} };
+globalThis.window = Object.assign(globalThis.window || {}, noopEvents, { turf: loaded });
+globalThis.document = globalThis.document || { ...noopEvents, visibilityState: "visible" };
 
 export const turf = loaded;
 

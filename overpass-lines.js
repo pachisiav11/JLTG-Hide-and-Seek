@@ -146,7 +146,7 @@ export function normalizeLines(kind, json, { minCoords = 2 } = {}) {
     // One synthetic line so every kind has the same shape; there is no per-line identity to
     // recover from OSM here, and no card asks "which coastline?".
     const ids = Object.keys(ways).map(Number);
-    lines = ids.length ? [{ name: "Coastline", ref: null, wayIds: ids }] : [];
+    lines = ids.length ? [{ name: "Coastline", ref: null, route: "coastline", wayIds: ids }] : [];
   } else {
     lines = [];
     for (const el of elements) {
@@ -161,6 +161,11 @@ export function normalizeLines(kind, json, { minCoords = 2 } = {}) {
       lines.push({
         name: t.name || t["name:en"] || t.ref || `(unnamed ${kind})`,
         ref: t.ref || null,
+        // The OSM route type (train/subway/tram/…). Carried so the client can show or hide a
+        // whole mode without re-querying — a tram is a legitimate way to travel and the
+        // player decides whether it counts, but that decision must not cost a slow, failure-
+        // prone round trip. `border` has no route tag; boundary is the closest analogue.
+        route: t.route || t.boundary || null,
         wayIds,
       });
     }

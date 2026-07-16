@@ -228,10 +228,12 @@ function wireToolbar(zones, features, layers, focus, lines) {
     else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());
-    // Async: the first press fetches from Overpass (slow, and fails often), later presses hit
-    // the IndexedDB cache. toggle() toasts its own progress and returns the settled state.
+    // Opens a panel rather than toggling: which modes and lines are in play is a per-board
+    // decision (a tram is a real way to travel; whether it counts is the player's call), so
+    // this needs more than one bit. The first press fetches from Overpass — slow, and it
+    // fails often — after which filtering is local and instant.
     else if (act === "rail") {
-      lines.toggle("rail", store.getCurrent()?.gameArea).then((on) => setActive("rail", on));
+      lines.openPanel(store.getCurrent()?.gameArea).then(() => setActive("rail", lines.isOn()));
     }
     else if (act === "locate") {
       if (store.getCurrent()?.zones?.length) zones.fitToArea();
