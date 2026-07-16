@@ -206,7 +206,7 @@ const GOOGLE_CAP = 60;
 // the cap would silently partition the map from an arbitrary subset. These go to Overpass
 // FIRST. Every mature tool in this space made the same call, for the same reason.
 const DENSE_CATEGORIES = new Set([
-  "train_station", "subway_station", "bus_station",
+  "train_station", "subway_station", "bus_station", "transit_station",
   "restaurant", "school", "place_of_worship", "park",
 ]);
 
@@ -215,8 +215,8 @@ const DENSE_CATEGORIES = new Set([
 // keyword. Returns an Overpass category key or null (⇒ no fallback for this card).
 const OVERPASS_TYPES = new Set([
   "hospital", "park", "museum", "library", "movie_theater", "zoo", "aquarium",
-  "amusement_park", "train_station", "subway_station", "bus_station", "airport",
-  "school", "place_of_worship", "tourist_attraction", "restaurant", "shopping_mall",
+  "amusement_park", "train_station", "subway_station", "bus_station", "transit_station",
+  "airport", "school", "place_of_worship", "tourist_attraction", "restaurant", "shopping_mall",
 ]);
 const KEYWORD_TO_OVERPASS = { mountain: "mountain", "golf course": "golf", consulate: "consulate" };
 

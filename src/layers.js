@@ -7,7 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPathGroups, featuresNearArea } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
-import { searchCategory, searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
+import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
@@ -945,17 +945,34 @@ export class Layers {
     const g = store.getCurrent();
     const { center, radius } = this._searchParams(g.gameArea);
     s.q("#mt-status").textContent = "Searching stations…";
-    let feats = [];
+    let feats = [], source = "google", reason = "primary";
     try {
-      feats = await searchCategory(this.map, { center, radius, type: card.type });
+      // Was searchCategory: capped at Google's 60 stations for the ENTIRE board with no OSM
+      // fallback, so in any dense metro this partitioned from an arbitrary subset and BOTH
+      // answers eliminated the wrong regions, with no sign anything had been truncated.
+      ({ feats, source, reason } = await searchCategoryResilient(this.map, {
+        center, radius, type: card.type, keyword: card.keyword, gameArea: g.gameArea,
+      }));
     } catch (e) { s.q("#mt-status").textContent = e.message; return; }
+    feats = this._nearAreaFeatures(feats, g.gameArea);
+    s.close();
+    if (source === "overpass") toast(sourceToast(reason));
+
+    // This was the only POI card that skipped the candidate picker, so a seeker could not
+    // add the station they actually meant. Now it behaves like every other POI card.
+    const chosen = await this._assembleCandidates(card, feats, { minCount: 2, center });
+    if (!chosen) return this.openPanel();
+    this._nameLengthSelect(card, chosen);
+  }
+
+  // Group the chosen stations by name length and ask for the seeker's own length.
+  _nameLengthSelect(card, chosenFeats) {
     // Count letters in the station name only — drop parenthetical qualifiers
     // (e.g. "Shinjuku Station (South Exit)") that aren't part of the name players
     // compare, then collapse whitespace before counting.
-    const nameLen = (n) => ((n.replace(/\s*\([^)]*\)/g, "").match(/\p{L}/gu)) || []).length;
-    feats = this._nearAreaFeatures(feats, g.gameArea).map((f) => ({ ...f, len: nameLen(f.name) }));
-    if (feats.length < 2) { s.q("#mt-status").textContent = `Found ${feats.length} stations in or near the play area. Need at least 2.`; return; }
-    s.close();
+    const nameLen = (n) => (((n || "").replace(/\s*\([^)]*\)/g, "").match(/\p{L}/gu)) || []).length;
+    const feats = chosenFeats.map((f) => ({ ...f, len: nameLen(f.name) }));
+    if (feats.length < 2) { toast(`Need at least 2 stations; got ${feats.length}.`); return this.openPanel(); }
     const temp = feats.map((f) => new google.maps.Marker({ position: { lat: f.lat, lng: f.lng }, label: `${f.len}`, map: this.map }));
     const lengths = [...new Set(feats.map((f) => f.len))].sort((a, b) => a - b);
     const list = lengths.map((L, i) => `<label><input type="radio" name="nl" value="${L}" ${i === 0 ? "checked" : ""}/> ${L} letters (${feats.filter((f) => f.len === L).length} station${feats.filter((f) => f.len === L).length === 1 ? "" : "s"})</label>`).join("");

@@ -38,6 +38,10 @@ const CATEGORY_TAGS = {
   train_station: [["railway", "station"]],
   subway_station: [["station", "subway"], ["railway", "station"]],
   bus_station: [["amenity", "bus_station"]],
+  // Google's catch-all transit type, used by the Station's Name Length card. Without this
+  // the card had no Overpass mapping at all, so it stayed capped at Google's 60 stations
+  // for the whole board and partitioned from an arbitrary subset (B3).
+  transit_station: [["railway", "station"], ["railway", "halt"], ["station", "subway"], ["amenity", "bus_station"]],
   airport: [["aeroway", "aerodrome"]],
   school: [["amenity", "school"]],
   place_of_worship: [["amenity", "place_of_worship"]],
