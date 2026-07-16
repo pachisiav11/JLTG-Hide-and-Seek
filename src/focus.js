@@ -141,8 +141,13 @@ export class Focus {
     };
     s.q("#f-apply").onclick = () => {
       if (!pt) return toast("Set the zone centre first.");
-      // Always stored in metres, whatever unit was typed.
-      const r = Math.max(0, readDistanceMeters(s, "f-radius", units) || 0);
+      // Validate rather than swallow: `|| 0` turned "abc" into 0, which setRadius reads as
+      // "marker only" — silently discarding the zone the seeker meant to set. Unlike the
+      // question sheets, 0 IS meaningful here (it means marker only), so only a
+      // non-numeric entry is rejected. Stored in metres, whatever unit was typed.
+      const raw = s.q("#f-radius")?.value.trim();
+      const r = raw === "" ? 0 : readDistanceMeters(s, "f-radius", units);
+      if (!Number.isFinite(r) || r < 0) return toast("Enter a radius as a number, or use Marker only.");
       this.setRadius(r);
       s.close();
       toast(r > 0 ? "Hider zone applied." : "Marker only — no shading.");

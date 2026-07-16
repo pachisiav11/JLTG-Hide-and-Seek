@@ -773,8 +773,12 @@ export class Layers {
     });
     s.q("#r-cancel").onclick = () => s.close();
     s.q("#r-add").onclick = () => {
-      // Always stored in metres, whatever unit was typed.
-      const radius = Math.max(10, readDistanceMeters(s, "r-radius", units) || 0);
+      // Validate, never clamp. `Math.max(10, parseFloat(...) || 0)` turned "0", "-500" and
+      // "abc" all into 10 while the "question added" toast fired as though the typed value
+      // had been honoured — the question then used a radius the seeker never chose.
+      const radius = readDistanceMeters(s, "r-radius", units); // metres, whatever was typed
+      if (!Number.isFinite(radius)) return toast("Enter a radius as a number.");
+      if (radius <= 0) return toast("Enter a radius greater than zero.");
       const side = s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in";
       this.addStep("radar", { center: anchor.getPos(), radius }, { side });
       s.close();
@@ -1289,8 +1293,13 @@ export class Layers {
     });
     s.q("#m-cancel2").onclick = () => s.close();
     s.q("#m-add").onclick = () => {
-      // Always stored in metres, whatever unit was typed.
-      const distance = Math.max(10, readDistanceMeters(s, "m-dist", units) || 0);
+      // Validate, never clamp — see the Radar sheet. Zero is rejected with its own reason
+      // rather than accepted: turf.buffer(geometry, 0) returns null, so a 0-distance
+      // question would silently eliminate nothing, and semantically it cannot divide the
+      // map anyway (every point is farther than 0; "closer than 0" is a contradiction).
+      const distance = readDistanceMeters(s, "m-dist", units); // metres, whatever was typed
+      if (!Number.isFinite(distance)) return toast("Enter your distance as a number.");
+      if (distance <= 0) return toast("A distance of 0 can't divide the map — enter how far you actually are.");
       const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
       this.addStep("measuring", { ...addInputs, distance }, { side });
       s.close();
