@@ -162,9 +162,14 @@ export function boardBbox(gameArea, padFrac = 0.1) {
 // the lines still draw. Adding `route` per line did exactly that: cached entries had no
 // route, so group keys came out "?:1" instead of "subway:1", and the rail filter matched
 // nothing while appearing to work. A version in the key makes a shape change a cache miss.
+// The same reasoning covers a payload whose shape is unchanged but whose CONTENT was broken:
+// a v2 entry cached before v3 carries duplicate consecutive vertices, and turf's
+// pointToLineDistance throws on those — so a Berlin board would keep failing the Metro Lines
+// card from cache for up to 30 days after the fix shipped, and blame the network for it.
 //   v1 — {name, ref, wayIds}
 //   v2 — adds `route` per line (mode filtering without a refetch)
-export const PAYLOAD_VERSION = 2;
+//   v3 — drops duplicate consecutive vertices created by 5dp rounding (turf throws on them)
+export const PAYLOAD_VERSION = 3;
 export const cacheKey = (kind, bbox, level) => `v${PAYLOAD_VERSION}:${kind}:${level ?? "-"}:${bbox}`;
 
 // Old-version entries are dead weight (~100 KB each) that nothing will ever read again. Prune

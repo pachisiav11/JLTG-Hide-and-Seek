@@ -125,6 +125,30 @@ test("REAL Berlin S5/S7: a hider on the Stadtbahn trunk is in both cells", () =>
   assert.ok(inside(cells[1], p.lon, p.lat), "and in S7's cell — so either answer keeps them");
 });
 
+test("REAL Berlin: every sourced line can be MEASURED — the card died on 4 ways in 282", () => {
+  // The bug this pins, found only by driving the real card in a browser on a real Berlin
+  // board. 5dp rounding collapsed sub-1.1 m vertices into exact duplicates; turf's
+  // pointToLineDistance throws on the resulting zero-length segment; candidateLines measures
+  // EVERY line, so 4 bad ways out of 282 killed the whole card. layers.js then caught it and
+  // said "Couldn't load metro lines — falling back to stations": a code bug of mine wearing an
+  // outage's clothes, silently reverting Berlin to the station Voronoi §F1 removed.
+  //
+  // Mumbai, DC and the coastline captures have ZERO duplicates, which is why every earlier
+  // check passed. This asserts the operation candidateLines actually performs, on the data
+  // that actually broke.
+  const json = JSON.parse(readFileSync(new URL("./fixtures/overpass-metro-berlin-s5-s7.json", import.meta.url), "utf8"));
+  const groups = groupIntoLines(normalizeLines("metro", json));
+  const from = turf.point([13.38, 52.52]);
+  for (const l of groups) {
+    for (const p of l.paths) {
+      assert.doesNotThrow(
+        () => turf.pointToLineDistance(from, turf.lineString(p.map(([lat, lng]) => [lng, lat])), { units: "meters" }),
+        `${l.label}: candidateLines must be able to measure every path it is handed`,
+      );
+    }
+  }
+});
+
 test("a union failure is LOUD, not a silently truncated cell", () => {
   // Found while merging the cells once instead of folding them pairwise. The old fold read
   // `cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip`, and safeUnion swallows its

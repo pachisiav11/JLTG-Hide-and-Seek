@@ -49,6 +49,34 @@ export const DEFAULT_BORDER_LEVEL = BORDER_LEVELS.division;
 // dense board viable (raw Overpass coords carry ~7dp of noise nobody can see).
 const r5 = (n) => Math.round(n * 1e5) / 1e5;
 
+// Rounding to 5dp COLLAPSES vertices that were <1.1 m apart into exact duplicates, and turf is
+// not tolerant of that: `pointToLineDistance` on a line with any repeated consecutive point
+// throws "coordinates must contain numbers" (the zero-length segment produces an internal NaN).
+//
+// Measured (2026-07-17): only **4 of 282** ways on a real Berlin board carry one — but that 1%
+// took down 100% of the Metro Lines card, because `candidateLines` measures every line and one
+// throw escapes the lot. Worse, `layers.js` catches it and reports "Couldn't load metro lines —
+// falling back to stations", so a code bug of mine read as an Overpass outage and silently put
+// Berlin back on the station Voronoi that §F1 exists to remove. Exactly the confusion D3 was
+// filed for, one layer up.
+//
+// It survived every earlier check because Mumbai, DC and the Mumbai coastline captures have
+// ZERO duplicates — the bug needs a network dense enough for two mapped vertices to land within
+// 1.1 m of each other.
+//
+// Dropped HERE, where the rounding creates them, so every consumer is handed geometry turf can
+// actually read. A way that collapses below minCoords is then dropped by the existing length
+// check, which is correct: it was under ~1 m long.
+function dropRepeats(coords) {
+  const out = [];
+  for (const c of coords) {
+    const prev = out[out.length - 1];
+    if (prev && prev[0] === c[0] && prev[1] === c[1]) continue;
+    out.push(c);
+  }
+  return out;
+}
+
 export function bboxIsValid(bbox) {
   const p = String(bbox || "").split(",").map(Number);
   if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return false;
@@ -166,8 +194,10 @@ export function normalizeLines(kind, json, { minCoords = 2 } = {}) {
   const ways = {};
   for (const el of elements) {
     if (el.type !== "way" || !Array.isArray(el.geometry)) continue;
-    const coords = el.geometry.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
-      .map((p) => [r5(p.lat), r5(p.lon)]);
+    const coords = dropRepeats(
+      el.geometry.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
+        .map((p) => [r5(p.lat), r5(p.lon)]),
+    );
     if (coords.length < minCoords) continue; // a 1-point way cannot draw
     ways[el.id] = coords;
   }

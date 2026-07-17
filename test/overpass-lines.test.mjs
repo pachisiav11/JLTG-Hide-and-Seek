@@ -11,6 +11,9 @@ import {
   buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS,
   RAIL_ROUTE_TYPES, METRO_ROUTE_TYPES, BORDER_LEVELS, DEFAULT_BORDER_LEVEL,
 } from "../overpass-lines.js";
+// Shaping is pure data and needs no turf — except to assert the ONE thing that actually broke
+// in a live game: that what this module emits is measurable by the consumer it feeds.
+import { turf } from "./helpers/turf-env.mjs";
 
 const fixture = (n) => JSON.parse(readFileSync(new URL(`./fixtures/overpass-${n}.json`, import.meta.url), "utf8"));
 const RAIL = fixture("rail-mumbai");
@@ -158,6 +161,51 @@ test("relations whose track is all outside the box are dropped, not emitted empt
   const out = normalizeLines("rail", noJoin);
   assert.deepEqual(out.lines, [], "no relation can join, so no line has visible geometry");
   assert.ok(out.counts.ways > 0, "the ways themselves still exist");
+});
+
+test("5dp rounding must not leave duplicate vertices — turf throws on them", () => {
+  // Found live on a Berlin board. r5 rounds to ~1.1 m, which collapses vertices that were
+  // closer than that into EXACT duplicates. turf.pointToLineDistance then throws
+  // "coordinates must contain numbers" on the zero-length segment — so `candidateLines`,
+  // which measures every line, died on the whole set. Only 4 of 282 real Berlin ways carry
+  // one; that 1% took down 100% of the card, and layers.js reported it as "Couldn't load
+  // metro lines" — a code bug wearing an outage's clothes.
+  const json = { elements: [{
+    type: "way", id: 1,
+    geometry: [
+      { lat: 52.549450, lon: 13.392560 },
+      { lat: 52.549451, lon: 13.392561 }, // ~0.1 m away — rounds onto the point above
+      { lat: 52.549452, lon: 13.392559 }, // and again
+      { lat: 52.548000, lon: 13.391000 },
+    ],
+  }] };
+  const { ways } = normalizeLines("coastline", json);
+  const coords = ways[1];
+  assert.ok(coords, "the way must survive — it is ~170 m long, only its first 3 nodes collide");
+  for (let i = 1; i < coords.length; i++) {
+    assert.ok(
+      coords[i][0] !== coords[i - 1][0] || coords[i][1] !== coords[i - 1][1],
+      `vertex ${i} repeats vertex ${i - 1} — turf cannot measure this line`,
+    );
+  }
+  // The real assertion: the output must be usable by the consumer that was breaking.
+  const line = turf.lineString(coords.map(([lat, lng]) => [lng, lat]));
+  assert.doesNotThrow(
+    () => turf.pointToLineDistance(turf.point([13.38, 52.52]), line, { units: "meters" }),
+    "the whole point: candidateLines must be able to measure the line it is handed",
+  );
+});
+
+test("a way that rounds away to a single point is dropped, not emitted broken", () => {
+  // A sub-metre way collapses to one vertex once duplicates go. The existing length check
+  // owns that — but it has to run AFTER the dedup, or it never sees the collapse.
+  const json = { elements: [{
+    type: "way", id: 2,
+    geometry: [{ lat: 52.5494500, lon: 13.3925600 }, { lat: 52.5494501, lon: 13.3925601 }],
+  }] };
+  const { ways, counts } = normalizeLines("coastline", json);
+  assert.equal(ways[2], undefined, "a ~1 cm way cannot draw or be measured");
+  assert.equal(counts.ways, 0);
 });
 
 test("1-point ways are dropped — they cannot draw", () => {

@@ -629,8 +629,32 @@ Verified on the real capture: S5's cell 158 km², S7's 164 km², board 166 km² 
 the board, and that excess *is* the trunk. A point on a real shared way near Hackescher Markt is
 in **both** cells.
 
-**Two things fell out of profiling this**, since the real board made `lineCells` measurable for
-the first time (Berlin S5+S7 = 1744 seeds after dedup — the dedup itself halves them, as 1639
+**The Metro Lines card was DEAD on Berlin, and only a browser found it.** Driving the real card
+on a real Berlin board — not a fixture, not a unit test — `candidateLines` threw
+`coordinates must contain numbers`. The cause was mine, from G1: `r5` rounds to 5dp (~1.1 m),
+which collapses vertices mapped closer than that into **exact duplicates**, and turf's
+`pointToLineDistance` throws on the resulting zero-length segment.
+
+Only **4 of 282** ways on the S5/S7 capture carry one (~1%) — but `candidateLines` measures
+*every* line, so one throw escaped the whole set and **1% of the data took down 100% of the
+card**. `layers.js` then caught it and reported *"Couldn't load metro lines — falling back to
+stations"*: a code bug of mine wearing an outage's clothes, silently reverting Berlin to the
+station Voronoi §F1 exists to remove. **Exactly the confusion D3 was filed for, one layer up.**
+
+It survived every prior check because **Mumbai, DC and the Mumbai coastline captures have zero
+duplicates** — the bug needs a network dense enough for two mapped vertices to land within 1.1 m
+of each other, and every fixture I had verified against was from a city that never produced one.
+Fixed at the source (`normalizeLines` drops repeats where the rounding creates them) and
+`PAYLOAD_VERSION` → **v3**, because a Berlin board would otherwise keep failing from its 30-day
+cache after the fix shipped.
+
+**The lesson is about the method, not the bug.** Every earlier §G/§F check was real Overpass
+data through real code — and still missed this, because the *data* was Mumbai and DC. Real data
+is not the same as *representative* data, and the fixtures I'd picked were the ones the bug
+cannot occur in.
+
+**Two more things fell out of profiling this**, since the real board made `lineCells` measurable
+for the first time (Berlin S5+S7 = 1744 seeds after dedup — the dedup itself halves them, as 1639
 are shared):
 
 - **A second A7-shaped bug, in `lineCells`' own internals.** The cells were folded pairwise:
