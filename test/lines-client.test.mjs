@@ -6,7 +6,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { squareArea } from "./helpers/turf-env.mjs"; // also installs window.turf, which boardBbox reads
-import { boardBbox, loadLines as rawLoadLines, cacheKey } from "../src/lines.js";
+import { boardBbox, loadLines as rawLoadLines, cacheKey, lineGeometry } from "../src/lines.js";
+import { normalizeLines } from "../overpass-lines.js";
+import { readFileSync } from "node:fs";
 
 // A stand-in for IndexedDB, injected the same way overpass.js takes fetchImpl.
 const store = new Map();
@@ -137,6 +139,64 @@ test("a cache entry written for an OLDER payload shape is not served to new code
   const out = await loadLines("rail", "B", { proxyBase: "http://x" });
   assert.equal(out.from, "network", "an old-shaped entry must be a cache MISS, not served");
   assert.equal(fetched, 1);
+});
+
+// ---- lineGeometry: the reference line for a Measuring card ------------------------------
+
+// The real Mumbai coastline capture, through the same shaping the server does.
+const COASTLINE = normalizeLines(
+  "coastline",
+  JSON.parse(readFileSync(new URL("./fixtures/overpass-coastline-mumbai.json", import.meta.url), "utf8")),
+);
+
+test("lineGeometry puts the real Mumbai coastline in Mumbai — the [lat,lng] flip", async () => {
+  // The payload stores [lat,lng] (Overpass order); GeoJSON is [lng,lat]. Getting this
+  // backwards is the classic silent one: turf still buffers happily, the elimination still
+  // runs, and the "coastline" is simply somewhere in the Indian Ocean off Antarctica. The
+  // seeker sees a plausible ring on an empty part of the map and no error anywhere.
+  store.clear();
+  window.JLTG_CONFIG = { OVERPASS_PROXY_URL: "http://x" };
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => COASTLINE });
+
+  const out = await lineGeometry("coastline", AREA);
+  assert.equal(out.geometry.type, "MultiLineString");
+  for (const [lng, lat] of out.geometry.coordinates.flat()) {
+    assert.ok(lng > 72 && lng < 73.5, `lng ${lng} is not a Mumbai longitude — coordinates are flipped`);
+    assert.ok(lat > 18 && lat < 20, `lat ${lat} is not a Mumbai latitude — coordinates are flipped`);
+  }
+});
+
+test("lineGeometry returns null for an empty answer — 'none here' is not an outage", async () => {
+  // border&level=2 over a Mumbai board correctly returns zero lines: no international border
+  // crosses it. That must be distinguishable from Overpass failing, because the honest reply
+  // is "there is no international border here", not "couldn't load it".
+  store.clear();
+  window.JLTG_CONFIG = { OVERPASS_PROXY_URL: "http://x" };
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ kind: "border", lines: [], ways: {}, counts: { lines: 0, ways: 0, vertices: 0 } }) });
+  assert.equal(await lineGeometry("border", AREA, { level: 2 }), null);
+});
+
+test("lineGeometry propagates a real failure instead of reporting an empty coast", async () => {
+  // The counterpart to the test above: if it swallowed this into null, an outage would read
+  // as "no coastline on this board" and the player would hand-draw one for no reason.
+  store.clear();
+  window.JLTG_CONFIG = { OVERPASS_PROXY_URL: "http://x" };
+  globalThis.fetch = async () => { throw new Error("network down"); };
+  await assert.rejects(() => lineGeometry("coastline", AREA), /network down/);
+});
+
+test("lineGeometry drops a degenerate way rather than emitting a 1-point line", async () => {
+  // turf.buffer on a 1-point LineString throws, which would take the whole card down.
+  store.clear();
+  window.JLTG_CONFIG = { OVERPASS_PROXY_URL: "http://x" };
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({
+    kind: "coastline",
+    lines: [{ name: "Coastline", ref: null, route: "coastline", wayIds: [1, 2] }],
+    ways: { 1: [[19.0, 72.8], [19.1, 72.8]], 2: [[19.2, 72.9]] }, // way 2 is a single node
+    counts: { lines: 1, ways: 2, vertices: 3 },
+  }) });
+  const out = await lineGeometry("coastline", AREA);
+  assert.equal(out.geometry.coordinates.length, 1, "the 1-point way must not become a line");
 });
 
 test("border levels get distinct cache keys", async () => {

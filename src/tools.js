@@ -547,6 +547,16 @@ export function distancePointToArea(pt, area) {
 }
 
 // Extract outer rings of a geometry as arrays of {lat,lng} for guide drawing.
+// The line counterpart of geojsonRings: every polyline in a (Multi)LineString, as {lat,lng}.
+// Anything else (a Polygon, a point set, nothing at all) yields none.
+function geojsonLines(geom) {
+  const lines = geom?.type === "LineString" ? [geom.coordinates]
+    : geom?.type === "MultiLineString" ? geom.coordinates
+    : [];
+  return lines.filter((p) => Array.isArray(p) && p.length >= 2)
+              .map((p) => p.map(([lng, lat]) => ({ lat, lng })));
+}
+
 function geojsonRings(geom) {
   const rings = [];
   let polys = [];
@@ -583,7 +593,12 @@ function measuring(step, gameArea) {
   // Reference visuals for the buffer modes (line / area). Per-candidate points
   // don't persist (see voronoiTool); the buffer outline below is the reference
   // that stays on the map for point-set cards.
-  if (refGeometry?.type === "LineString") guides.push({ type: "polyline", coords: refGeometry.coordinates.map(([lng, lat]) => ({ lat, lng })) });
+  //
+  // MultiLineString matters as much as LineString: an auto-sourced coastline or border is
+  // many disjoint OSM ways, never one. turf.buffer handles it either way, so without this
+  // the elimination would be right while the reference line it was measured from was
+  // invisible — the seeker would have no way to see what the buffer was drawn around.
+  for (const p of geojsonLines(refGeometry)) guides.push({ type: "polyline", coords: p });
   if (refGeometry?.type === "Polygon") for (const r of geojsonRings(refGeometry)) guides.push({ type: "outline", ring: r });
 
   const buffer = refGeometry ? bufferGeometry(refGeometry, distance) : null;

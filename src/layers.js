@@ -1499,6 +1499,7 @@ export class Layers {
       title: card.label,
       bodyHTML: `
         <p class="muted"><strong>Your</strong> distance to the nearest ${escapeHtml(card.label.toLowerCase())}. The app buffers by this distance, then keeps the side matching the hider's answer.</p>
+        ${addInputs.refSource === "osm" ? `<p class="muted">✓ Using real ${escapeHtml(card.label.toLowerCase())} geometry from OpenStreetMap — nothing to draw. It appears on the map once the question is added.</p>` : ""}
         <label class="fieldlbl">Your distance</label>
         ${distanceFieldHTML("m-dist", 500, units)}
         <label class="fieldlbl">The hider is…</label>
@@ -1579,14 +1580,59 @@ export class Layers {
     });
   }
 
-  // A hand-drawn reference line (high-speed rail, coastline, borders): buffer it.
+  // A reference line (coastline, borders, high-speed rail): buffer it.
+  //
+  // Sourced from OSM where the card names a lineKind, hand-drawn otherwise. The brief: "the
+  // exact lines used automatically, without my input — Mumbai should not have an advantage in
+  // any stage." A traced coastline is a guess that then eliminates real area, and how good a
+  // guess it is varies by how well the player knows the coast — which is exactly the local
+  // advantage this removes.
   async _measureLine(card) {
+    if (card.lineKind) {
+      const auto = await this._autoLine(card);
+      if (auto) return this._distanceSheet(card, auto);
+      // _autoLine has already said why; fall through to drawing it by hand.
+    }
     const coords = await this._drawShape(2, `Draw the ${card.label} — tap along it`);
     if (!coords) return this.openPanel();
     this._distanceSheet(card, {
       refType: "line", refLabel: card.label,
       refGeometry: { type: "LineString", coordinates: coords.map((c) => [c.lng, c.lat]) },
     });
+  }
+
+  // Real geometry for a lineKind card, or null to fall back to hand-drawing — having SAID so.
+  // Every exit here is spoken: silently handing back a draw prompt would look identical to the
+  // card having no auto-source at all, and the player would never learn the real coast was
+  // one retry away.
+  async _autoLine(card) {
+    const g = store.getCurrent();
+    if (!g?.gameArea) { toast("Draw a game area first."); return null; }
+    toast(`Finding the ${card.label.toLowerCase()}…`);
+    try {
+      const { lineGeometry } = await import("./lines.js");
+      const out = await lineGeometry(card.lineKind, g.gameArea, { level: card.level ?? null });
+      // null is a real answer, not a failure: no international border crosses a Mumbai board.
+      // Saying "none here" and letting them draw is honest; a bare draw prompt would imply
+      // the lookup never happened.
+      if (!out) {
+        toast(`No ${card.label.toLowerCase()} on this board — draw it if you meant something else.`);
+        return null;
+      }
+      if (out.from === "cache-stale") toast(`Using an offline copy of the ${card.label.toLowerCase()}.`);
+      return {
+        refType: "line", refLabel: card.label, refSource: "osm",
+        refGeometry: out.geometry,
+      };
+    } catch (e) {
+      console.warn("line sourcing failed", e);
+      // 400 is our request being wrong; anything else is the endpoint being busy (~64% of
+      // individual Overpass calls fail). Collapsing them sends someone hunting a phantom bug.
+      toast(e.status === 400
+        ? `${card.label} request rejected: ${e.message} — draw it instead.`
+        : `Couldn't load the ${card.label.toLowerCase()} — draw it instead.`);
+      return null;
+    }
   }
 
   // A hand-drawn polygon (a body of water): buffer outward from its shore.

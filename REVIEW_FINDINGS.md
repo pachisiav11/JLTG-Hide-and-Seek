@@ -933,10 +933,40 @@ forever). **Bump `PAYLOAD_VERSION` in `src/lines.js` whenever `normalizeLines`' 
 changes** — the same discipline as `CACHE_VERSION` in the service worker, and for the same
 reason: a client-side cache outlives the deploy that filled it.
 
-**Still open (deliberately):** `lines[].wayIds` is carried and tested but has no consumer yet —
-it exists so **F1/F4** can partition by *line* instead of by a Voronoi over stations. Wiring
-that is the next step, and it retires F1 rather than adding to it. Coastline and border are
-served by the endpoint and fetchable, but only rail has a toolbar button so far.
+**Done 2026-07-17 — `wayIds` now has two consumers.** It was carried and tested with none; F1
+wired the first (partition by *line*, not by a Voronoi over stations), and the Measuring
+reference lines are the second.
+
+**Coastline and border, done 2026-07-17 — as auto-sourced Measuring references, not a toolbar
+toggle.** The toggle was the obvious next step and it was the wrong one: a decorative overlay
+looks useful but changes no outcome. The gap E1 actually recorded is that the five `ref: "line"`
+Measuring cards were **hand-drawn** — the player traced the coastline with a fingertip and the
+app buffered the trace, so a real elimination ran at whatever accuracy the tracing managed, and
+a player who knows the coast well got a better board. That is the local advantage the brief
+named. `_measureLine` now sources the geometry where the card names a `lineKind`:
+
+| Card | Source | Why |
+|---|---|---|
+| Coastline | `kind=coastline` | `natural=coastline` is one unambiguous tag worldwide |
+| International Border | `kind=border&level=2` | `admin_level=2` **is** the international border by definition |
+| 1st Admin. Division Border | `kind=border&level=4` | measured as the 1st division in **14/14** countries sampled |
+| 2nd Admin. Division Border | **hand-drawn** | the 2nd division has **no fixed** `admin_level` (5 / 6 / 8 by country) |
+| High Speed Train Line | **hand-drawn** | OSM tags high-speed service inconsistently; no one query works everywhere |
+
+The last two rows are the point: wiring a guessed level would be silently wrong in every
+country it didn't match — the §A failure mode, exported worldwide. Both cards keep hand-drawing
+and say so, which is the honest answer, not the lazy one.
+
+**The silent bug this surfaced:** auto-sourcing changes the geometry's *shape*. A hand-drawn
+line is one `LineString`; a real coastline is many disjoint OSM ways — a `MultiLineString`.
+`turf.buffer` handles both identically (measured: 2 ways → a 2-polygon MultiPolygon, correct
+containment), so the **elimination was already right** — but the guide branch in `tools.js`
+tested only for `LineString`, so the reference line would have drawn **nothing**. A buffer ring
+floating on the map with no visible line it was measured from, and nothing thrown anywhere.
+Confirmed by reverting the fix: the guide test fails while all three elimination tests still
+pass — which is exactly what "silently wrong" looks like. `test/measure-line.test.mjs` pins it,
+plus a `[lat,lng]`→`[lng,lat]` flip test (a flip would put Mumbai's coast off Antarctica and
+buffer it happily).
 
 #### CORRECTION 3 — Overpass reliability is worse than the proxy assumes → **now filed as D3**
 

@@ -77,21 +77,36 @@ export function findMatching(id) {
 // from — the source is fully automatic where Google can provide it, else a
 // manual on-map draw (per the game's non-point features):
 //   points — nearest-of-a-category buffered (Google Places point set).
-//   line   — a hand-drawn reference line, buffered (no Google line geometry:
-//            high-speed rail, coastline, international / admin-division borders).
+//   line   — a reference line, buffered. Google has no line geometry for any of these
+//            (§G0), so they come from OpenStreetMap via the Overpass proxy when the card
+//            names a `lineKind`, and are hand-drawn only where no worldwide-valid query
+//            exists. A hand-drawn coastline is a traced guess: it decides real
+//            eliminations at whatever accuracy a fingertip managed.
 //   area   — a hand-drawn polygon (a body of water), buffered from its shore.
 //   region — Sea Level: elevation isn't derivable from map geometry, so draw the
 //            region above/below the revealed level and keep that side (no buffer).
+//
+// `lineKind` (+ `level` for borders) is the Overpass source. It is set only where ONE query
+// is right everywhere — no per-city tuning, so no board gets an advantage:
+//   coastline    — natural=coastline is a single unambiguous tag worldwide.
+//   intl_border  — admin_level=2 is the international border by definition.
+//   admin1_border— admin_level=4 measured as the 1st division in 14/14 countries sampled.
+// Deliberately NOT set (they stay hand-drawn, and the card says so rather than guessing):
+//   admin2_border— the 2nd division has NO fixed admin_level (it is 5 in some countries,
+//                  6 in others, 8 elsewhere). Picking one would be silently wrong in every
+//                  country it didn't match — the §A failure mode, worldwide.
+//   hs_train     — OSM tags high-speed service inconsistently across networks; no single
+//                  query returns "the high-speed lines" everywhere yet.
 export const MEASURING = [
   { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
   { id: "hs_train", label: "High Speed Train Line", ref: "line" },
   { id: "rail_station", label: "Rail Station", ref: "points", type: "train_station" },
-  { id: "intl_border", label: "International Border", ref: "line" },
-  { id: "admin1_border", label: "1st Admin. Division Border", ref: "line" },
+  { id: "intl_border", label: "International Border", ref: "line", lineKind: "border", level: 2 },
+  { id: "admin1_border", label: "1st Admin. Division Border", ref: "line", lineKind: "border", level: 4 },
   { id: "admin2_border", label: "2nd Admin. Division Border", ref: "line" },
   { id: "sea_level", label: "Sea Level", ref: "region" },
   { id: "water", label: "Body of Water", ref: "area" },
-  { id: "coastline", label: "Coastline", ref: "line" },
+  { id: "coastline", label: "Coastline", ref: "line", lineKind: "coastline" },
   { id: "mountain", label: "Mountain", ref: "points", keyword: "mountain" },
   { id: "park", label: "Park", ref: "points", type: "park" },
   { id: "amusement_park", label: "Amusement Park", ref: "points", type: "amusement_park" },

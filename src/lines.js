@@ -269,6 +269,35 @@ export async function candidateLines(kind, gameArea, center, radius, { game = nu
   return { lines, hidden: within.length - lines.length };
 }
 
+// Every way of `kind` across the board, as ONE MultiLineString — the reference line for a
+// Measuring card ("how far are you from the coastline?").
+//
+// Deliberately not grouped, unlike candidateLines: that card asks the seeker to CHOOSE between
+// lines, so the lines must be separable. This one asks distance to the feature as a whole —
+// there is nothing to choose between, and a coastline has no meaningful "lines" to group into
+// anyway. The rail filter is not applied for the same reason: it answers "which lines are we
+// playing on", which is not a question about where the coast is.
+//
+// Returns null when the board yields no geometry, which is a real answer, not a failure:
+// `border&level=2` over Mumbai correctly returns zero (no international border crosses it).
+// The caller must tell that apart from an outage — hence null vs throw.
+export async function lineGeometry(kind, gameArea, { level = null } = {}) {
+  const bbox = boardBbox(gameArea);
+  if (!bbox) return null;
+  const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
+  const data = await loadLines(kind, bbox, { level, proxyBase });
+  const coordinates = [];
+  for (const coords of Object.values(data.ways || {})) {
+    if (Array.isArray(coords) && coords.length >= 2) coordinates.push(coords.map(([lat, lng]) => [lng, lat]));
+  }
+  if (!coordinates.length) return null;
+  return {
+    geometry: { type: "MultiLineString", coordinates },
+    from: data.from,
+    counts: data.counts,
+  };
+}
+
 // The game's rail filter, defaulted. Stored as what's HIDDEN so anything new — a mode this
 // board didn't have, a line that opens later — is visible by default rather than missing
 // because an older game never listed it.
