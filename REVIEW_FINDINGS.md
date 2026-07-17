@@ -589,10 +589,57 @@ Voronoi, and `approxWarning` was rewritten to say *that is what happened* rather
 describing the card. A silent fallback would put the seeker back on the approximate question
 without telling them, which is worse than the original bug.
 
-**Not fixed, and worth naming:** two lines on *identical* track (Berlin's S41/S42 Ring, which
-carry different refs but share rails) still partition arbitrarily between each other — the
-cells are decided by densification jitter. It is narrow, but it is the same class of problem
-one level down. The seeker can untick one of them.
+**~~Not fixed, and worth naming:~~ Fixed 2026-07-17 — and the note was wrong twice.** It read:
+*"two lines on identical track (Berlin's S41/S42 Ring, which carry different refs but share
+rails) still partition arbitrarily between each other — the cells are decided by densification
+jitter. It is narrow, but it is the same class of problem one level down. The seeker can untick
+one of them."*
+
+Measured on a real Berlin board before fixing it. **The mechanism was right; the example and the
+scale were both wrong.**
+
+- **S41/S42 share zero ways.** OSM maps each direction of the Ring on its own parallel way,
+  ~10 m apart. They were never the case in question.
+- **The real case is far bigger than "narrow":**
+
+  | pair | shared ways | Jaccard |
+  |---|---|---|
+  | **S5 vs S7** | **267/282** | **0.95** |
+  | S8 vs S85 | 150/180 | 0.83 |
+  | S3 vs S5 | 261/318 | 0.82 |
+  | S3 vs S7 | 262/324 | 0.81 |
+  | S2 vs S26 | 119/154 | 0.77 |
+
+  S5 and S7 are **95% the same physical rails** — Berlin's Stadtbahn trunk, which S3/S5/S7/S9
+  all run. A hider beside it is *exactly* equidistant from all four, because it is one piece of
+  track. They cannot answer the card, and the old code eliminated the other cells anyway. Those
+  cells were divided by `dejitter` nudging co-located seeds ~0.6 m apart — so the boundary
+  through the trunk was decided by **the nudge direction and nothing else**, and the hider's true
+  position could fall on either side. A false elimination produced by floating-point noise,
+  silently, on any board with a shared trunk.
+
+**Fix: one seed per coordinate, owned by every line that reaches it.** The cells are then
+deliberately **not** a strict partition — they overlap exactly where lines share rails, which is
+the truth: on shared track you *are* nearest to both. `tentacles` computes
+`eliminated = gameArea − (cell ∩ seeker)`, so a larger cell eliminates strictly **less** — the
+overlap can only ever be conservative, never wrong. Where lines genuinely diverge they share no
+coordinates, the cells stay disjoint, and all the discriminating power is kept.
+
+Verified on the real capture: S5's cell 158 km², S7's 164 km², board 166 km² — the two exceed
+the board, and that excess *is* the trunk. A point on a real shared way near Hackescher Markt is
+in **both** cells.
+
+**Rejected: merging heavily-overlapping lines into one choice.** It throws away the divergent
+ends (the 5% of S5/S7 that *is* answerable), and there is no defensible threshold — Berlin's
+pairs run 0.95, 0.83, 0.82 … 0.47 with no gap, and transitive merging would cascade
+S5~S7~S9~S3 into one blob. Ambiguity is a property of **where the hider stands**, not of a pair
+of lines, so it belongs in the geometry rather than in a cutoff.
+
+**Still out of scope, now stated accurately:** near-parallel distinct tracks (the actual S41/S42,
+~10 m apart) still partition down the middle of their corridor. That is geometrically
+well-defined and humanly meaningless — but unlike shared track it is not *silently wrong*: a
+point really is nearer one of them. `test/shared-track.test.mjs` pins that limit rather than
+implying the fix covers it.
 
 ### F2. Hand-drawn lines are sampled at 400 m **[V]**
 `src/tools.js:249` · `src/tools.js:196` (`densifyLine`)

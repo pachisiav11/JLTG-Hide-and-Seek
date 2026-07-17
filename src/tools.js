@@ -335,16 +335,52 @@ export function linePaths(ln) {
 // then UNION the cells owned by each line. That approximates the true nearest-line partition
 // to ~step/2 — see F2 for why the step is board-relative and why phase, not coarseness, is
 // what actually bites.
+//
+// SHARED TRACK IS OWNED BY EVERY LINE ON IT, so these cells are NOT a strict partition — they
+// overlap exactly where lines share rails. That is the point, and it is a correctness fix, not
+// a nicety.
+//
+// Measured on a real Berlin board (2026-07-17): S5 and S7 share **267 of 282 ways** — 95% of
+// the same physical rails (the Stadtbahn trunk); S3/S5/S7/S9 and S8/S85 likewise. A hider
+// standing beside the shared trunk is EXACTLY equidistant from S5 and S7, because it is one
+// piece of track. They cannot answer "which line are you nearest?" — and whatever they say,
+// the old code eliminated the other line's cell. Those two cells were divided by `dejitter`
+// nudging co-located seeds ~0.6 m apart, so the boundary through the shared trunk was decided
+// by the nudge DIRECTION and nothing else. The hider's true position could land on either
+// side: a false elimination, produced by floating-point noise, with nothing thrown.
+//
+// One seed per coordinate, owned by every line that reaches it, fixes this at the root: the
+// shared trunk falls inside BOTH cells, so answering either keeps the hider. `tentacles`
+// computes `eliminated = gameArea - (cell ∩ seeker)`, so a larger cell eliminates strictly
+// LESS — the overlap can only ever be conservative, never wrong. Where lines genuinely diverge
+// they share no coordinates, the cells stay disjoint, and all the discriminating power is kept.
+//
+// (Rejected: merging heavily-overlapping lines into one choice. It throws away the divergent
+// ends — the 5% of S5/S7 that IS answerable — and there is no defensible threshold: Berlin's
+// pairs run 0.95, 0.83, 0.82 … 0.47 with no gap, and transitive merging would cascade
+// S5~S7~S9~S3 into one blob. Ambiguity is a property of where the hider stands, not of a pair
+// of lines, so it belongs in the geometry, not in a cutoff.)
 export function lineCells(lines, gameArea) {
   const turf = T();
   const empty = () => (lines || []).map(() => null);
   if (!gameArea || !lines?.length) return { cells: empty() };
 
+  // One seed per COORDINATE, owned by every line that reaches it. Two lines on the same rails
+  // densify to identical points (same way, same step, deterministic), so this collapses them
+  // to a single seed with two owners instead of two seeds fighting over the same ground.
+  // Junctions merge for the same reason and just as correctly — a shared junction IS shared.
   const rawCoords = [], owner = [];
+  const seedAt = new Map();
+  const key = (c) => `${c[0].toFixed(6)},${c[1].toFixed(6)}`; // ~0.1 m — below any real spacing
   const stepM = lineStepMeters(gameArea);
   lines.forEach((ln, idx) => {
     for (const path of linePaths(ln)) {
-      for (const c of densifyLine(path, stepM)) { rawCoords.push(c); owner.push(idx); }
+      for (const c of densifyLine(path, stepM)) {
+        const k = key(c);
+        let si = seedAt.get(k);
+        if (si === undefined) { si = rawCoords.length; rawCoords.push(c); owner.push([]); seedAt.set(k, si); }
+        if (!owner[si].includes(idx)) owner[si].push(idx);
+      }
     }
   });
   if (rawCoords.length < 2) return { cells: empty() };
@@ -370,11 +406,14 @@ export function lineCells(lines, gameArea) {
 
   const cells = empty();
   (raw.features || []).forEach((cell, i) => {
-    const idx = owner[i];
-    if (!cell || idx == null) return;
+    const owners = owner[i];
+    if (!cell || !owners?.length) return;
     const unpoly = turf.polygon(cell.geometry.coordinates.map((ring) => ring.map(unproj)));
     const clip = safeIntersect(unpoly, gameArea);
-    if (clip) cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip;
+    if (!clip) return;
+    // A seed on shared track contributes its cell to EVERY line running there, so the cells
+    // overlap on exactly that ground — which is the truth being modelled.
+    for (const idx of owners) cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip;
   });
   return { cells };
 }
