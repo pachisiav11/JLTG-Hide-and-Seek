@@ -645,7 +645,24 @@ Fixed at the source (`normalizeLines` drops repeats where the rounding creates t
 `PAYLOAD_VERSION` → **v3**, because a Berlin board would otherwise keep failing from its 30-day
 cache after the fix shipped.
 
-**Swept all 8 cities afterwards, and the scale is the point:**
+**A second silent bug — same class, different card — was found the same way.** Sweeping
+Measuring across awkward geography (Bergen, Stockholm, Santorini, Basel, Niagara, Tokyo HSR)
+turned up that `turf.buffer` on a moderately dense MultiLineString scales explosively. Bergen
+fjords in a 0.15° × 0.25° box return 457 pieces / 13,405 vertices, and:
+
+| buffer distance | time | heap |
+|---|---|---|
+| 100 m | **109 s** | 1.9 GB |
+| 500 m | **279 s** | 3.6 GB |
+| **1000 m** | | **OOMs at 4 GB heap** |
+
+Nothing throws — the browser just freezes mid-question on any fjord or archipelago board.
+Fixed by running `turf.simplify` (Douglas–Peucker, tolerance 5e-4° ≈ 55 m) before buffering,
+gated on vertex count > 500 so smooth boards are untouched. Bergen: 13,405 → 1,354 verts, 1 km
+buffer runs in 16 s, area 121 km². The ~55 m tolerance is a 5 % edge shift at 1 km, and the
+fingertip errors it replaces are 100–500 m — strictly better than the hand-drawn version.
+
+**Swept all 8 metro cities afterwards, and the scale is the point:**
 
 | city | duplicates `r5` creates | Metro Lines card, before |
 |---|---|---|

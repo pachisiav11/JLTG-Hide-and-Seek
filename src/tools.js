@@ -631,9 +631,43 @@ function geojsonRings(geom) {
 // --- Measuring: buffer of a reference geometry ---------------------------
 // "Within d of X" keeps inside the buffer (side "in"); "beyond d" keeps outside
 // (side "out"). Reference is a Places point set (MultiPoint) or a bundled line.
+// Count vertices in a Feature (any geometry type). Cheap: one pass over coordinates.
+function countCoordVertices(coords) {
+  if (!Array.isArray(coords)) return 0;
+  if (typeof coords[0] === "number") return 1;
+  let n = 0;
+  for (const c of coords) n += countCoordVertices(c);
+  return n;
+}
+function featureVertexCount(f) {
+  return f?.geometry?.coordinates ? countCoordVertices(f.geometry.coordinates) : 0;
+}
+
+// Auto-sourced coastlines can be brutally dense: Bergen fjords come back with 457 pieces and
+// 13,405 vertices in a small board. Measured (2026-07-17), `turf.buffer` on that at 1 km OOMs
+// at 4 GB heap. Even at 100 m it takes 109 s and 1.9 GB — completely dead on a phone. And
+// nothing throws until it OOMs, so the card just froze mid-question.
+//
+// `turf.simplify` at ~55 m (Douglas–Peucker, tolerance 5e-4°) collapses Bergen's 13,405
+// vertices to 1,354 (10 %), the 1 km buffer then runs in 16 s and 500 MB, and the area is
+// preserved to within measurement noise (121 km²). On Mumbai's already-smooth coast it drops
+// 281 → 30 vertices and the buffer moves from 18 km² to 17 km² — a ~5 % edge shift, well
+// below the fingertip errors this feature exists to remove.
+//
+// Only simplify when it matters. Below 500 vertices `turf.buffer` completes in < 250 ms even
+// on a dense line, and simplifying then adds error for no speed gain (a hand-drawn line is
+// always well below this).
+const BUFFER_SIMPLIFY_THRESHOLD = 500;
+const BUFFER_SIMPLIFY_TOLERANCE = 5e-4;
+
 function bufferGeometry(geom, meters) {
   try {
-    const b = T().buffer(feat(geom), meters, { units: "meters" });
+    let input = feat(geom);
+    if (featureVertexCount(input) > BUFFER_SIMPLIFY_THRESHOLD) {
+      // simplify is destructive on the original; passing a fresh feature is safest.
+      input = T().simplify(input, { tolerance: BUFFER_SIMPLIFY_TOLERANCE, highQuality: false });
+    }
+    const b = T().buffer(input, meters, { units: "meters" });
     return b ? b.geometry : null;
   } catch (e) { console.warn("buffer failed", e); return null; }
 }
