@@ -629,6 +629,24 @@ Verified on the real capture: S5's cell 158 km², S7's 164 km², board 166 km² 
 the board, and that excess *is* the trunk. A point on a real shared way near Hackescher Markt is
 in **both** cells.
 
+**Two things fell out of profiling this**, since the real board made `lineCells` measurable for
+the first time (Berlin S5+S7 = 1744 seeds after dedup — the dedup itself halves them, as 1639
+are shared):
+
+- **A second A7-shaped bug, in `lineCells`' own internals.** The cells were folded pairwise:
+  `cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip`. `safeUnion` swallows its
+  exception and returns `null`, so one failure mid-fold left `cells[idx]` null — and the *next*
+  iteration took the falsy branch and **restarted from that single cell**. Everything gathered
+  so far vanished, the line's region came out a fragment, and since a smaller cell eliminates
+  **more**, the result was a false elimination. Nothing threw. Merging once and throwing on
+  failure fixes it, and the failure is now loud like the voronoi one beside it.
+- **An 18× speedup, free.** Merging each line's cells once instead of folding them pairwise on a
+  growing polygon: **3534 ms → 191 ms** on the real Berlin board, identical output. The fold was
+  the whole cost — the voronoi is 43 ms and the clip 545 ms. This is a live game action on a
+  phone, so it mattered. (My first guess was that the *union count* was the problem; batching a
+  synthetic 400-cell union was only 1.9×. The real structure — folding on an ever-growing
+  polygon — is what actually bit, and only profiling the real board showed it.)
+
 **Rejected: merging heavily-overlapping lines into one choice.** It throws away the divergent
 ends (the 5% of S5/S7 that *is* answerable), and there is no defensible threshold — Berlin's
 pairs run 0.95, 0.83, 0.82 … 0.47 with no gap, and transitive merging would cascade

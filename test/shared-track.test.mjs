@@ -125,6 +125,29 @@ test("REAL Berlin S5/S7: a hider on the Stadtbahn trunk is in both cells", () =>
   assert.ok(inside(cells[1], p.lon, p.lat), "and in S7's cell — so either answer keeps them");
 });
 
+test("a union failure is LOUD, not a silently truncated cell", () => {
+  // Found while merging the cells once instead of folding them pairwise. The old fold read
+  // `cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip`, and safeUnion swallows its
+  // exception and returns null — so one failure mid-fold left cells[idx] null, and the NEXT
+  // iteration took the falsy branch and restarted from that single cell. Everything gathered
+  // so far vanished; the line's region came out a fragment; the elimination removed too much;
+  // nothing threw. An A7-shaped bug hiding one level down, in lineCells' own internals.
+  //
+  // A smaller cell eliminates MORE, so this failure direction is a false elimination — it has
+  // to be loud, exactly like the voronoi failure beside it.
+  const realUnion = window.turf.union;
+  window.turf.union = () => { throw new Error("simulated union failure"); };
+  try {
+    assert.throws(
+      () => lineCells([lineA, lineB], BOARD),
+      /Nearest-line partition failed merging/,
+      "a failed merge must throw, not hand back a truncated region",
+    );
+  } finally {
+    window.turf.union = realUnion;
+  }
+});
+
 test("the S41/S42 note was wrong: parallel tracks share no coordinates", () => {
   // Recorded because the original note said the Ring lines "share rails". They do not — OSM
   // maps each direction on its own way, ~10 m apart. So coordinate-sharing does NOT merge them,

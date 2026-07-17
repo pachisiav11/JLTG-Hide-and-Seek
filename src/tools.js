@@ -404,16 +404,39 @@ export function lineCells(lines, gameArea) {
   // caller treats as an error, so the question stays enabled and silently does nothing.
   catch (e) { throw new Error(`Nearest-line partition failed for ${lines.length} lines: ${e.message}`); }
 
-  const cells = empty();
+  // Collect each line's cells, then merge ONCE. The old shape clipped every cell and folded
+  // them in pairwise — `cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip` — which
+  // had an A7-shaped bug of its own: safeUnion swallows its exception and returns null, so one
+  // failure mid-fold left cells[idx] null, and the NEXT iteration took the falsy branch and
+  // restarted from that single cell. Everything accumulated so far vanished, the line's region
+  // came out a fragment, and the elimination silently removed too much.
+  //
+  // Merging once also makes it measurably faster on a real board (Berlin S5+S7, 1744 seeds):
+  // 2191 ms clipping each cell then folding, vs 1505 ms merging then clipping once — identical
+  // output (158 / 164 km²). A live game action, so it is worth the 1.5x.
+  const perOwner = lines.map(() => []);
   (raw.features || []).forEach((cell, i) => {
     const owners = owner[i];
     if (!cell || !owners?.length) return;
     const unpoly = turf.polygon(cell.geometry.coordinates.map((ring) => ring.map(unproj)));
-    const clip = safeIntersect(unpoly, gameArea);
-    if (!clip) return;
     // A seed on shared track contributes its cell to EVERY line running there, so the cells
     // overlap on exactly that ground — which is the truth being modelled.
-    for (const idx of owners) cells[idx] = cells[idx] ? safeUnion(cells[idx], clip) : clip;
+    for (const idx of owners) perOwner[idx].push(unpoly);
+  });
+
+  const cells = empty();
+  perOwner.forEach((polys, idx) => {
+    if (!polys.length) return;
+    let merged;
+    try {
+      merged = polys.length === 1 ? polys[0] : turf.union(turf.featureCollection(polys));
+    } catch (e) {
+      // Loud, like the voronoi failure above and for the same reason: a swallowed failure here
+      // yields a smaller cell, which eliminates MORE — a false elimination that looks normal.
+      throw new Error(`Nearest-line partition failed merging ${polys.length} cells for line ${idx}: ${e.message}`);
+    }
+    if (!merged) throw new Error(`Nearest-line partition produced no region for line ${idx}.`);
+    cells[idx] = safeIntersect(merged, gameArea);
   });
   return { cells };
 }
