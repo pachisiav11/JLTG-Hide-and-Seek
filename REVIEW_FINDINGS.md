@@ -313,6 +313,40 @@ question did nothing.
 **Change:** validate on finish with `turf.kinks`, and refuse to commit (or offer to
 auto-fix) a self-intersecting ring.
 
+**Done 2026-07-17 — the stated mechanism was wrong, and the truth is worse.** Measured on a
+bowtie before writing the fix; both halves of the premise fail:
+
+| the finding predicted | measured |
+|---|---|
+| `bufferGeometry` catches a throw → `null` | `turf.buffer` **does not throw** — it returns a Polygon |
+| → zero elimination (the question does nothing) | → **409 km²** eliminated where the intended square eliminates **304 km²** |
+
+So it is not "the question did nothing", which a seeker might eventually notice. It is a
+confident, plausible, **wrong** elimination that looks exactly like a right one.
+
+**Worse, and unlisted in the finding: the ZONE path.** `zones.js` draws the game area through
+its own `_finishDraw`, not `_drawShape`, so it was never in scope above. A self-crossing zone
+makes `unionRings` return a **perfectly valid Polygon of area 0** — the two lobes wind opposite
+ways and cancel under the shoelace formula. The board then silently has no area: every question
+eliminates nothing, no POI is ever "in the area", and `computeActiveArea` returns the degenerate
+polygon rather than A1's `EMPTY_AREA`, so **not even the empty-board banner fires**. Nothing
+throws anywhere.
+
+**Refused, not auto-fixed.** A bowtie is genuinely ambiguous — two triangles? a square with two
+taps swapped? — so "fixing" it would guess, and a guess that silently changes which area gets
+eliminated is the exact failure this guard exists to prevent. All three entry points now check
+and keep the points on screen so Undo is one tap away: `_drawShape({ ring: true })` (the two
+polygon call sites; the two *line* sites are deliberately exempt, as a line has no closing edge
+and a self-crossing trace still buffers correctly), `zones.js._finishDraw`, and `importText`
+(pasted geometry zeroes a board exactly as a badly-tapped one does — bad rings are skipped
+individually, so one bad polygon doesn't throw away the good ones).
+
+The check closes the ring before testing, which `test/ring-validation.test.mjs` pins with a
+spiral that is **clean as an open path and self-crossing only once closed** — the crossing lives
+on the implicit last→first edge, so the preview polyline looks correct the entire time you are
+tapping it. A concave ring is tested as a non-regression: real play areas are rarely convex, and
+a guard that rejected them would be worse than no guard.
+
 ### D2. No antimeridian handling in the coordinate pipeline **[R]**
 `src/geo.js:12` (`ringToTurf`) · `src/geo.js:57` (`unionRings`) · `src/zones.js:91` · `src/tools.js:188`
 

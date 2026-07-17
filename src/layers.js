@@ -4,7 +4,7 @@
 // for Radar and Thermometer (guide §5.1, §5.2, §6.2).
 import * as store from "./store.js";
 import { createStep } from "./model.js";
-import { geojsonToPathGroups, featuresNearArea } from "./geo.js";
+import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
@@ -415,7 +415,10 @@ export class Layers {
 
   // Draw a line/path (minPts 2) or region outline (minPts 3) by tapping the map.
   // Resolves to [{lat,lng}, ...] or null if cancelled.
-  _drawShape(minPts, hint) {
+  // `ring: true` closes the shape and refuses a self-crossing one (D1). Callers drawing a
+  // LINE leave it off: a line has no implicit closing edge, and a trace that crosses itself
+  // still buffers correctly.
+  _drawShape(minPts, hint, { ring = false } = {}) {
     return new Promise((resolve) => {
       closeSheet();
       const pts = [];
@@ -450,6 +453,14 @@ export class Layers {
       bar.querySelector("[data-cancel]").onclick = () => { cleanup(); resolve(null); };
       bar.querySelector("[data-finish]").onclick = () => {
         if (pts.length < minPts) { toast(`Add at least ${minPts} point${minPts === 1 ? "" : "s"}.`); return; }
+        // Refuse rather than auto-fix: a bowtie is genuinely ambiguous (two triangles? a
+        // square with two taps swapped?), so "fixing" it would be a guess that silently
+        // changes which area gets eliminated — the failure this guard exists to prevent.
+        // The draw bar stays open and the points are kept, so Undo is one tap away.
+        if (ring && ringSelfIntersections(pts.map((p) => [p.lat, p.lng]))) {
+          toast("This outline crosses itself, so it has no clear inside — undo the last point or two and close it without crossing.");
+          return;
+        }
         cleanup(); resolve(pts.slice());
       };
       this.map.setOptions({ draggableCursor: "crosshair" });
@@ -1137,7 +1148,7 @@ export class Layers {
   // divisions / landmass) and Measuring (sea level); onAdd(ring, inside) records
   // the tool-specific step.
   async _regionSideSheet({ drawHint, title, intro }, onAdd) {
-    const pts = await this._drawShape(3, drawHint);
+    const pts = await this._drawShape(3, drawHint, { ring: true });
     if (!pts) return this.openPanel();
     const ring = pts.map((p) => [p.lat, p.lng]);
     const s = openSheet({
@@ -1637,7 +1648,7 @@ export class Layers {
 
   // A hand-drawn polygon (a body of water): buffer outward from its shore.
   async _measureArea(card) {
-    const pts = await this._drawShape(3, `Outline the ${card.label} on the map`);
+    const pts = await this._drawShape(3, `Outline the ${card.label} on the map`, { ring: true });
     if (!pts) return this.openPanel();
     const ring = pts.map((p) => [p.lng, p.lat]);
     ring.push([ring[0][0], ring[0][1]]);

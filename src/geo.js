@@ -45,6 +45,28 @@ export function ringToTurf(latlngs) {
   return T().polygon([ring]);
 }
 
+// Self-intersections in a hand-drawn ring (D1). Returns how many turf.kinks finds on the
+// CLOSED ring, so the implicit last->first edge is checked too — that edge is invisible while
+// drawing and is the one a bowtie usually crosses on.
+//
+// This is worth a guard because a self-crossing ring does NOT fail loudly. Measured on a
+// bowtie (2026-07-17):
+//   - as a Measuring reference: turf.buffer does not throw, it returns a Polygon, and the
+//     step eliminates 409 km2 where the intended square eliminates 304 km2 — a confident,
+//     plausible, wrong answer.
+//   - as a ZONE: unionRings returns a valid Polygon of AREA 0, so the board silently has no
+//     area at all. Nothing throws; the map just stops meaning anything.
+// turf.area returns 0 for a bowtie because the two lobes wind opposite ways and cancel, which
+// is why an area check alone can't tell a bowtie from a legitimately tiny zone.
+export function ringSelfIntersections(latlngs) {
+  if (!Array.isArray(latlngs) || latlngs.length < 3) return 0;
+  try {
+    return T().kinks(ringToTurf(latlngs)).features.length;
+  } catch (_) {
+    return 0; // a ring turf can't even read is not a KINK problem; let the caller's guards have it
+  }
+}
+
 // Google Maps path (MVCArray of LatLng) -> [[lat,lng],...].
 export function pathToRing(path) {
   const out = [];

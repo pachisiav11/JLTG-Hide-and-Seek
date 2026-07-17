@@ -4,7 +4,7 @@
 import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
-import { geojsonToPaths, unionRings, parseZoneInput, areaSummary } from "./geo.js";
+import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections } from "./geo.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 import { getPalette } from "./palette.js";
 
@@ -91,6 +91,15 @@ export class Zones {
     const pts = this._draw.pts.slice();
     if (pts.length < 3) { toast("Add at least 3 points to make a zone."); return; }
     const ring = pts.map((ll) => [ll.lat(), ll.lng()]);
+    // A self-crossing zone is the worst version of D1: unionRings still returns a valid
+    // Polygon, but its AREA is 0 (the lobes wind opposite ways and cancel), so the board
+    // silently has no area — every question then eliminates nothing and no POI is ever
+    // "in the area". Nothing throws, so this must be refused at the point of drawing, while
+    // the points are still on screen and fixable. Kept before _endDraw so Undo still works.
+    if (ringSelfIntersections(ring)) {
+      toast("This zone crosses itself, so it has no clear inside — undo the last point or two and close it without crossing.");
+      return;
+    }
     this._endDraw();
     const name = await promptZoneName("");
     if (name === null) return; // cancelled
@@ -137,10 +146,18 @@ export class Zones {
       toast("Couldn’t parse any polygon from that input.");
       return 0;
     }
+    // Pasted geometry gets the same D1 check as drawn geometry — a self-crossing ring from a
+    // file zeroes the board's area exactly as a badly-tapped one does. Skip only the bad
+    // rings and say which: refusing the whole paste over one bad polygon would throw away
+    // the good ones, and importing it silently would be the failure this guard is for.
+    let skipped = 0, added = 0;
     for (const { name, ring } of parsed) {
+      if (ringSelfIntersections(ring)) { skipped++; continue; }
       await this.addZone(name || `Imported zone`, ring, { toLibrary: true });
+      added++;
     }
-    return parsed.length;
+    if (skipped) toast(`Skipped ${skipped} self-crossing polygon${skipped === 1 ? "" : "s"} — ${skipped === 1 ? "it has" : "they have"} no clear inside.`);
+    return added;
   }
 
   // ---- Zone library (IndexedDB 'zones' store) ----
