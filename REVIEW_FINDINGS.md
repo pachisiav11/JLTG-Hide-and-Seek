@@ -358,6 +358,34 @@ Edge-case for realistic play areas, but the message actively misleads.
 **Change:** low priority. At minimum, distinguish "union failed" from "no zones" in the
 guard message so the failure is diagnosable.
 
+**Done 2026-07-17 — the premise was wrong and the prescribed fix was a no-op.** Measured
+before writing anything, on a Taveuni (Fiji) board tapped across the line:
+
+| the finding predicted | measured |
+|---|---|
+| `unionRings` returns `null` | it returns a **perfectly valid Polygon** |
+| → `gameArea` null → "Add a zone first" after adding one | → a board of **851,313 km²** where the intended one is **~470 km²** |
+
+There is no misleading message to fix, because nothing fails. There is a board ~1800× too
+big, spanning the Pacific, because turf reads the `+179.9 → -179.9` edge as going the long way
+round — and every elimination, POI search and mask then runs against it. Distinguishing
+"union failed" from "no zones" would have changed nothing at all.
+
+**Refused rather than supported — a judgment call, and reversible.** Unwrapping the ring
+alone *does* fix the area (measured: 473 km², correct), which makes it a tempting one-line
+fix. It is a **half fix that trades a visible bug for an invisible one**: a POI at `-179.95`,
+exactly as Places returns it, then reads as OUTSIDE the unwrapped board and is silently
+dropped — a false elimination, the §A class. A real fix has to unwrap **every point entering
+the geometry layer** (Places, Overpass, seeker positions, radar centres, thermometer
+endpoints, line geometry) into the board's frame. That is a large change to the 99.99% case
+for the handful of boards affected (Fiji, the Chathams, Chukotka, Tuvalu), so the honest
+answer for now is to refuse clearly: a wrong board is worse than no board. `test/antimeridian.test.mjs`
+records the half-fix trap explicitly so it isn't attempted later on the assumption it works.
+
+Guarded at the same three entry points as D1 (`_drawShape({ ring: true })`, `zones.js._finishDraw`,
+`importText`). A board straddling the **prime** meridian is tested as a non-regression — crossing
+0° is what every London board does, and confusing the two would break the ordinary case.
+
 ### D3. The Overpass proxy mis-detects a busy endpoint as a parse error **[V — measured]**
 `server.js:109` (`runOverpass`) · `server.js:119` (the `resp.ok` check) · `server.js:123` (backoff)
 

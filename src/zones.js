@@ -4,7 +4,7 @@
 import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
-import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections } from "./geo.js";
+import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections, ringCrossesAntimeridian } from "./geo.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 import { getPalette } from "./palette.js";
 
@@ -100,6 +100,11 @@ export class Zones {
       toast("This zone crosses itself, so it has no clear inside — undo the last point or two and close it without crossing.");
       return;
     }
+    // D2: a board across the ±180° line silently unions to ~1800x its intended size.
+    if (ringCrossesAntimeridian(ring)) {
+      toast("A zone can't cross the ±180° line yet — draw it on one side of the date line.");
+      return;
+    }
     this._endDraw();
     const name = await promptZoneName("");
     if (name === null) return; // cancelled
@@ -150,13 +155,15 @@ export class Zones {
     // file zeroes the board's area exactly as a badly-tapped one does. Skip only the bad
     // rings and say which: refusing the whole paste over one bad polygon would throw away
     // the good ones, and importing it silently would be the failure this guard is for.
-    let skipped = 0, added = 0;
+    let skipped = 0, crossing = 0, added = 0;
     for (const { name, ring } of parsed) {
       if (ringSelfIntersections(ring)) { skipped++; continue; }
+      if (ringCrossesAntimeridian(ring)) { crossing++; continue; }
       await this.addZone(name || `Imported zone`, ring, { toLibrary: true });
       added++;
     }
     if (skipped) toast(`Skipped ${skipped} self-crossing polygon${skipped === 1 ? "" : "s"} — ${skipped === 1 ? "it has" : "they have"} no clear inside.`);
+    if (crossing) toast(`Skipped ${crossing} polygon${crossing === 1 ? "" : "s"} crossing the ±180° line — not supported yet.`);
     return added;
   }
 

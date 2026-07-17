@@ -4,7 +4,7 @@
 // for Radar and Thermometer (guide §5.1, §5.2, §6.2).
 import * as store from "./store.js";
 import { createStep } from "./model.js";
-import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections } from "./geo.js";
+import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
@@ -459,6 +459,12 @@ export class Layers {
         // The draw bar stays open and the points are kept, so Undo is one tap away.
         if (ring && ringSelfIntersections(pts.map((p) => [p.lat, p.lng]))) {
           toast("This outline crosses itself, so it has no clear inside — undo the last point or two and close it without crossing.");
+          return;
+        }
+        // D2: same refusal as a zone, for the same measured reason — an outline across the
+        // ±180° line reads as wrapping the long way round the planet, silently.
+        if (ring && ringCrossesAntimeridian(pts.map((p) => [p.lat, p.lng]))) {
+          toast("An outline can't cross the ±180° line yet — draw it on one side of the date line.");
           return;
         }
         cleanup(); resolve(pts.slice());

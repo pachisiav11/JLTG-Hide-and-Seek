@@ -67,6 +67,35 @@ export function ringSelfIntersections(latlngs) {
   }
 }
 
+// Does this ring cross the ±180° antimeridian (D2)?
+//
+// `LatLng.lng()` is normalised to [-180,180], so a board tapped across the line reads
+// +179.9 then -179.9. Nothing unwraps that before it reaches turf, and turf reads the edge as
+// going the LONG way round the planet.
+//
+// Refused rather than supported, and the measurement is why (2026-07-17). A ~470 km² Fiji
+// board straddling the line unions to a valid Polygon of **851,313 km²** — ~1800x too big,
+// spanning the Pacific — and nothing throws. Unwrapping the ring alone fixes the area (473 km²,
+// correct) but is a HALF fix that trades a visible bug for an invisible one: a POI at -179.95,
+// exactly as Places returns it, then reads as OUTSIDE the unwrapped board and is silently
+// missed. A real fix has to unwrap every point entering the geometry layer — Places, Overpass,
+// seeker positions, radar centres, line geometry — which is a large change to the 99.99% case
+// for the handful of boards this affects (Fiji, the Chathams, Chukotka, Tuvalu). Until that is
+// worth doing, refusing is the honest answer; a wrong board is worse than no board.
+//
+// Detects the jump, not the sign change: consecutive vertices in a play area are never >180°
+// apart for any other reason, and where they are, the short path between them genuinely does
+// cross the antimeridian.
+export function ringCrossesAntimeridian(latlngs) {
+  if (!Array.isArray(latlngs) || latlngs.length < 2) return false;
+  for (let i = 0; i < latlngs.length; i++) {
+    const a = latlngs[i]?.[1], b = latlngs[(i + 1) % latlngs.length]?.[1]; // closes the ring
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    if (Math.abs(b - a) > 180) return true;
+  }
+  return false;
+}
+
 // Google Maps path (MVCArray of LatLng) -> [[lat,lng],...].
 export function pathToRing(path) {
   const out = [];
