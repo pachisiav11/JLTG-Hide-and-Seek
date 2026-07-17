@@ -40,7 +40,17 @@ On a new device it asks once for your Maps API key (stored only on that device).
     in the step so the partition recomputes deterministically.
 - **Phase 4 — Measuring** ✅
   - Buffer a reference feature by a distance; keep the "within" or "beyond" side.
-  - Reference can be a Places category (point set) or a hand-drawn line/region.
+  - Reference can be a Places category (point set), real OpenStreetMap line geometry, or a
+    hand-drawn line/region.
+  - **Coastline**, **International Border** and **1st Admin. Division Border** are sourced
+    automatically from OpenStreetMap (via the Overpass proxy) — nothing to draw, and the same
+    accuracy on every board. **2nd Admin. Division Border** and **High Speed Train Line** are
+    still hand-drawn on purpose: the 2nd division has no fixed `admin_level` worldwide (it is 5,
+    6 or 8 depending on the country) and OSM tags high-speed service inconsistently, so no one
+    query is right everywhere. Guessing would be silently wrong wherever the guess didn't match.
+  - Self-crossing outlines and outlines across the ±180° line are refused rather than used: both
+    are accepted silently by turf and produce a confidently wrong board (see `REVIEW_FINDINGS.md`
+    D1/D2).
 - **Phase 5 — Hiding zone** ✅
   - Set the hider's zone centre (tap or current location) and a per-game radius;
     everything outside the radius is shaded out. Persists with the game.
