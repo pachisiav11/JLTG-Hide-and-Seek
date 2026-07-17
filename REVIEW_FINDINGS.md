@@ -641,17 +641,34 @@ card**. `layers.js` then caught it and reported *"Couldn't load metro lines — 
 stations"*: a code bug of mine wearing an outage's clothes, silently reverting Berlin to the
 station Voronoi §F1 exists to remove. **Exactly the confusion D3 was filed for, one layer up.**
 
-It survived every prior check because **Mumbai, DC and the Mumbai coastline captures have zero
-duplicates** — the bug needs a network dense enough for two mapped vertices to land within 1.1 m
-of each other, and every fixture I had verified against was from a city that never produced one.
 Fixed at the source (`normalizeLines` drops repeats where the rounding creates them) and
 `PAYLOAD_VERSION` → **v3**, because a Berlin board would otherwise keep failing from its 30-day
 cache after the fix shipped.
 
-**The lesson is about the method, not the bug.** Every earlier §G/§F check was real Overpass
-data through real code — and still missed this, because the *data* was Mumbai and DC. Real data
-is not the same as *representative* data, and the fixtures I'd picked were the ones the bug
-cannot occur in.
+**Swept all 8 cities afterwards, and the scale is the point:**
+
+| city | duplicates `r5` creates | Metro Lines card, before |
+|---|---|---|
+| London | **87** | **dead** |
+| Berlin | **53** | **dead** |
+| NYC | **22** | **dead** |
+| Paris | **16** | **dead** |
+| Tokyo | **3** | **dead** |
+| Mumbai | 0 | worked |
+| Singapore | 0 | worked |
+| Washington | 0 | worked |
+
+The card §F1 exists to provide was broken in **5 of the 8 largest metro networks** — and it
+blamed Overpass every time. All 8 measure cleanly now (Berlin 3453 paths, London 1858, NYC 2362,
+…).
+
+**The lesson is about method, not this bug.** Every earlier §G/§F check *was* real Overpass data
+through real code — and still missed it, because the **data** was Mumbai, Singapore and DC:
+precisely the three cities where the bug cannot occur. The bug needs a network dense enough for
+two mapped vertices to land within 1.1 m of each other. **Real data is not the same as
+representative data.** Fixtures get chosen early, for convenience, and then silently define the
+boundary of what the tests can ever see. A browser on an unfamiliar board found in one minute
+what 232 passing tests could not.
 
 **Two more things fell out of profiling this**, since the real board made `lineCells` measurable
 for the first time (Berlin S5+S7 = 1744 seeds after dedup — the dedup itself halves them, as 1639
