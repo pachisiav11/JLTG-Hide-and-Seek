@@ -1032,12 +1032,47 @@ named. `_measureLine` now sources the geometry where the card names a `lineKind`
 | Coastline | `kind=coastline` | `natural=coastline` is one unambiguous tag worldwide |
 | International Border | `kind=border&level=2` | `admin_level=2` **is** the international border by definition |
 | 1st Admin. Division Border | `kind=border&level=4` | measured as the 1st division in **14/14** countries sampled |
+| High Speed Train Line | `kind=highspeed` | `way[railway=rail][highspeed=yes]` measured in **9/9** networks |
 | 2nd Admin. Division Border | **hand-drawn** | the 2nd division has **no fixed** `admin_level` (5 / 6 / 8 by country) |
-| High Speed Train Line | **hand-drawn** | OSM tags high-speed service inconsistently; no one query works everywhere |
 
-The last two rows are the point: wiring a guessed level would be silently wrong in every
-country it didn't match — the §A failure mode, exported worldwide. Both cards keep hand-drawing
-and say so, which is the honest answer, not the lazy one.
+The last row is the point: wiring a guessed level would be silently wrong in every country it
+didn't match — the §A failure mode, exported worldwide. That card keeps hand-drawing and says
+so, which is the honest answer, not the lazy one.
+
+**High Speed Train Line was in that last row too, on my own unmeasured claim.** I shipped it
+hand-drawn with the justification "OSM tags high-speed service inconsistently; no single query
+works everywhere" — asserted from general knowledge, in a commit message and the README, in
+exactly the manner this whole changelist is a catalogue of. Measuring it the next hour proved it
+wrong:
+
+| | `railway=rail` | `highspeed=yes` | relation-level `highspeed` |
+|---|---|---|---|
+| France LGV | 554 | **100** | 62 |
+| Spain AVE | 47 | **20** | 0 |
+| Japan Shinkansen | 2027 | **291** | 0 |
+| Germany ICE | 230 | **54** | 17 |
+| London HS1 | — | **80** | — |
+| Mumbai (no HSR) | 871 | **4** ← all `railway=construction` | 0 |
+
+Way-level tagging is consistent **9/9** (LGV, AVE, Shinkansen, ICE, China, Italy, KTX, THSR,
+HS1). Only **relation**-level tagging is inconsistent (2/4) — and this card never needed
+relations: it asks distance to the nearest high-speed line, not *which* one, so a
+MultiLineString is the entire answer. My claim was true of the thing I didn't need and false of
+the thing I did.
+
+Two details that only measurement would have given:
+- **`railway=rail` is load-bearing**, not tidiness. Mumbai has no high-speed rail but four ways
+  tagged `highspeed=yes` — the Mumbai–Ahmedabad line, still under construction. A line nobody
+  can ride must not answer this card. ("Mumbai should not have an advantage" cuts both ways: nor
+  a handicap.)
+- **A `maxspeed` threshold is the trap.** It looks like the obvious query and it is wrong: HS1's
+  approach into St Pancras is tagged `maxspeed=40`, so `maxspeed>=250` silently drops the
+  terminus end of a real high-speed line — a false elimination, §A again.
+
+My first probe returned **0 for France and Spain**, which would have "confirmed" the claim. The
+bounding boxes were simply wrong — the lines weren't in them. A control count of `railway=rail`
+in the same box is what caught it: 0 high-speed out of 554 ordinary rails is a finding, 0 out of
+0 is an empty box. **A measurement without a control is just a slower assertion.**
 
 **The silent bug this surfaced:** auto-sourcing changes the geometry's *shape*. A hand-drawn
 line is one `LineString`; a real coastline is many disjoint OSM ways — a `MultiLineString`.

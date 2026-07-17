@@ -52,8 +52,13 @@ test("the coastline query skips the relation step it has no use for", () => {
 });
 
 test("an unknown kind is a 400, not a silent empty result", () => {
+  // "streets" is the named exclusion from the brief ("everything except streets"), so it is
+  // the right probe: it must be a loud 400, never an empty answer that reads as "none here".
   assert.throws(() => buildLinesQuery("streets", BBOX), (e) => e.badRequest === true);
-  assert.deepEqual(LINE_KINDS, ["rail", "metro", "coastline", "border"]);
+  assert.deepEqual(LINE_KINDS, ["rail", "metro", "coastline", "highspeed", "border"]);
+  // Every advertised kind must actually build — an entry here that throws would 400 a card
+  // at the point of use, in a live game.
+  for (const k of LINE_KINDS) assert.ok(buildLinesQuery(k, BBOX).includes("out geom"), `${k} must build a geometry query`);
 });
 
 test("the metro kind excludes train and tram — the Metro Lines card means neither", () => {

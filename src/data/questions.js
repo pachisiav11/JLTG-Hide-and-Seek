@@ -91,15 +91,18 @@ export function findMatching(id) {
 //   coastline    — natural=coastline is a single unambiguous tag worldwide.
 //   intl_border  — admin_level=2 is the international border by definition.
 //   admin1_border— admin_level=4 measured as the 1st division in 14/14 countries sampled.
-// Deliberately NOT set (they stay hand-drawn, and the card says so rather than guessing):
+//   hs_train     — way[railway=rail][highspeed=yes] measured in 9/9 networks (LGV, AVE,
+//                  Shinkansen, ICE, China, Italy, KTX, THSR, HS1). See overpass-lines.js:
+//                  RELATION-level highspeed tagging is inconsistent (2/4), but this card
+//                  asks distance to the nearest high-speed line, not which one, so it never
+//                  needs the relations.
+// Deliberately NOT set (it stays hand-drawn, and the card says so rather than guessing):
 //   admin2_border— the 2nd division has NO fixed admin_level (it is 5 in some countries,
 //                  6 in others, 8 elsewhere). Picking one would be silently wrong in every
 //                  country it didn't match — the §A failure mode, worldwide.
-//   hs_train     — OSM tags high-speed service inconsistently across networks; no single
-//                  query returns "the high-speed lines" everywhere yet.
 export const MEASURING = [
   { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
-  { id: "hs_train", label: "High Speed Train Line", ref: "line" },
+  { id: "hs_train", label: "High Speed Train Line", ref: "line", lineKind: "highspeed" },
   { id: "rail_station", label: "Rail Station", ref: "points", type: "train_station" },
   { id: "intl_border", label: "International Border", ref: "line", lineKind: "border", level: 2 },
   { id: "admin1_border", label: "1st Admin. Division Border", ref: "line", lineKind: "border", level: 4 },

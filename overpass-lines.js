@@ -106,17 +106,48 @@ way["natural"="coastline"](${bbox});
 out geom;`;
 }
 
+// High-speed rail, for the Measuring card. This is the ONE place `railway=rail` is right
+// despite the warning at the top of this file: `highspeed=yes` is what makes it tight, and the
+// combination was measured (2026-07-17) to return the real line and nothing else in **9/9**
+// networks — France LGV 100 ways, Spain AVE 20, Japan Shinkansen 286, Germany ICE 54, China 21,
+// Italy 2, Korea KTX 93, Taiwan THSR 13, and London's HS1 80.
+//
+// `railway=rail` is doing real work: it excludes `railway=construction`. Mumbai has no
+// high-speed rail but four ways tagged `highspeed=yes` — the Mumbai–Ahmedabad line, still being
+// built. A line you cannot ride must not answer "how far are you from the high-speed line", and
+// the brief's "Mumbai should not have an advantage" cuts the other way too: nor a handicap.
+//
+// Rejected: a maxspeed threshold. Measured on HS1, the approach ways into St Pancras are
+// tagged maxspeed=40 — a `maxspeed>=250` filter drops the whole terminus end of a real
+// high-speed line, which is precisely the false-elimination class §A is about.
+//
+// WAY-tagged, not relation-tagged, and that distinction is the finding: relation-level
+// `highspeed=yes` exists in only 2/4 of the networks first sampled (France 62, Germany 17,
+// Spain 0, Japan 0), so there is no way to group these into NAMED lines worldwide. That does
+// not matter here — the Measuring card asks distance to the nearest high-speed line, not which
+// one, so a MultiLineString is the whole answer.
+function highspeedQuery(bbox) {
+  return `[out:json][timeout:90];
+way["railway"="rail"]["highspeed"="yes"](${bbox});
+out geom;`;
+}
+
 export function buildLinesQuery(kind, bbox, { level = DEFAULT_BORDER_LEVEL } = {}) {
   switch (kind) {
     case "rail": return routeQuery(bbox, RAIL_ROUTE_TYPES);
     case "metro": return routeQuery(bbox, METRO_ROUTE_TYPES);
     case "coastline": return coastlineQuery(bbox);
+    case "highspeed": return highspeedQuery(bbox);
     case "border": return borderQuery(bbox, level);
     default: throw Object.assign(new Error(`Unknown line kind "${kind}".`), { badRequest: true });
   }
 }
 
-export const LINE_KINDS = ["rail", "metro", "coastline", "border"];
+export const LINE_KINDS = ["rail", "metro", "coastline", "highspeed", "border"];
+
+// Kinds tagged directly on ways: no relation indirection, and no per-line identity to recover.
+// They get one synthetic line so every kind hands back the same shape.
+const WAY_TAGGED = { coastline: "Coastline", highspeed: "High-speed rail" };
 
 // ---- Shaping ---------------------------------------------------------------------------
 //
@@ -142,11 +173,11 @@ export function normalizeLines(kind, json, { minCoords = 2 } = {}) {
   }
 
   let lines;
-  if (kind === "coastline") {
+  if (WAY_TAGGED[kind]) {
     // One synthetic line so every kind has the same shape; there is no per-line identity to
     // recover from OSM here, and no card asks "which coastline?".
     const ids = Object.keys(ways).map(Number);
-    lines = ids.length ? [{ name: "Coastline", ref: null, route: "coastline", wayIds: ids }] : [];
+    lines = ids.length ? [{ name: WAY_TAGGED[kind], ref: null, route: kind, wayIds: ids }] : [];
   } else {
     lines = [];
     for (const el of elements) {

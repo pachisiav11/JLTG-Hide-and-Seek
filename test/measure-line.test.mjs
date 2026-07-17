@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { turf, squareArea } from "./helpers/turf-env.mjs";
 import { computeElimination } from "../src/tools.js";
 import { MEASURING, findMeasuring } from "../src/data/questions.js";
+import { LINE_KINDS, buildLinesQuery } from "../overpass-lines.js";
 
 const BOARD = squareArea([72.8777, 19.076], 0.2);
 
@@ -91,19 +92,40 @@ test("only the cards with a worldwide-valid query are auto-sourced", () => {
   assert.equal(findMeasuring("intl_border").level, 2);
   assert.equal(findMeasuring("admin1_border").lineKind, "border");
   assert.equal(findMeasuring("admin1_border").level, 4);
+  // hs_train was ALSO left hand-drawn at first, on my own claim that "OSM tags high-speed
+  // inconsistently across networks". That claim was asserted, not measured, and measuring it
+  // proved it wrong: way[railway=rail][highspeed=yes] returns the real line in 9/9 networks.
+  // Only RELATION-level tagging is inconsistent (2/4) — and this card never needs relations,
+  // because it asks distance to the nearest high-speed line, not which one.
+  assert.equal(findMeasuring("hs_train").lineKind, "highspeed");
 
   assert.equal(findMeasuring("admin2_border").lineKind, undefined, "no fixed admin_level worldwide");
-  assert.equal(findMeasuring("hs_train").lineKind, undefined, "OSM tags high-speed inconsistently");
 });
 
 test("every auto-sourced card is still a line card the proxy can serve", () => {
   // A lineKind that the endpoint rejects would 400 at the point of use — in a live game.
-  const served = ["rail", "metro", "coastline", "border"];
+  // Read from the server's own list rather than a copy, so the two cannot drift apart.
   for (const c of MEASURING.filter((c) => c.lineKind)) {
     assert.equal(c.ref, "line", `${c.id} sources geometry, so it must buffer as a line`);
-    assert.ok(served.includes(c.lineKind), `${c.id} names kind "${c.lineKind}", which /overpass/lines does not serve`);
+    assert.ok(LINE_KINDS.includes(c.lineKind), `${c.id} names kind "${c.lineKind}", which /overpass/lines does not serve`);
     if (c.lineKind === "border") {
       assert.ok(Number.isInteger(c.level), `${c.id} is a border card and must name an admin_level`);
     }
   }
+});
+
+test("the high-speed query asks for what was measured, not something close to it", () => {
+  // Every clause here is load-bearing and was measured on 2026-07-17, so this asserts the
+  // query STRING — the same discipline as the `way(r.r)` guard, and for the same reason: a
+  // plausible-looking edit silently changes what a live game eliminates.
+  const q = buildLinesQuery("highspeed", "1,2,3,4");
+  assert.match(q, /way\["railway"="rail"\]\["highspeed"="yes"\]/,
+    'both tags are required: highspeed=yes makes it tight, railway=rail excludes railway=construction');
+  assert.match(q, /out geom;/, "the card needs geometry, not centres");
+  // Mumbai has no high-speed rail but four ways tagged highspeed=yes — the Mumbai–Ahmedabad
+  // line, still under construction. Without railway=rail they'd answer "how far are you from
+  // the high-speed line" about a line nobody can ride.
+  assert.doesNotMatch(q, /maxspeed/,
+    "rejected deliberately: HS1's approach into St Pancras is maxspeed=40, so a speed threshold drops the terminus end of a real line");
+  assert.doesNotMatch(q, /relation/, "relation-level highspeed tagging is only 2/4 — this kind is way-tagged");
 });
