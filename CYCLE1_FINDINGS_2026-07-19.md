@@ -13,6 +13,9 @@ suite where stated.
 | **C1-1** | `store.update` re-renders synchronously on every drag event | 3.55 ms/event, 213 ms per drag | `store.js:update` → `emit` | medium | open |
 | **C1-2** | The review's own P4 default would not have worked | would still refuse | `PERF_REVIEW` P4 | — | resolved, not adopted |
 | **C1-3** | A thrown zone union leaves the rejected zone on the board | corrupt board | `zones.js:_fold` | high | **fixed** |
+| **C1-4** | A coastline question costs ~3.9 s per elimination, uncached, per render | **6,948 ms** per drag event | `tools.js:measuring` | high | open |
+| **C1-5** | A failed union mid-fold discards everything folded so far | wrong elimination | `tools.js:310,567` | high | **fixed** |
+| **C1-6** | Client-side proxy fetches have no timeout | UI stall | `lines.js:323,443` | medium | open |
 
 ---
 
@@ -103,6 +106,83 @@ logged. Verified live — the call that previously left a zombie zone now return
 the board at one zone, and does not throw. Pinned in `test/zone-union-throw.test.mjs`, including
 two tests asserting that genuinely degenerate rings are still *tolerated*, so the fix cannot
 start refusing boards that work today.
+
+## C1-5. A failed union mid-fold discarded everything folded so far
+
+Raised by the geometry review, confirmed by reading, and pinned by a test that reproduces the
+old behaviour rather than only asserting the new one.
+
+`safeUnion` swallows its exception and returns null, so this reads correctly and is wrong:
+
+```js
+union = union ? safeUnion(union, c) : c;
+```
+
+One failure nulls the accumulator, and the next iteration takes the falsy branch and restarts
+from that single geometry. Everything merged so far vanishes, and the elimination built from
+the fragment removes the wrong ground with nothing on screen saying so.
+
+This is a **known** bug shape here — `lineCells` was already fixed for it (the A7 note at
+`tools.js:409`). It survived in two more places:
+
+- `matchingNameLength` — "which station names are N letters" keeps or removes the union of
+  those cells. A reset fold keeps or removes only the cells *after* the failure.
+- `tentacles` "none" (legacy, no seeker centre) — the hider is in none of the circles, so the
+  union of all of them is eliminated. A reset fold eliminates only the last circle, leaving on
+  the board ground the hider has already been ruled out of.
+
+**Fix.** Both go through a new `unionAll`, which keeps the last good accumulator and drops only
+the member that would not merge. That under-eliminates instead of eliminating somewhere wrong,
+which is the safe direction: a seeker who eliminates too little wastes a question, a seeker who
+eliminates the wrong ground loses the hider. It warns when it drops one.
+
+Verified live on the Mumbai board — four disjoint 2 km circles under a "none" answer:
+
+```
+eliminated   50.18 km2
+4 * pi * r^2 50.27 km2   ratio 0.998 (the 72-step circle approximation)
+parts         4          all four present
+```
+
+## C1-4. A coastline question costs ~3.9 s to compute, and recomputes on every render
+
+The largest number found in this cycle, and larger than anything in the original review. Found
+by running the coastline tool in a real game rather than by reading.
+
+Mumbai's sourced coastline is a 98-part MultiLineString of 5,320 vertices. Buffering it and
+differencing against the board is genuinely expensive, and nothing caches it:
+
+```
+computeElimination, 1st call      3,954 ms
+computeElimination, 2nd call      3,780 ms   <- no caching
+computeActiveArea with that step  3,602 ms
+ONE store.update on that board    6,948 ms   (median of 3: 7096 / 6873 / 6948)
+```
+
+That last number is the one that matters. `computeActiveArea` runs on every `emit`, and `emit`
+runs on every `store.update` — so on a board carrying a single coastline question, **every drag
+event, every question toggle and every marker move costs about seven seconds.** This is C1-1
+(the per-event re-render) multiplied by a step that is four orders of magnitude more expensive
+than the ones C1-1 was measured against.
+
+The answer itself is correct — within-3 km and beyond-3 km partition the board exactly
+(631.8 + 613.7 = 1,245.5 km²). It is purely a cost.
+
+**Not fixed in this cycle.** The obvious fix is to memoise a step's elimination on its inputs,
+which is a change to the hottest, most correctness-critical path in the app and deserves its own
+cycle with its own tests rather than being appended to this one. Carried into cycle 2 as the
+first phase.
+
+## C1-6. Client-side proxy fetches have no timeout
+
+Raised by the lines review. `fetchFromProxy` (`lines.js:323`) and `loadCountryDivisions`
+(`lines.js:443`) both call `fetch` with no `AbortSignal.timeout`, where `overpass.js:56` does
+pass one. A hung proxy therefore stalls on the browser's default timeout — a minute or more —
+rather than failing to the stale-cache path the ladder was built for.
+
+**Not yet fixed, and not yet measured.** The claim is verified by reading; the failure has not
+been reproduced against a deliberately hung proxy, so the "1–2 minutes" figure is the browser
+default rather than something observed here. Carried into cycle 2.
 
 ---
 

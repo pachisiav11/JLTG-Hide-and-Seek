@@ -45,6 +45,34 @@ function safeUnion(a, b) {
   } catch (e) { console.warn("union failed", e); return null; }
 }
 
+// Fold many geometries into one, WITHOUT letting a single failure discard the fold.
+//
+// `union = union ? safeUnion(union, c) : c` reads correctly and is wrong, because safeUnion
+// swallows its exception and returns null: one failure mid-fold nulls the accumulator, and the
+// next iteration takes the falsy branch and restarts from that single geometry. Everything
+// merged so far vanishes silently, the result is a fragment, and the elimination built from it
+// removes the wrong ground — with nothing on screen saying so.
+//
+// `lineCells` was fixed for exactly this (the A7 note below it); the same shape survived in
+// `matchingNameLength` and in the legacy `tentacles` "none" branch, which is what this exists
+// to remove. Keeping the last good accumulator is the conservative choice: a dropped member
+// under-eliminates, where a reset accumulator eliminates somewhere actively wrong.
+//
+// Exported for tests: the failure it guards needs an injectable union to be provoked.
+export function unionAll(geoms, unionFn = safeUnion) {
+  let out = null;
+  let dropped = 0;
+  for (const g of geoms) {
+    if (!g) continue;
+    if (!out) { out = g; continue; }
+    const merged = unionFn(out, g);
+    if (merged) out = merged;
+    else dropped++; // keep what we had rather than restarting from this one
+  }
+  if (dropped) console.warn(`unionAll: ${dropped} geometr${dropped === 1 ? "y" : "ies"} could not be merged; result under-covers`);
+  return out;
+}
+
 // --- Radar: centre + radius circle ---------------------------------------
 function radar(step, gameArea) {
   const { center, radius } = step.inputs;      // radius in metres
@@ -306,8 +334,7 @@ function matchingNameLength(step, gameArea) {
   if (!gameArea || !features || features.length < 2 || length == null) return { eliminated: null, guides };
   const { cells } = voronoiCells(features, gameArea);
   for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
-  let union = null;
-  cells.forEach((c, i) => { if (c && features[i].len === length) union = union ? safeUnion(union, c) : c; });
+  const union = unionAll(cells.filter((c, i) => c && features[i].len === length));
   if (!union) return { eliminated: null, guides };
   // Match → keep those cells (remove the rest); no-match → remove those cells.
   return { eliminated: keepMatch ? safeDiff(gameArea, union) : union, guides };
@@ -561,11 +588,8 @@ function tentacles(step, gameArea) {
   if (isLines) return { eliminated: null, guides };
   const circleOf = (f) => circleGeom(f.lng, f.lat);
   if (none) {
-    let union = null;
-    for (const f of features) {
-      guides.push({ type: "circle", center: { lat: f.lat, lng: f.lng }, radius: R });
-      union = union ? safeUnion(union, circleOf(f)) : circleOf(f);
-    }
+    for (const f of features) guides.push({ type: "circle", center: { lat: f.lat, lng: f.lng }, radius: R });
+    const union = unionAll(features.map(circleOf));
     const eliminated = union ? safeIntersect(union, gameArea) : null;
     return { eliminated, guides };
   }
