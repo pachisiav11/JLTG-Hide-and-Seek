@@ -1132,8 +1132,25 @@ export class Layers {
       overlays.push(new google.maps.Polyline({ path: coords.map((c) => ({ lat: c.lat, lng: c.lng })), map: this.map, ...LINE_GUIDE, clickable: false }));
       if (!(await this._confirm(`Added ${lines.length}. Draw another ${card.label.toLowerCase()}?`))) break;
     }
-    if (lines.length < 1) { clearOverlays(); return this.openPanel(); }
-    const list = lines.map((l, i) => `<label><input type="radio" name="ln" value="${l.id}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(l.label)}</label>`).join("");
+    // Two lines minimum, not one. A one-line "is your nearest line the same as mine?" has
+    // exactly one truthful answer, and the partition degenerates: lineCells gives the single
+    // line every cell, so it owns the whole board. "Same" then subtracts the board from
+    // itself and eliminates NOTHING — the question is committed, enabled, listed, and
+    // contributes no shading. "Different" eliminates the ENTIRE board, and the seeker is told
+    // to re-check an answer that was correct. Neither throws, so neither is ever marked
+    // failed. `_matchNearest` already enforces minCount: 2 for the same reason.
+    //
+    // The Tentacles line picker warns at <2 rather than refusing, and that is right there:
+    // it has a radius, so one line still asks "are you within R of it" — a radar. Matching
+    // has no radius, so one line asks nothing at all.
+    if (lines.length < 2) {
+      clearOverlays();
+      toast(`A ${card.label.toLowerCase()} question needs at least two lines — with one, every answer means the same thing.`);
+      return this.openPanel();
+    }
+    // Nothing pre-checked: see _featureListHTML. A default here meant Add could commit the
+    // first line as "the one you're nearest to" without the seeker ever choosing it.
+    const list = lines.map((l) => `<label><input type="radio" name="ln" value="${l.id}"/> ${escapeHtml(l.label)}</label>`).join("");
     const s = openSheet({
       title: card.label,
       bodyHTML: `
@@ -1149,7 +1166,9 @@ export class Layers {
     });
     s.q("#ln-cancel").onclick = () => s.close();
     s.q("#ln-add").onclick = () => {
-      const lineId = s.qa('input[name="ln"]').find((r) => r.checked)?.value ?? lines[0].id;
+      const picked = s.qa('input[name="ln"]').find((r) => r.checked);
+      if (!picked) return toast(`Choose which ${card.label.toLowerCase()} you're nearest to.`);
+      const lineId = picked.value;
       const match = (s.qa('input[name="ln-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
       this.addStep("matching", { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines }, { lineId, match });
       s.close();
