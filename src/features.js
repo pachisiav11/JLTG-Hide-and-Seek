@@ -13,6 +13,8 @@ export class MapFeatures {
     this.dir = { service: null, renderer: null };
     this.matrix = null;
     this.measure = { active: false, pts: [], markers: [], line: null };
+    // True while a draw/pick flow owns the map click (see init).
+    this._mapClaimed = false;
   }
 
   async init() {
@@ -24,8 +26,25 @@ export class MapFeatures {
     });
     this.matrix = new routes.DistanceMatrixService();
 
-    // Map click — used only by measure mode.
+    // Map click — used only by measure mode, and only while nothing else owns the map.
+    //
+    // A draw or pick flow (layers.js `_drawShape` / `pick`) adds its OWN map click listener,
+    // and Google fires every listener on the same tap. With measure mode left on, one tap into
+    // an outline both added a vertex AND dropped a measure pin: the draw preview and the
+    // measure line then tracked each other across the map, and the readout described a distance
+    // nobody asked for. Neither handler could see the other, so neither could say what happened.
+    //
+    // The flow claims the click while it runs and releases it on cleanup. Measure stays
+    // *active* through the claim on purpose — the toolbar button keeps telling the truth, and
+    // measuring resumes on the next tap once the flow ends.
     this.map.addListener("click", (e) => this._onClick(e.latLng));
+    window.addEventListener("jltg:mapclaim", () => {
+      this._mapClaimed = true;
+      // Drop any half-finished measurement: its pins would otherwise sit under the outline
+      // being drawn, unexplained and un-clearable without leaving the flow.
+      if (this.measure.active && this.measure.pts.length) this._clearMeasure();
+    });
+    window.addEventListener("jltg:maprelease", () => { this._mapClaimed = false; });
     // Long-press / right-click → context menu with location actions.
     this.map.addListener("contextmenu", (e) => this._onContextMenu(e));
   }
@@ -119,6 +138,7 @@ export class MapFeatures {
 
   _onClick(latLng) {
     if (!this.measure.active) return;
+    if (this._mapClaimed) return; // a draw / pick flow owns this tap
     if (this.measure.pts.length >= 2) this._clearMeasure();
     const idx = this.measure.pts.length;
     this.measure.pts.push(latLng.toJSON());

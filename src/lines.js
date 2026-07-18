@@ -523,15 +523,21 @@ export class Lines {
   // so re-querying on every checkbox would make the filter unusable; the payload carries the
   // route type per line precisely so it doesn't have to.
   async load(gameArea) {
-    if (this.data) return this.data;
     if (!gameArea) { toast("Draw a game area first — lines are fetched for the board."); return null; }
     const bbox = boardBbox(gameArea);
     if (!bbox) { toast("The game area is too small or malformed to fetch lines for."); return null; }
+    // Keyed on the BBOX, not just "have we loaded once". Lines are fetched for a specific board
+    // extent, and adding a zone changes that extent — the cached payload then has no lines in
+    // the new ground at all. `this.data` alone made that permanent for the life of the game:
+    // the rail overlay simply stopped short of the extension, looking like OSM had no data
+    // there rather than like a stale fetch.
+    if (this.data && this.bbox === bbox) return this.data;
     this.loading = true;
     try {
       toast("Loading rail lines…");
       const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
       this.data = await loadLines("rail", bbox, { proxyBase });
+      this.bbox = bbox;
       if (this.data.from === "cache-stale") toast("Showing an offline copy of the rail lines.");
       return this.data;
     } catch (err) {
@@ -683,5 +689,20 @@ export class Lines {
   clear() {
     this._clearOverlays();
     this.data = null;
+    this.bbox = null;
+  }
+
+  // The board changed under a drawn rail overlay. Take it down rather than leave geometry
+  // fetched for a different extent sitting on the map: a player cannot tell stale rail from
+  // absent rail, and this overlay is what the Matching transit card's filter is chosen against.
+  //
+  // Deliberately not an auto-refetch. The fetch is slow and fails ~64% of the time, and this
+  // fires on every zone edit — re-querying would turn drawing a second zone into a stall.
+  invalidate() {
+    if (!this.overlays.length && !this.data) return false;
+    this._clearOverlays();
+    this.data = null;
+    this.bbox = null;
+    return true;
   }
 }

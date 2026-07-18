@@ -125,6 +125,19 @@ export async function clearBoard() {
   current.gameArea = null;
   current.history = [];
   current.focusZone = { point: null, radius: null };
+  // These two were left behind, and both outlive the board they belonged to.
+  //
+  // `redoStack` holds steps whose geometry refers to zones that no longer exist, so Redo on a
+  // cleared board re-adds a question about an area that is gone — it computes against the NEW
+  // gameArea and eliminates somewhere arbitrary, or against null and does nothing. Either way
+  // the seeker did not ask it.
+  //
+  // `railFilter` is per-board by nature ("we're only playing on these lines"). Carried into a
+  // fresh board it silently hides lines from candidateLines — including the Matching transit
+  // card, where the filter is now load-bearing — so a new game in a new city could open with
+  // another city's lines excluded and nothing on screen saying so.
+  current.redoStack = [];
+  current.railFilter = { hiddenRoutes: [], hiddenLines: [] };
   await saveNow();
   emit();
   return current;

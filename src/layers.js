@@ -382,12 +382,26 @@ export class Layers {
     this.overlays = [];
   }
 
+  // Take ownership of the map click for the life of a draw / pick flow, and hand it back.
+  //
+  // Google fires EVERY click listener on a tap, and MapFeatures keeps one for measure mode.
+  // With measure left on, a single tap into an outline both added a vertex and dropped a
+  // measure pin — two features silently fighting over the same gesture, neither able to see
+  // the other. Broadcast rather than a direct call: layers has no handle on MapFeatures, and
+  // giving it one would couple the tool flows to a sibling they otherwise never touch.
+  _claimMapClicks() {
+    window.dispatchEvent(new CustomEvent("jltg:mapclaim"));
+    let released = false;
+    return () => { if (!released) { released = true; window.dispatchEvent(new CustomEvent("jltg:maprelease")); } };
+  }
+
   // ---- Map point picking (shared by tool flows) ----
   // constrainToArea: reject taps outside the game area (seeker locations must be
   // inside the play zone). No-op when there's no game area or turf.
   pick(count, hintText, { constrainToArea = false } = {}) {
     return new Promise((resolve) => {
       closeSheet();
+      const release = this._claimMapClicks();
       const pts = [];
       const markers = [];
       const bar = document.createElement("div");
@@ -396,6 +410,7 @@ export class Layers {
       document.body.appendChild(bar);
 
       const cleanup = () => {
+        release();
         google.maps.event.removeListener(listener);
         markers.forEach((m) => m.setMap(null));
         bar.remove();
@@ -430,6 +445,7 @@ export class Layers {
   _drawShape(minPts, hint, { ring = false } = {}) {
     return new Promise((resolve) => {
       closeSheet();
+      const release = this._claimMapClicks();
       const pts = [];
       const markers = [];
       let preview = null;
@@ -447,6 +463,7 @@ export class Layers {
         if (pts.length >= 2) preview = new google.maps.Polyline({ path: pts, strokeColor: "#38bdf8", strokeWeight: 3, map: this.map, clickable: false });
       };
       const cleanup = () => {
+        release();
         google.maps.event.removeListener(listener);
         if (preview) preview.setMap(null);
         markers.forEach((m) => m.setMap(null));

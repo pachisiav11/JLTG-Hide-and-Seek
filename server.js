@@ -80,6 +80,14 @@ app.get("/overpass", async (req, res) => {
   }
   const [s, w, n, e] = parts;
   const bbox = `${s},${w},${n},${e}`;
+  // /overpass/lines has validated its bbox since it was written; this endpoint only checked
+  // that four numbers parsed. Four numbers is not a box: swapped corners (S>N) match nothing,
+  // and out-of-range values are rejected by Overpass as a 400 that this proxy then reports as
+  // "Overpass rejected the query" — pointing at a query bug in this file rather than at the
+  // caller's parameters. Same rule, same message, one place to change it.
+  if (!bboxIsValid(bbox)) {
+    return res.status(400).json({ error: "bbox must be S,W,N,E with S<N, W<E and within ±90/±180." });
+  }
   const keyword = String(req.query.keyword || "").trim().toLowerCase();
 
   const query = buildQuery(tags, bbox);

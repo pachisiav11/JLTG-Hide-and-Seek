@@ -40,6 +40,9 @@ export class Zones {
   startDraw() {
     if (this._draw) return;
     this._draw = { pts: [], preview: null, bar: null, listener: null };
+    // Own the map click while drawing — measure mode listens on the same event, and both
+    // handlers fire on one tap (see layers.js _claimMapClicks / features.js init).
+    window.dispatchEvent(new CustomEvent("jltg:mapclaim"));
     this.map.setOptions({ draggableCursor: "crosshair" });
     this._draw.listener = this.map.addListener("click", (e) => this._addVertex(e.latLng));
     this._draw.bar = this._makeDrawBar();
@@ -114,6 +117,7 @@ export class Zones {
   _endDraw() {
     const d = this._draw;
     if (!d) return;
+    window.dispatchEvent(new CustomEvent("jltg:maprelease"));
     if (d.listener) google.maps.event.removeListener(d.listener);
     if (d.preview) d.preview.setMap(null);
     d.bar?.remove();

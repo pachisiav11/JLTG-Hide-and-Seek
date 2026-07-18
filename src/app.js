@@ -9,6 +9,17 @@ import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
 
+// A cheap identity for "which board is this". Rail lines are fetched for the board's bbox, so
+// what matters is whether that extent moved — not which zone changed or how it was edited.
+function boardKey(g) {
+  const a = g?.gameArea;
+  if (!a) return "none";
+  try {
+    const b = window.turf?.bbox(window.turf.feature(a));
+    return b ? b.map((n) => n.toFixed(4)).join(",") : "unknown";
+  } catch (_) { return "unknown"; }
+}
+
 const boot = document.getElementById("boot");
 const bootMsg = document.getElementById("boot-msg");
 const bootDetail = document.getElementById("boot-detail");
@@ -177,16 +188,34 @@ async function main() {
     // boundary reference overlays persist WITHIN a game and are cleared here only
     // on an actual game switch (id change), never on a normal question update.
     let lastGameId = store.getCurrent()?.id || null;
+    let lastAreaKey = boardKey(store.getCurrent());
     store.subscribe((g) => {
       const id = g?.id || null;
       if (id !== lastGameId) {
         lastGameId = id;
+        lastAreaKey = boardKey(g);
         boundaries?.clear();
         features.clearAll();
         // Lines are fetched for a specific board bbox, so they are meaningless on the next
         // game — and stale rail drawn over a different city is worse than none.
         lines.clear();
         document.querySelector('#toolbar [data-act="rail"]')?.classList.remove("active");
+        return;
+      }
+      // Same game, different BOARD. Rail was fetched for the old extent, so it stops short of
+      // any ground just added — indistinguishable from OSM having no lines there. This was
+      // never wired up, so the overlay stayed stale for the life of the game.
+      const areaKey = boardKey(g);
+      if (areaKey !== lastAreaKey) {
+        lastAreaKey = areaKey;
+        if (lines.invalidate()) {
+          document.querySelector('#toolbar [data-act="rail"]')?.classList.remove("active");
+          // Deferred, because this fires from INSIDE store.update — the caller (addZone,
+          // removeZone) toasts its own confirmation immediately afterwards, and `toast` is a
+          // single element, so an immediate message here is overwritten before it can be read.
+          // Measured: it never appeared at all. The zone confirmation comes first, then this.
+          setTimeout(() => toast("The board changed — reopen 🚄 to reload rail lines for the new area."), 2600);
+        }
       }
     });
 
