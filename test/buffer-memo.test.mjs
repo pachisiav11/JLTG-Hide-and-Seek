@@ -128,4 +128,50 @@ test("a malformed reference is contained by computeActiveArea, not left to blank
 test("the cache cannot pin deleted steps' geometry in memory", () => {
   const src = readFileSync(new URL("../src/tools.js", import.meta.url), "utf8");
   assert.match(src, /_bufferCache = new WeakMap\(\)/, "must be weakly keyed on the geometry");
+  assert.match(src, /_clipCache = new WeakMap\(\)/, "and so must the clip cache");
+});
+
+// ---- the clip memo -------------------------------------------------------------
+//
+// Memoising the buffer left the CLIP as the remaining cost: on the live 98-part Mumbai
+// coastline, computeActiveArea was 148.7 ms of which this one step was 136.9 ms even with the
+// buffer cached. It is keyed on (buffer, gameArea, side) by identity — safe because gameArea is
+// REPLACED rather than mutated when zones change.
+
+test("a different game area is a different clip entry, not a stale hit", () => {
+  // The property the whole memo rests on. If a new board reused the old board's clip, every
+  // question on the new board would eliminate against the old one — silently.
+  // Sizes chosen so the answers genuinely differ. Measured, this buffer is 66.36 km2 and fits
+  // entirely inside any board of 0.2 deg or more, so two large boards would BOTH clip to 66.36
+  // — equal for a real reason, and useless for detecting a stale hit. At 0.1 deg the board
+  // truncates the buffer (27.41 km2), which is the discriminating case.
+  const geom = structuredClone(COAST);
+  const small = squareArea([72.8777, 19.076], 0.1);
+  const big = squareArea([72.8777, 19.076], 0.4);
+  const a = km2(computeElimination(step(geom, "out"), small).eliminated);
+  const b = km2(computeElimination(step(geom, "out"), big).eliminated);
+  assert.ok(b > a + 1, `a bigger board must clip more coastline buffer (${b.toFixed(2)} vs ${a.toFixed(2)})`);
+  const aAgain = km2(computeElimination(step(geom, "out"), small).eliminated);
+  assert.equal(a.toFixed(6), aAgain.toFixed(6), "the small board's entry was corrupted by the big one");
+});
+
+test("the two sides do not share a clip entry", () => {
+  const geom = structuredClone(COAST);
+  const area = squareArea([72.8777, 19.076], 0.4);
+  const inn = km2(computeElimination(step(geom, "in"), area).eliminated);
+  const out = km2(computeElimination(step(geom, "out"), area).eliminated);
+  assert.ok(Math.abs(inn - out) > 1, `"in" and "out" must not return the same clip (${inn} vs ${out})`);
+  // and re-reading each must still give its own answer
+  assert.equal(km2(computeElimination(step(geom, "in"), area).eliminated).toFixed(6), inn.toFixed(6));
+  assert.equal(km2(computeElimination(step(geom, "out"), area).eliminated).toFixed(6), out.toFixed(6));
+});
+
+test("the clipped result is reused, not recomputed", () => {
+  const geom = structuredClone(COAST);
+  const area = squareArea([72.8777, 19.076], 0.4);
+  computeElimination(step(geom, "in"), area);            // warm buffer AND clip
+  const t0 = performance.now();
+  for (let i = 0; i < 20; i++) computeElimination(step(geom, "in"), area);
+  const perCall = (performance.now() - t0) / 20;
+  assert.ok(perCall < 20, `20 warm eliminations averaged ${perCall.toFixed(1)} ms each — the clip is not cached`);
 });

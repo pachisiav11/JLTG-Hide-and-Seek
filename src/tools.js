@@ -706,6 +706,8 @@ const BUFFER_SIMPLIFY_TOLERANCE = 5e-4;
 // Deliberately NOT keyed on a hash of the coordinates: hashing 5,320 vertices on every render
 // would reintroduce a cost of the same order as the one being removed.
 const _bufferCache = new WeakMap(); // geometry -> Map(meters -> buffered geometry | null)
+// buffer -> WeakMap(gameArea -> Map(side -> eliminated)). See the note at its use in measuring().
+const _clipCache = new WeakMap();
 
 function bufferGeometry(geom, meters) {
   if (!geom || typeof geom !== "object") return null;
@@ -763,7 +765,27 @@ function measuring(step, gameArea) {
   // `side`, and must not be refused for lacking a field it never uses.
   const checked = readSide(step, ["in", "out"]);
   if (checked === null) return { eliminated: null, guides };
+
+  // Memoising the buffer left the CLIP as the remaining cost: measured on the live 98-part
+  // Mumbai coastline, `computeActiveArea` was 148.7 ms of which this step was 136.9 ms, even
+  // with the buffer served from cache. Clipping a 98-part buffer against the board is simply
+  // expensive, and it too was redone on every render.
+  //
+  // Keyed on (buffer, gameArea, side), all three by identity:
+  //   buffer   — produced by the memo above, so the same inputs yield the same object
+  //   gameArea — REPLACED, never mutated: `Zones._fold` builds a new union object each time the
+  //              zones change, so a new board is a new key rather than a stale hit
+  //   side     — the two answers clip in opposite directions and must not share an entry
+  //
+  // Nested WeakMaps so neither a discarded buffer nor a superseded board is pinned in memory.
+  let byArea = _clipCache.get(buffer);
+  if (!byArea) { byArea = new WeakMap(); _clipCache.set(buffer, byArea); }
+  let bySide = byArea.get(gameArea);
+  if (!bySide) { bySide = new Map(); byArea.set(gameArea, bySide); }
+  if (bySide.has(checked)) return { eliminated: bySide.get(checked), guides };
+
   const eliminated = checked === "in" ? safeDiff(gameArea, buffer) : safeIntersect(buffer, gameArea);
+  bySide.set(checked, eliminated);
   return { eliminated, guides };
 }
 
