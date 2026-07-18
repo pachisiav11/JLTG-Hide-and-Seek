@@ -9,7 +9,7 @@ import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from 
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
-import { openSheet, closeSheet, toast, escapeHtml, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
+import { openSheet, closeSheet, toast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
@@ -67,6 +67,15 @@ const LINE_GUIDE = { strokeColor: "#38bdf8", strokeOpacity: 0.95, strokeWeight: 
 // the whole point here is telling candidates apart. Not palette-driven either — these are
 // identity, not semantics, so the colour-blind toggle has nothing to restyle.
 const TENTACLE_LINE_COLOURS = ["#f472b6", "#38bdf8", "#facc15", "#4ade80", "#c084fc", "#fb923c", "#22d3ee", "#f87171"];
+
+// Above this many sourced lines, a Matching "which are you nearest to" question stops being
+// answerable and _sourcedMatchLines refuses, pointing at the 🚄 rail filter.
+//
+// Not a rendering limit — the list scrolls fine. It is the point past which BOTH players can
+// no longer hold the same set in their heads and name the same line, which is what the card
+// requires. Set to the colour count because that is also where the map stops telling
+// candidates apart: past eight, two lines repeat a colour and the list and the map disagree.
+const MATCH_LINE_LIMIT = TENTACLE_LINE_COLOURS.length;
 
 // Google's nearbySearch radius ceiling. Not ours to raise — it is the API's hard maximum.
 const GOOGLE_MAX_RADIUS_M = 50000;
@@ -614,7 +623,7 @@ export class Layers {
           title: `${card.label} — candidates`,
           mapInteractive: true,
           bodyHTML: `
-            <p class="muted">Tick the ${escapeHtml(card.label.toLowerCase())}s that count and add any that are missing. These form the partition. You can pan the map behind this sheet.</p>
+            <p class="muted">Tick the ${escapeHtml(pluralLabel(card.label).toLowerCase())} that count and add any that are missing. These form the partition. You can pan the map behind this sheet.</p>
             ${search}
             <div class="seg feat-list" data-list="cand">${rows}</div>
             <div class="row">
@@ -991,7 +1000,7 @@ export class Layers {
   // found automatically (Places) or placed by the seeker (their own objects).
   async _matchNearest(card, s) {
     s.q("#mt-status").innerHTML = `
-      <label class="fieldlbl">Candidate ${escapeHtml(card.label.toLowerCase())}s</label>
+      <label class="fieldlbl">Candidate ${escapeHtml(pluralLabel(card.label).toLowerCase())}</label>
       <div class="row">
         <button id="mt-auto" class="btn btn-primary">🔍 Auto-find nearby</button>
         <button id="mt-manual" class="btn">✋ Place my own</button>
@@ -1116,8 +1125,24 @@ export class Layers {
     };
   }
 
-  // Nearest of several hand-drawn lines/paths (Transit Line, Street or Path).
+  // Nearest of several lines/paths (Transit Line, Street or Path).
+  //
+  // §F4 was marked "superseded by G1", but only the TENTACLES half was rebuilt — this card was
+  // still tracing transit by hand, which is the local-knowledge advantage §G1 exists to remove:
+  // a Mumbai player draws the Western Line from memory, a visitor guesses, and the two boards
+  // then disagree about real area. `linePaths` already normalises hand-drawn `coords` and
+  // sourced `paths` into one partition, so the geometry side needed nothing new.
+  //
+  // Sourcing is offered where the card names a lineKind, hand-drawing everywhere else (Street
+  // or Path has no sane OSM candidate set — a board has thousands of streets).
   async _matchNearestLine(card) {
+    if (card.lineKind) {
+      const how = await this._lineSourceSheet(card, { many: true });
+      if (!how) return this.openPanel();
+      // A sourced pick opens its own sheet and commits from there; null means it could not
+      // (and has said why), so fall through to drawing rather than dead-ending.
+      if (how === "auto" && (await this._sourcedMatchLines(card))) return;
+    }
     const lines = [];
     // Keep each drawn line visible on the map while the next ones are drawn, so
     // the user can see what they've already placed (avoids duplicate/overlapping
@@ -1148,13 +1173,94 @@ export class Layers {
       toast(`A ${card.label.toLowerCase()} question needs at least two lines — with one, every answer means the same thing.`);
       return this.openPanel();
     }
+    this._nearestLineSheet(card, lines, { onClose: clearOverlays });
+  }
+
+  // Sourced transit lines for a Matching nearestLine card. Returns true if it took over the
+  // flow, false to fall back to hand-drawing — every false having SAID why first.
+  //
+  // The candidate set is the whole point and the whole difficulty. Measured on a 1,753 km²
+  // Mumbai Metropolitan board (2026-07-18):
+  //   kind "metro" -> 9 lines, all real, but MISSES Western/Central/Harbour — the suburban
+  //                   locals Mumbai actually plays on, which are the answer to this card.
+  //   kind "rail"  -> 44, containing those locals AND ~26 intercity services that merely pass
+  //                   through (Rajdhani Express 12951, Vande Bharat 20705, Golden Temple Mail).
+  // Both sets are `route=train` — Western Line and Rajdhani Express carry the SAME route tag —
+  // so no mode filter can separate them, and they share physical track, so `lineCells` gives a
+  // seed on those rails to both. A 44-line partition is not a harder question, it is an
+  // unanswerable one: "nearest line" has no single truthful answer when an express shares the
+  // Western Line's metals.
+  //
+  // So `rail` is the query and the board's OWN rail filter is the answer — the app already has
+  // this concept (the 🚄 panel, `railFilter`, honoured inside candidateLines), it was simply
+  // never load-bearing for a question before. What is added here is refusing to present a set
+  // the filter has not made answerable, and pointing at the filter instead of guessing which
+  // lines the players meant.
+  async _sourcedMatchLines(card) {
+    const g = store.getCurrent();
+    if (!g?.gameArea) { toast("Draw a game area first."); return false; }
+    toast(`Finding ${pluralLabel(card.label).toLowerCase()}…`);
+    let sourced = [];
+    try {
+      const { candidateLines } = await import("./lines.js");
+      // No radius: Matching asks about the whole board, not a reach from the seeker. The centre
+      // only orders the list, and is deliberately NOT shown as a distance — the app does not
+      // know where the seeker is standing, and printing "1.2 km away" would imply it does.
+      const c = this.map.getCenter();
+      const out = await candidateLines(card.lineKind, g.gameArea, { lat: c.lat(), lng: c.lng() }, Infinity, { game: g });
+      sourced = out?.lines || [];
+    } catch (e) {
+      console.warn("matching line sourcing failed", e);
+      toast(e.status === 400
+        ? `${card.label} request rejected: ${e.message} — draw them instead.`
+        : `Couldn't load ${pluralLabel(card.label).toLowerCase()} — draw them instead.`);
+      return false;
+    }
+    if (sourced.length < 2) {
+      toast(sourced.length
+        ? `Only one ${card.label.toLowerCase()} is on this board, so the question can't distinguish — draw them instead.`
+        : `No ${pluralLabel(card.label).toLowerCase()} found on this board — draw them instead.`);
+      return false;
+    }
+    // The refusal above is B2's guard; this one is the candidate-set problem. Both players must
+    // be answering about the SAME small set they can each name, and an unfiltered mainline
+    // query is neither small nor nameable.
+    if (sourced.length > MATCH_LINE_LIMIT) {
+      toast(`${sourced.length} ${pluralLabel(card.label).toLowerCase()} on this board — too many to answer. Use 🚄 to pick which lines are in play, then ask again.`);
+      return false;
+    }
+    // Store geometry, not a reference to it — the partition must recompute identically for the
+    // life of the game even if OSM is edited or the cache is cleared. Same shape the Tentacles
+    // line picker commits, and `linePaths` reads `paths` and hand-drawn `coords` alike.
+    const lines = sourced.map((l, i) => ({ id: `ln_${i}_${l.key}`, label: l.label, paths: l.paths }));
+    const overlays = [];
+    lines.forEach((l, i) => {
+      const colour = TENTACLE_LINE_COLOURS[i % TENTACLE_LINE_COLOURS.length];
+      for (const path of l.paths) {
+        overlays.push(new google.maps.Polyline({
+          path: path.map(([lat, lng]) => ({ lat, lng })),
+          strokeColor: colour, strokeOpacity: 0.95, strokeWeight: 4, zIndex: 6, clickable: false, map: this.map,
+        }));
+      }
+    });
+    this._nearestLineSheet(card, lines, {
+      sourced: true,
+      onClose: () => overlays.forEach((o) => o.setMap(null)),
+    });
+    return true;
+  }
+
+  // The pick-a-line + did-they-match sheet, shared by the drawn and the sourced paths so the
+  // two cannot drift apart on the guards.
+  _nearestLineSheet(card, lines, { sourced = false, onClose } = {}) {
     // Nothing pre-checked: see _featureListHTML. A default here meant Add could commit the
     // first line as "the one you're nearest to" without the seeker ever choosing it.
     const list = lines.map((l) => `<label><input type="radio" name="ln" value="${l.id}"/> ${escapeHtml(l.label)}</label>`).join("");
     const s = openSheet({
       title: card.label,
+      mapInteractive: sourced,
       bodyHTML: `
-        <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} are <strong>you</strong> nearest to?</p>
+        <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} are <strong>you</strong> nearest to?${sourced ? " Drawn on the map in the list's colours." : ""}</p>
         <div class="seg">${list}</div>
         <label class="fieldlbl">Did the hider answer the same one?</label>
         <div class="seg" role="radiogroup">
@@ -1162,15 +1268,16 @@ export class Layers {
           <label><input type="radio" name="ln-match" value="no"/> No — different (remove that region)</label>
         </div>
         <div class="sheet-actions"><button id="ln-cancel" class="btn btn-ghost">Cancel</button><button id="ln-add" class="btn btn-primary">Add question</button></div>`,
-      onClose: () => clearOverlays(),
+      onClose,
     });
     s.q("#ln-cancel").onclick = () => s.close();
     s.q("#ln-add").onclick = () => {
       const picked = s.qa('input[name="ln"]').find((r) => r.checked);
       if (!picked) return toast(`Choose which ${card.label.toLowerCase()} you're nearest to.`);
-      const lineId = picked.value;
       const match = (s.qa('input[name="ln-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
-      this.addStep("matching", { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines }, { lineId, match });
+      this.addStep("matching",
+        { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines, source: sourced ? "osm" : "drawn" },
+        { lineId: picked.value, match });
       s.close();
       toast("Matching question added.");
     };
@@ -1575,7 +1682,7 @@ export class Layers {
   // single hand-marked point if none are found nearby).
   async _measurePoints(card, s) {
     s.q("#m-status").innerHTML = `
-      <label class="fieldlbl">Reference ${escapeHtml(card.label.toLowerCase())}s</label>
+      <label class="fieldlbl">Reference ${escapeHtml(pluralLabel(card.label).toLowerCase())}</label>
       <div class="row">
         <button id="m-auto" class="btn btn-primary">🔍 Auto-find nearby</button>
         <button id="m-manual" class="btn">✋ Place my own</button>
@@ -1654,17 +1761,22 @@ export class Layers {
   }
 
   // "Use the real one, or draw it?" for a lineKind card. Resolves "auto" | "draw" | null.
-  _lineSourceSheet(card) {
-    const label = card.label.toLowerCase();
+  //
+  // `many` is set by the Matching card, which asks about a SET of lines ("which are you nearest
+  // to") where Measuring asks about one reference ("how far are you from the coastline"). Same
+  // choice, same default, different grammar — the wording is not decoration here, it is what
+  // tells the player whether they are about to draw one line or several.
+  _lineSourceSheet(card, { many = false } = {}) {
+    const label = (many ? pluralLabel(card.label) : card.label).toLowerCase();
     return new Promise((resolve) => {
       let out = null;
       const s = openSheet({
         title: card.label,
         bodyHTML: `
-          <p class="muted">This question needs a line, not a point.</p>
+          <p class="muted">This question needs ${many ? "lines" : "a line"}, not ${many ? "points" : "a point"}.</p>
           <div class="seg" role="radiogroup">
             <label><input type="radio" name="ls-how" value="auto" checked/> Use the real ${label} — looked up automatically</label>
-            <label><input type="radio" name="ls-how" value="draw"/> Draw it myself — tap along it, point by point</label>
+            <label><input type="radio" name="ls-how" value="draw"/> Draw ${many ? "them" : "it"} myself — tap along ${many ? "each one" : "it"}, point by point</label>
           </div>
           <div class="sheet-actions"><button id="ls-cancel" class="btn btn-ghost">Cancel</button><button id="ls-go" class="btn btn-primary">Continue</button></div>`,
         onClose: () => resolve(out),

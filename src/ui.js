@@ -223,6 +223,28 @@ export function promptText({ title, label = "", value = "", placeholder = "", ct
   });
 }
 
+// Plural form of a card label, for "tick the {things} that count" copy.
+//
+// Card labels are inconsistent BY DESIGN: the Tentacles cards are already plural ("Museums",
+// "Libraries") because the card reads as a set, while the Matching and Measuring cards are
+// singular ("Museum", "Golf Course") because they read as one thing. The sheets appended "s"
+// to whatever they were given, which was right for half the deck and gave "museumss" for the
+// other half. Custom library categories are user-named, so they can be either.
+//
+// Deliberately shallow: it decides "does this already end in a plural s", and otherwise applies
+// the two rules that cover the deck (consonant + y -> -ies, sibilant -> -es). This is NOT a
+// general English pluraliser and should not grow into one — a label needing an irregular plural
+// should carry an explicit one on the card instead.
+export function pluralLabel(label) {
+  const s = String(label ?? "").trim();
+  if (!s) return s;
+  // Already plural: "Museums", "Libraries", "Metro Lines". "Landmass" is not — hence the ss.
+  if (/[^s]s$/i.test(s)) return s;
+  if (/[^aeiou]y$/i.test(s)) return `${s.slice(0, -1)}ies`;
+  if (/(s|x|z|ch|sh)$/i.test(s)) return `${s}es`;
+  return `${s}s`;
+}
+
 export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])

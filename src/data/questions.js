@@ -40,11 +40,26 @@ export function findTentacle(id) {
 // Each card has a `mode`:
 //   nearest     — nearest-of-a-category (Voronoi over Google Places points).
 //   nameLength  — nearest transit station, grouped by name letter-count.
-//   nearestLine — nearest of several lines/paths you draw (no Google geometry).
+//   nearestLine — nearest of several lines/paths, sourced from OSM where the card names a
+//                 `lineKind` and hand-drawn otherwise (Google exposes no line geometry).
 //   region      — which drawn region (admin division / landmass) you're inside.
+//
+// `lineKind` on a nearestLine card is `rail`, NOT `metro`, and the difference is measured
+// (1,753 km² Mumbai Metropolitan board, 2026-07-18):
+//   metro -> 9 lines, every one real, but no Western/Central/Harbour — the suburban locals
+//            that ARE the answer to this card in Mumbai. A card that cannot name the right
+//            line is worse than one that offers too many.
+//   rail  -> 44, including those locals and ~26 intercity services passing through.
+// Both are `route=train` — Western Line and Rajdhani Express carry the same route tag — so the
+// mode filter cannot split them, and they share physical track, so a seed on those rails
+// belongs to both. The board's 🚄 rail filter is what makes the set answerable; the flow
+// refuses rather than presenting an unfiltered mainline query (layers.js MATCH_LINE_LIMIT).
+//
+// `street` gets no lineKind on purpose: a board has thousands of streets and no OSM query
+// narrows them to a set two players could both name. That one stays hand-drawn.
 export const MATCHING = [
   { id: "airport", label: "Commercial Airport", mode: "nearest", type: "airport" },
-  { id: "transit_line", label: "Transit Line", mode: "nearestLine" },
+  { id: "transit_line", label: "Transit Line", mode: "nearestLine", lineKind: "rail" },
   { id: "name_length", label: "Station's Name Length", mode: "nameLength", type: "transit_station" },
   { id: "street", label: "Street or Path", mode: "nearestLine" },
   { id: "admin1", label: "1st Admin. Division", mode: "region" },
