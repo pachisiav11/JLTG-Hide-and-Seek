@@ -16,6 +16,7 @@ suite where stated.
 | **C1-4** | A coastline question costs ~3.9 s per elimination, uncached, per render | **6,948 ms** per drag event | `tools.js:measuring` | high | open |
 | **C1-5** | A failed union mid-fold discards everything folded so far | wrong elimination | `tools.js:310,567` | high | **fixed** |
 | **C1-6** | Client-side proxy fetches have no timeout | UI stall | `lines.js:323,443` | medium | open |
+| **C1-7** | An unreadable answer produced a confident WRONG elimination | 369.5 km² from no answer | `tools.js` radar/thermo/measuring | high | **fixed** |
 
 ---
 
@@ -183,6 +184,86 @@ rather than failing to the stale-cache path the ladder was built for.
 **Not yet fixed, and not yet measured.** The claim is verified by reading; the failure has not
 been reproduced against a deliberately hung proxy, so the "1–2 minutes" figure is the browser
 default rather than something observed here. Carried into cycle 2.
+
+## C1-7. An unreadable answer produced a confident wrong elimination
+
+Found during the game tests, by feeding a thermometer step the wrong answer key and noticing the
+board still lost a specific half.
+
+`side === "hotter" ? A : B` treats every unrecognised value — undefined, a renamed key, a future
+schema's wording — as a vote for B. Measured live on the 628.6 km² board:
+
+```
+answer {side:"hotter"}   eliminates 259.2 km2
+answer {side:"colder"}   eliminates 369.5 km2    259.2 + 369.5 = 628.7, complementary
+answer {}                eliminates 369.5 km2    <- the full colder half, from no answer
+answer {side:"banana"}   eliminates 369.5 km2    <- same
+```
+
+`describeStep` then labelled it "colder (→A)", so the questions panel **agreed with** the wrong
+elimination rather than exposing it. The seeker has no way to notice: the map shades, the panel
+explains the shading, and both are wrong together.
+
+Reachable the same way C1-3 was — `validateGame` checks that a step names a known tool
+(`model.js:106`), never that its answer is readable, so an imported board carries whatever it
+carries. Three tools shared the shape: `radar`, `thermometer`, and `measuring`'s buffer path.
+
+**Fix.** One shared `readSide(step, allowed)`; an unrecognised side eliminates nothing and warns,
+which is the contribution an unanswered step already makes elsewhere (`tentacles` does this when
+`featureIndex == null`). The labels now read "unanswered" instead of asserting the else-branch.
+`measuring`'s region mode answers with `inside`, not `side`, and is deliberately left alone —
+pinned by a test so a later tidy-up does not "helpfully" include it.
+
+Verified live, same board: missing and bogus now eliminate 0 km², real answers unchanged at
+259.2 / 369.5, and the label reads `Thermometer · unanswered`.
+
+---
+
+## The two game tests
+
+Both on live Mumbai boards against the local proxy and real Google Places. Numbers, not
+assertions — several of the findings above came out of these rather than out of reading.
+
+### Game 1 — MMR board, 1,245.5 km²
+
+| tool | eliminated | active left | ms | check |
+|---|---|---|---|---|
+| radar 5 km IN | 1,167.1 | 78.4 | 54.7 | πr² = 78.54 → **0.2% off** |
+| radar 5 km OUT | 78.4 | 1,167.1 | 39.7 | IN+OUT = 1,245.5 = **board exactly** |
+| thermometer warmer | 889.5 | 356.0 | 14.8 | |
+| tentacles nearest=A | 1,238.9 | 6.6 | 86.7 | |
+| tentacles NONE | 12.5 | 1,233.0 | 65.6 | 3 clipped 2 km discs |
+| matching region INSIDE | 982.6 | 262.9 | 11.7 | = the traced ring |
+| coastline within 3 km | 613.7 | 631.8 | **12,133** | 98 parts, 5,320 vertices |
+| coastline beyond 3 km | 631.8 | 613.7 | **12,427** | within+beyond = **board exactly** |
+| border level 2 | — | — | — | `null` — no international border crosses Mumbai, a real answer |
+
+The coastline numbers are C1-4. Every partition that should have been complementary was, to
+within 0.1 km².
+
+### Game 2 — Mumbai city board, 628.6 km²
+
+| tool | result | ms |
+|---|---|---|
+| 2 overlapping zones | union 628.6 < sum 687.1 — **overlap counted once** | 20.8 |
+| removeZone | rebuilt to 336.7 = the remaining zone exactly | 5.4 |
+| rail filter, unfiltered | 35 lines | 4,005 (cold fetch) |
+| rail filter, hide `train` | 8 lines, 27 hidden | 16.3 |
+| rail filter, hide to 3 | Green Line, Line 1, Line 2 | — |
+| matching nearestLine (3 sourced) | 508.9 active | 1,782 |
+| undo | → 508.9, redoStack 1 | 1,491 |
+| redo | → 50.2, **exactly the pre-undo area**, redoStack 0 | 1,462 |
+| export → import | 175.3 KB, fresh id, same steps, same area | 10 / 10 |
+| resolveBoardDivisions | India, levels [4, 5] | **19,025** (cold, per board) |
+| division note (warm) | 333 chars, correct India wording | 11 |
+| thermometer hotter/colder | 259.2 + 369.5 = 628.7 = **board** | — |
+
+Note the rail filter on this board: hiding `train` leaves exactly **8**, which is *at* the
+limit and would pass — where the MMR board's 9 would not. That is C1-2 restated with a second
+data point, and is why the default was not adopted.
+
+`resolveBoardDivisions` at 19 s confirms P1's cost is per-board and paid again on every new
+board. P1's fix is what keeps the sheet usable through it.
 
 ---
 

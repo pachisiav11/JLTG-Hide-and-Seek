@@ -45,6 +45,26 @@ function safeUnion(a, b) {
   } catch (e) { console.warn("union failed", e); return null; }
 }
 
+// An answer this tool does not recognise must eliminate NOTHING, and must say so.
+//
+// `side === "in" ? A : B` treats every unrecognised value — undefined, a renamed key, a future
+// schema's wording — as a confident vote for B. Measured on a live board, a thermometer step
+// with no `side` eliminated 369.5 km² of a 628.6 km² board: the full "colder" half, asserted
+// from an answer nobody gave. `describeStep` then labels it "colder (→A)" to match, so the UI
+// agrees with the wrong elimination rather than exposing it.
+//
+// This is reachable the same way C1-3 was: `validateGame` checks that a step names a known
+// tool, never that its answer is readable, so an imported board carries whatever it carries.
+//
+// Returning null is the same contribution an unanswered step already makes elsewhere
+// (`tentacles` does this when `featureIndex == null`), so nothing downstream needs to change.
+function readSide(step, allowed) {
+  const side = step.answer?.side;
+  if (allowed.includes(side)) return side;
+  console.warn(`Step ${step.id} (${step.tool}): unrecognised answer side ${JSON.stringify(side)} — eliminating nothing rather than guessing.`);
+  return null;
+}
+
 // Fold many geometries into one, WITHOUT letting a single failure discard the fold.
 //
 // `union = union ? safeUnion(union, c) : c` reads correctly and is wrong, because safeUnion
@@ -76,10 +96,12 @@ export function unionAll(geoms, unionFn = safeUnion) {
 // --- Radar: centre + radius circle ---------------------------------------
 function radar(step, gameArea) {
   const { center, radius } = step.inputs;      // radius in metres
-  const side = step.answer?.side;               // "in" (Yes) | "out" (No)
+  const side = readSide(step, ["in", "out"]); // "in" (Yes) | "out" (No)
   const circle = T().circle([center.lng, center.lat], radius / 1000, { units: "kilometers", steps: 72 });
   let eliminated = null;
-  if (gameArea) {
+  if (side === null) {
+    // no elimination, but still draw the circle — the seeker can see the question they asked
+  } else if (gameArea) {
     eliminated = side === "in"
       ? safeDiff(gameArea, circle)      // inside → remove everything outside the circle
       : safeIntersect(circle, gameArea); // outside → remove the circle
@@ -98,7 +120,8 @@ function radar(step, gameArea) {
 // comparable to a city-sized play area, which is wrong (see git history).
 function thermometer(step, gameArea) {
   const { a, b } = step.inputs;
-  const side = step.answer?.side;               // "hotter" (closer to B) | "colder"
+  const side = readSide(step, ["hotter", "colder"]); // "hotter" (closer to B) | "colder"
+  if (side === null) return { eliminated: null, guides: [] };
   const lat0 = ((a.lat + b.lat) / 2) * Math.PI / 180;
   const k = Math.cos(lat0) || 1e-6;             // longitude compression
   const unproj = (x, y) => [x / k, y];          // back to [lng, lat]
@@ -702,7 +725,11 @@ function measuring(step, gameArea) {
   if (!buffer || !gameArea) return { eliminated: null, guides };
   for (const r of geojsonRings(buffer)) guides.push({ type: "outline", ring: r });
 
-  const eliminated = side === "in" ? safeDiff(gameArea, buffer) : safeIntersect(buffer, gameArea);
+  // Validated here rather than at the top: the region branch above answers with `inside`, not
+  // `side`, and must not be refused for lacking a field it never uses.
+  const checked = readSide(step, ["in", "out"]);
+  if (checked === null) return { eliminated: null, guides };
+  const eliminated = checked === "in" ? safeDiff(gameArea, buffer) : safeIntersect(buffer, gameArea);
   return { eliminated, guides };
 }
 
@@ -765,10 +792,15 @@ export function describeStep(step) {
   if (step.tool === "radar") {
     const r = step.inputs.radius;
     const rTxt = r >= 1000 ? `${(r / 1000).toFixed(r % 1000 ? 1 : 0)} km` : `${Math.round(r)} m`;
-    return `Radar · ${rTxt} · ${step.answer?.side === "in" ? "inside (Yes)" : "outside (No)"}`;
+    // An unreadable answer eliminates nothing (see readSide), so the label must not claim the
+    // else-branch happened — that is how the panel came to agree with a wrong elimination.
+    const rs = step.answer?.side;
+    const rTxtSide = rs === "in" ? "inside (Yes)" : rs === "out" ? "outside (No)" : "unanswered";
+    return `Radar · ${rTxt} · ${rTxtSide}`;
   }
   if (step.tool === "thermometer") {
-    return `Thermometer · ${step.answer?.side === "hotter" ? "hotter (→B)" : "colder (→A)"}`;
+    const ts = step.answer?.side;
+    return `Thermometer · ${ts === "hotter" ? "hotter (→B)" : ts === "colder" ? "colder (→A)" : "unanswered"}`;
   }
   if (step.tool === "matching") {
     const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
@@ -803,8 +835,9 @@ export function describeStep(step) {
     }
     const d = step.inputs.distance;
     const dTxt = d >= 1000 ? `${(d / 1000).toFixed(d % 1000 ? 1 : 0)} km` : `${Math.round(d)} m`;
-    const rel = step.answer?.side === "in" ? "within" : "beyond";
-    return `Measuring · ${rel} ${dTxt} of ${ref}`;
+    const ms = step.answer?.side;
+    if (ms !== "in" && ms !== "out") return `Measuring · ${dTxt} of ${ref} · unanswered`;
+    return `Measuring · ${ms === "in" ? "within" : "beyond"} ${dTxt} of ${ref}`;
   }
   return step.tool;
 }
