@@ -156,6 +156,15 @@ export function boardBbox(gameArea, padFrac = 0.1) {
   return `${s},${w},${n},${e}`;
 }
 
+// The board's centre as [lat, lon], for the division lookup. turf.center is the bbox centre,
+// which is what we want: the division question is about the board, not its centre of mass.
+export function boardCentre(gameArea) {
+  const turf = window.turf;
+  if (!gameArea || !turf) return [NaN, NaN];
+  const bb = turf.bbox(turf.feature(gameArea)); // [W,S,E,N]
+  return [(bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2];
+}
+
 // Bump whenever the /overpass/lines payload SHAPE changes. Without this the key is just
 // kind+level+bbox, so a deploy that changes the shape keeps serving 30-day-cached entries in
 // the OLD shape to new code — and the failure is silent, because the JSON still parses and
@@ -286,20 +295,77 @@ export async function candidateLines(kind, gameArea, center, radius, { game = nu
 // Returns null when the board yields no geometry, which is a real answer, not a failure:
 // `border&level=2` over Mumbai correctly returns zero (no international border crosses it).
 // The caller must tell that apart from an outage — hence null vs throw.
-export async function lineGeometry(kind, gameArea, { level = null } = {}) {
+// What country a point is in, and its FIXED per-ordinal division levels (overpass-lines.js:
+// COUNTRY_DIVISION_LEVELS) — cached like the line payloads. Coordinates are rounded to 2dp
+// (~1 km) for the cache key: which country a point is in doesn't change across a city block,
+// and an exact-coordinate key would miss on every board whose centre moved by a metre.
+export async function loadCountryDivisions(lat, lon, { proxyBase = null, now = Date.now(), dbImpl = db } = {}) {
+  const key = `divisions|${lat.toFixed(2)}|${lon.toFixed(2)}`;
+  let cached = null;
+  try { cached = await dbImpl.get("lines", key); } catch { /* IndexedDB unavailable — network only */ }
+  if (cached && now - cached.fetchedAt < TTL_MS) return cached.data;
+  if (!proxyBase) {
+    if (cached) return cached.data;
+    throw new Error("No Overpass proxy configured (set OVERPASS_PROXY_URL in config.js).");
+  }
+  const url = new URL(proxyBase.replace(/\/+$/, "") + "/overpass/divisions");
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lon));
+  try {
+    const resp = await fetch(url.toString());
+    if (!resp.ok) throw new Error(`Divisions proxy HTTP ${resp.status}`);
+    const data = await resp.json();
+    try { await dbImpl.put("lines", { key, kind: "divisions", fetchedAt: now, data }); } catch { /* over quota */ }
+    return data;
+  } catch (err) {
+    // Stale beats nothing outdoors, for the same reason loadLines falls back.
+    if (cached) return cached.data;
+    throw err;
+  }
+}
+
+// `level` names an exact admin_level (only level 2, the international border, is safe to name
+// this way). `divisionOrdinal` asks for "the Nth division, nationwide" and resolves against
+// the country's FIXED level table — never derived per board. A per-board derivation was tried
+// first and rejected: a Matching card asks whether two players are in the SAME division, which
+// only makes sense if both are comparing the same kind of boundary everywhere in the country,
+// including wherever a hider could be standing.
+//
+// Returns null (never a wrong or inconsistent border) when there is no such division: a
+// Mumbai-sized board sits inside ONE state, so its "1st division border" genuinely does not
+// exist on this board; a country outside the measured 44, or an ordinal beyond what that
+// country has nationwide-consistent (the UK's 2nd division; the Philippines' 1st), has no
+// entry in COUNTRY_DIVISION_LEVELS at all — by design, not by omission.
+export async function lineGeometry(kind, gameArea, { level = null, divisionOrdinal = null } = {}) {
   const bbox = boardBbox(gameArea);
   if (!bbox) return null;
   const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
+  let division = null;
+  if (divisionOrdinal != null) {
+    const { country, levels } = await loadCountryDivisions(...boardCentre(gameArea), { proxyBase });
+    const resolvedLevel = levels?.[divisionOrdinal - 1] ?? null;
+    if (resolvedLevel == null) return null;
+    division = { ordinal: divisionOrdinal, level: resolvedLevel, country };
+    level = resolvedLevel;
+  }
   const data = await loadLines(kind, bbox, { level, proxyBase });
   const coordinates = [];
   for (const coords of Object.values(data.ways || {})) {
     if (Array.isArray(coords) && coords.length >= 2) coordinates.push(coords.map(([lat, lng]) => [lng, lat]));
   }
   if (!coordinates.length) return null;
+  if (division) {
+    // The country table only fixes the LEVEL; the card should still say what it resolved to,
+    // so a player can see the boundary is the one the question implies — the names of the
+    // ways actually matched, not a lookup-table label.
+    const names = [...new Set((data.lines || []).map((l) => l.name).filter(Boolean))];
+    division = { ...division, names };
+  }
   return {
     geometry: { type: "MultiLineString", coordinates },
     from: data.from,
     counts: data.counts,
+    division,
   };
 }
 

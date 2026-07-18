@@ -1628,7 +1628,10 @@ export class Layers {
     toast(`Finding the ${card.label.toLowerCase()}…`);
     try {
       const { lineGeometry } = await import("./lines.js");
-      const out = await lineGeometry(card.lineKind, g.gameArea, { level: card.level ?? null });
+      const out = await lineGeometry(card.lineKind, g.gameArea, {
+        level: card.level ?? null,
+        divisionOrdinal: card.divisionOrdinal ?? null,
+      });
       // null is a real answer, not a failure: no international border crosses a Mumbai board.
       // Saying "none here" and letting them draw is honest; a bare draw prompt would imply
       // the lookup never happened.
@@ -1637,6 +1640,9 @@ export class Layers {
         return null;
       }
       if (out.from === "cache-stale") toast(`Using an offline copy of the ${card.label.toLowerCase()}.`);
+      // §5.6.1: the level is a nationwide constant, but which named area it resolves to on
+      // THIS board is still worth showing — it's what confirms the question is well-posed.
+      if (out.division?.names?.length) toast(`${card.label}: ${out.division.names.join(", ")}.`);
       return {
         refType: "line", refLabel: card.label, refSource: "osm",
         refGeometry: out.geometry,

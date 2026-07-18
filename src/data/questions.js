@@ -90,23 +90,40 @@ export function findMatching(id) {
 // is right everywhere — no per-city tuning, so no board gets an advantage:
 //   coastline    — natural=coastline is a single unambiguous tag worldwide.
 //   intl_border  — admin_level=2 is the international border by definition.
-//   admin1_border— admin_level=4 measured as the 1st division in 14/14 countries sampled.
+//   admin1_border— `divisionOrdinal: 1`, NOT a fixed admin_level in the code, but a FIXED
+//                  level per country in practice (overpass-lines.js: COUNTRY_DIVISION_LEVELS).
+//                  A per-board derivation was tried first and rejected: a Matching card asks
+//                  whether two players are in the SAME division, which is only well-posed if
+//                  both are comparing the same kind of boundary — including wherever a hider
+//                  could be standing. Measured 2026-07-19 by territorial COVERAGE (a 5×5 grid
+//                  per country, not city centres): level 4 has < 100% coverage in Singapore
+//                  (1st division is 5), Portugal (6), Ireland (5), and the Philippines has no
+//                  consistent 1st division at all (Zamboanga City sits outside any province).
 //   hs_train     — way[railway=rail][highspeed=yes] measured in 9/9 networks (LGV, AVE,
 //                  Shinkansen, ICE, China, Italy, KTX, THSR, HS1). See overpass-lines.js:
 //                  RELATION-level highspeed tagging is inconsistent (2/4), but this card
 //                  asks distance to the nearest high-speed line, not which one, so it never
 //                  needs the relations.
-// Deliberately NOT set (it stays hand-drawn, and the card says so rather than guessing):
-//   admin2_border— the 2nd division has NO fixed admin_level (it is 5 in some countries,
-//                  6 in others, 8 elsewhere). Picking one would be silently wrong in every
-//                  country it didn't match — the §A failure mode, worldwide.
+//   admin2_border— `divisionOrdinal: 2`. This used to be hand-drawn because no fixed level
+//                  looked safe (5, 6, 7 and 8 all occur). The coverage measurement resolves
+//                  it per country instead of per board: Japan's 2nd division is level 7
+//                  (municipality) EVERYWHERE, including Hokkaido — Shintoku, a Hokkaido town,
+//                  is level 7, the same tier as Tokyo's wards. Level 5 (subprefecture) only
+//                  covered 29% of the country — it is Hokkaido-only — so it is correctly
+//                  excluded even though it is the level Sapporo itself returns.
+//
+// Both border cards resolve to null rather than to a wrong or inconsistent border when there
+// is no such division: a city-sized board sits inside one state, so its 1st-division border
+// genuinely does not exist on it; a country outside the measured 44, or an ordinal beyond
+// what that country has nationwide-consistent (the UK's 2nd division), has no table entry at
+// all. Either way the card falls back to hand-drawing, HAVING SAID SO.
 export const MEASURING = [
   { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
   { id: "hs_train", label: "High Speed Train Line", ref: "line", lineKind: "highspeed" },
   { id: "rail_station", label: "Rail Station", ref: "points", type: "train_station" },
   { id: "intl_border", label: "International Border", ref: "line", lineKind: "border", level: 2 },
-  { id: "admin1_border", label: "1st Admin. Division Border", ref: "line", lineKind: "border", level: 4 },
-  { id: "admin2_border", label: "2nd Admin. Division Border", ref: "line" },
+  { id: "admin1_border", label: "1st Admin. Division Border", ref: "line", lineKind: "border", divisionOrdinal: 1 },
+  { id: "admin2_border", label: "2nd Admin. Division Border", ref: "line", lineKind: "border", divisionOrdinal: 2 },
   { id: "sea_level", label: "Sea Level", ref: "region" },
   { id: "water", label: "Body of Water", ref: "area" },
   { id: "coastline", label: "Coastline", ref: "line", lineKind: "coastline" },
