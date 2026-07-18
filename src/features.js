@@ -13,8 +13,12 @@ export class MapFeatures {
     this.dir = { service: null, renderer: null };
     this.matrix = null;
     this.measure = { active: false, pts: [], markers: [], line: null };
-    // True while a draw/pick flow owns the map click (see init).
-    this._mapClaimed = false;
+    // How many draw/pick flows currently own the map click (see init). A COUNTER, not a flag:
+    // with a boolean, a nested flow releasing would hand taps back to measure mode while the
+    // outer flow was still drawing — the exact bug the claim exists to prevent, reappearing
+    // only when nested and therefore very hard to attribute. No path nests today; this removes
+    // the need to keep proving that.
+    this._claims = 0;
   }
 
   async init() {
@@ -39,12 +43,15 @@ export class MapFeatures {
     // measuring resumes on the next tap once the flow ends.
     this.map.addListener("click", (e) => this._onClick(e.latLng));
     window.addEventListener("jltg:mapclaim", () => {
-      this._mapClaimed = true;
+      this._claims++;
       // Drop any half-finished measurement: its pins would otherwise sit under the outline
       // being drawn, unexplained and un-clearable without leaving the flow.
       if (this.measure.active && this.measure.pts.length) this._clearMeasure();
     });
-    window.addEventListener("jltg:maprelease", () => { this._mapClaimed = false; });
+    // Clamped at zero: an unmatched release (a flow that releases twice, or a release with no
+    // claim) must not drive the count negative, because a later real claim would then not
+    // reach 1 and measure mode would keep eating the flow's taps.
+    window.addEventListener("jltg:maprelease", () => { this._claims = Math.max(0, this._claims - 1); });
     // Long-press / right-click → context menu with location actions.
     this.map.addListener("contextmenu", (e) => this._onContextMenu(e));
   }
@@ -141,7 +148,7 @@ export class MapFeatures {
 
   _onClick(latLng) {
     if (!this.measure.active) return;
-    if (this._mapClaimed) return; // a draw / pick flow owns this tap
+    if (this._claims > 0) return; // a draw / pick flow owns this tap
     if (this.measure.pts.length >= 2) this._clearMeasure();
     const idx = this.measure.pts.length;
     this.measure.pts.push(latLng.toJSON());

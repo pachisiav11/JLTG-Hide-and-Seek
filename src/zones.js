@@ -153,8 +153,12 @@ export class Zones {
     store.update((g) => {
       g.zones.push(zone);
       const { ok, area } = Zones._fold(g.zones);
-      if (ok) g.gameArea = area;
-      else { g.zones.pop(); merged = false; }
+      if (ok) { g.gameArea = area; return; }
+      // Put the board back exactly as it was, and say so — a refused zone leaves the record
+      // byte-identical, so writing and re-rendering it would be pure waste.
+      g.zones.pop();
+      merged = false;
+      return false;
     });
     if (!merged) {
       toast(`Couldn’t merge “${zone.name}” into the play area, so it wasn’t added. The existing zones are unchanged.`);
@@ -177,7 +181,7 @@ export class Zones {
     store.update((g) => {
       const kept = g.zones.filter((z) => z.id !== id);
       const { ok, area } = Zones._fold(kept);
-      if (!ok) { rebuilt = false; return; }
+      if (!ok) { rebuilt = false; return false; } // nothing was touched — see store.update
       g.zones = kept;
       g.gameArea = area;
     });

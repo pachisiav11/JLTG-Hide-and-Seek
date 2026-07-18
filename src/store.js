@@ -45,9 +45,20 @@ export function scheduleSave() {
 }
 
 // Mutate the current game via a callback, then autosave + notify.
+//
+// A mutator that returns exactly `false` reports "I changed nothing", and the save and the
+// re-render are both skipped. Some mutators are decided *inside* the callback — `addZone`
+// pushes a zone, discovers the union failed, and pops it again; `removeZone` returns early
+// when the remaining zones will not fold. Those left the game byte-identical and still cost a
+// full game write and a full re-render.
+//
+// `=== false` and not a falsy test, on purpose: every existing mutator returns undefined, and
+// a mutator that happens to end in an expression evaluating to 0 or "" must not silently stop
+// persisting the change it just made.
 export function update(mutator) {
   if (!current) return;
-  mutator(current);
+  const changed = mutator(current);
+  if (changed === false) return;
   scheduleSave();
   emit();
 }
