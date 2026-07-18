@@ -385,8 +385,14 @@ export async function candidateLines(kind, gameArea, center, radius, { game = nu
 
   const turf = window.turf;
   const from = turf.point([center.lng, center.lat]);
+  // Matching asks about the WHOLE board and passes Infinity. Every line then passes the
+  // `best <= radius` test, so the distances are computed only to be discarded — 213 ms of the
+  // 220 ms this function took on the MMR board (2,109 paths, 24,545 vertices). Skip the loop
+  // entirely in that case; there is no distance to order by, so order by label instead.
+  const unbounded = !Number.isFinite(radius);
   const within = [];
   for (const l of grouped) {
+    if (unbounded) { within.push({ ...l, distance: null }); continue; }
     // The card asks about lines "within R of me", so a line is a candidate iff any part of it
     // comes within R — measured to the LINE, not to a station on it.
     let best = Infinity;
@@ -399,7 +405,9 @@ export async function candidateLines(kind, gameArea, center, radius, { game = nu
 
   const filter = railFilter(game || store.getCurrent());
   const lines = within.filter((l) => isLineVisible(l, filter));
-  lines.sort((a, b) => a.distance - b.distance);
+  // `numeric` so "Line 2" sorts before "Line 10" rather than after it.
+  if (unbounded) lines.sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }));
+  else lines.sort((a, b) => a.distance - b.distance);
   return { lines, hidden: within.length - lines.length };
 }
 

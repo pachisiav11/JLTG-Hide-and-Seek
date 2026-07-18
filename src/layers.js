@@ -1426,7 +1426,14 @@ export class Layers {
     // boundary answers a DIFFERENT question from the one the card will draw, and nothing said
     // so. This is a note, not a block: the helper is still useful when they agree, and a player
     // who knows the boundary is approximate can still trace it deliberately.
-    const note = await this._divisionDefinitionNote(card);
+    //
+    // Deliberately NOT awaited here. `_divisionDefinitionNote` fires 25 grid probes at
+    // /overpass/divisions, which on a cold board measured 37.8 s — half a minute of a Hide &
+    // Seek clock during which the sheet did not render at all. It is advisory: nothing the
+    // player can do in this sheet depends on it, and it already returns "" on failure, so an
+    // empty slot is a state the markup handles. Start it now, render immediately, inject on
+    // arrival — and if the player has closed the sheet by then, drop it.
+    const notePromise = this._divisionDefinitionNote(card).catch(() => "");
 
     const active = new Set(); // "feature|placeId"
     const clearAll = () => {
@@ -1442,7 +1449,7 @@ export class Layers {
         title: "Trace division boundaries",
         bodyHTML: `
           <p class="muted">Toggle the official boundary of the division you're in to trace over it, then start drawing. Needs boundary FeatureLayers enabled on your Map ID — if a toggle shows nothing on the map, they aren't enabled.</p>
-          ${note}
+          <div id="at-note"></div>
           <div class="seg feat-list">${rows}</div>
           <div class="sheet-actions">
             <button id="at-skip" class="btn btn-ghost">Skip</button>
@@ -1461,6 +1468,13 @@ export class Layers {
       });
       s.q("#at-skip").onclick = () => { clearAll(); s.close(); done(() => {}); };
       s.q("#at-draw").onclick = () => { s.close(); done(clearAll); };
+      // The sheet is already interactive; fill the note slot whenever the probes finish.
+      // `settled` is true once the sheet has closed, in which case there is nothing to fill.
+      notePromise.then((note) => {
+        if (settled || !note) return;
+        const slot = s.q("#at-note");
+        if (slot) slot.innerHTML = note; // built by _divisionDefinitionNote, already escaped
+      });
     });
   }
 
