@@ -708,6 +708,9 @@ const BUFFER_SIMPLIFY_TOLERANCE = 5e-4;
 const _bufferCache = new WeakMap(); // geometry -> Map(meters -> buffered geometry | null)
 // buffer -> WeakMap(gameArea -> Map(side -> eliminated)). See the note at its use in measuring().
 const _clipCache = new WeakMap();
+// The last fold computeActiveArea performed: { gameArea, geoms, result }. Single-entry on
+// purpose — see the note at its use.
+let _activeMemo = null;
 
 function bufferGeometry(geom, meters) {
   if (!geom || typeof geom !== "object") return null;
@@ -823,6 +826,27 @@ export function computeActiveArea(gameArea, steps, onFail) {
     if (eliminated) elims.push({ id: s.id, geom: eliminated });
   }
   if (!elims.length) return gameArea;
+
+  // The per-step eliminations are memoised, so a render that changed nothing relevant hands us
+  // the SAME geometry objects as the last one — and the fold below, plus the final difference,
+  // was redone against them every time. `computeActiveArea` runs on every `emit`, and `emit`
+  // runs on every `store.update`, so this is once per drag event.
+  //
+  // A single-entry memo, not a map: the caller is a render loop asking the same question
+  // repeatedly, and the previous board is of no interest once it changes. Compared by identity
+  // in order — a reordered or toggled step is a different fold and must miss.
+  //
+  // `onFail` is deliberately NOT replayed on a hit. It reports failures discovered while folding,
+  // and on a hit no folding happened; the caller already surfaced them on the miss that
+  // populated this entry, and re-reporting would re-flag steps the user has already been told
+  // about on every subsequent frame.
+  if (_activeMemo
+    && _activeMemo.gameArea === gameArea
+    && _activeMemo.geoms.length === elims.length
+    && _activeMemo.geoms.every((g, i) => g === elims[i].geom)) {
+    return _activeMemo.result;
+  }
+
   let removed = elims[0].geom;
   for (let i = 1; i < elims.length; i++) {
     const merged = safeUnion(removed, elims[i].geom);
@@ -840,7 +864,9 @@ export function computeActiveArea(gameArea, steps, onFail) {
   }
   // EMPTY_AREA (not null) when the eliminations cover everything, so the caller can
   // shade the whole board instead of falling back to it and showing a fresh game.
-  return diffActive(gameArea, removed);
+  const result = diffActive(gameArea, removed);
+  _activeMemo = { gameArea, geoms: elims.map((e) => e.geom), result };
+  return result;
 }
 
 // Short human-readable summary for the layers list.
