@@ -122,12 +122,40 @@ export class Zones {
   }
 
   // ---- Add / remove ----
+
+  // Fold a zone list into the play area, refusing to let a FAILED union read as "no zones".
+  //
+  // unionRings returns null for both — "there is nothing to union" and "turf could not union
+  // these" — and assigning that straight to g.gameArea deleted the board. Everything
+  // downstream is guarded on `g.gameArea` being truthy (layers.js:256 skips every guide;
+  // computeActiveArea returns null), so the map goes blank, every question stops computing,
+  // and nothing says why. addZone even toasted `Added "X"` on the way out, because
+  // areaSummary(null) is null and the message falls back to the no-size wording.
+  //
+  // An empty zone list is the one case where a null area is the truth.
+  static _fold(zones) {
+    const rings = (zones || []).map((z) => z.polygon);
+    if (!rings.length) return { ok: true, area: null };
+    const area = unionRings(rings);
+    return area ? { ok: true, area } : { ok: false, area: null };
+  }
+
   async addZone(name, ring, { toLibrary = false } = {}) {
     const zone = createZone({ name, polygon: ring });
+    // Refuse the ZONE rather than lose the BOARD. A zone that cannot be folded in is one
+    // shape; the alternative was discarding an assembled play area and every question
+    // standing on it, for the same bad input.
+    let merged = true;
     store.update((g) => {
       g.zones.push(zone);
-      g.gameArea = unionRings(g.zones.map((z) => z.polygon));
+      const { ok, area } = Zones._fold(g.zones);
+      if (ok) g.gameArea = area;
+      else { g.zones.pop(); merged = false; }
     });
+    if (!merged) {
+      toast(`Couldn’t merge “${zone.name}” into the play area, so it wasn’t added. The existing zones are unchanged.`);
+      return null;
+    }
     if (toLibrary) await this.saveToLibrary(zone);
     this.fitToArea();
     // Surface a size sanity-check for the assembled area (Phase 7).
@@ -137,11 +165,19 @@ export class Zones {
     return zone;
   }
 
+  // Removing the LAST zone legitimately empties the board — that is `_fold`'s ok/null case,
+  // and it still clears gameArea. What is refused is a union that fails on the zones that
+  // REMAIN: taking one zone away must not blank a board the other zones still describe.
   removeZone(id) {
+    let rebuilt = true;
     store.update((g) => {
-      g.zones = g.zones.filter((z) => z.id !== id);
-      g.gameArea = unionRings(g.zones.map((z) => z.polygon));
+      const kept = g.zones.filter((z) => z.id !== id);
+      const { ok, area } = Zones._fold(kept);
+      if (!ok) { rebuilt = false; return; }
+      g.zones = kept;
+      g.gameArea = area;
     });
+    if (!rebuilt) toast("Couldn’t rebuild the play area without that zone, so it was kept. Try removing a different one.");
   }
 
   // ---- Import (paste GeoJSON or coordinates) ----
@@ -155,15 +191,18 @@ export class Zones {
     // file zeroes the board's area exactly as a badly-tapped one does. Skip only the bad
     // rings and say which: refusing the whole paste over one bad polygon would throw away
     // the good ones, and importing it silently would be the failure this guard is for.
-    let skipped = 0, crossing = 0, added = 0;
+    let skipped = 0, crossing = 0, added = 0, unmerged = 0;
     for (const { name, ring } of parsed) {
       if (ringSelfIntersections(ring)) { skipped++; continue; }
       if (ringCrossesAntimeridian(ring)) { crossing++; continue; }
-      await this.addZone(name || `Imported zone`, ring, { toLibrary: true });
-      added++;
+      // addZone now returns null when the union refused the zone — count it as skipped
+      // rather than added, or the paste reports a zone the board does not have.
+      if (await this.addZone(name || `Imported zone`, ring, { toLibrary: true })) added++;
+      else unmerged++;
     }
     if (skipped) toast(`Skipped ${skipped} self-crossing polygon${skipped === 1 ? "" : "s"} — ${skipped === 1 ? "it has" : "they have"} no clear inside.`);
     if (crossing) toast(`Skipped ${crossing} polygon${crossing === 1 ? "" : "s"} crossing the ±180° line — not supported yet.`);
+    if (unmerged) toast(`Skipped ${unmerged} polygon${unmerged === 1 ? "" : "s"} that couldn’t be merged into the play area.`);
     return added;
   }
 
