@@ -721,7 +721,14 @@ function bufferGeometry(geom, meters) {
   try {
     let input = feat(geom);
     if (featureVertexCount(input) > BUFFER_SIMPLIFY_THRESHOLD) {
-      // simplify is destructive on the original; passing a fresh feature is safest.
+      // The old comment here said "simplify is destructive on the original; passing a fresh
+      // feature is safest" — but `feat()` only WRAPS the geometry in a Feature, it does not copy
+      // the coordinates, so no fresh feature was ever being passed. The claim mattered enough to
+      // check once the memo above started keying on geometry identity: `turf.simplify` defaults
+      // to `mutate: false` and clones internally. Verified on a 1,124-vertex probe (above the
+      // threshold, so simplify really ran) — the stored geometry came back byte-identical.
+      //
+      // That immutability is what every memo in this file rests on. It is pinned by a test.
       input = T().simplify(input, { tolerance: BUFFER_SIMPLIFY_TOLERANCE, highQuality: false });
     }
     const b = T().buffer(input, meters, { units: "meters" });

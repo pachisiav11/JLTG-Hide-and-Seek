@@ -125,6 +125,28 @@ test("a malformed reference is contained by computeActiveArea, not left to blank
   assert.deepEqual(failed, [{ id: "c1", why: "compute" }], "the failure must be reported, not swallowed");
 });
 
+test("buffering does NOT mutate the stored geometry — the memo's load-bearing assumption", () => {
+  // Every memo added this session keys on geometry IDENTITY, which is only sound because stored
+  // geometry is never mutated in place. `bufferGeometry` is the one place that could break that:
+  // above BUFFER_SIMPLIFY_THRESHOLD it runs turf.simplify, and `feat()` only WRAPS the geometry
+  // in a Feature — it does not copy the coordinates. If simplify mutated its input, every cache
+  // hit afterwards would serve a buffer built from geometry the caller no longer has, and a
+  // partition would stop being reproducible for the life of the game.
+  //
+  // The threshold matters: the repo fixture is 281 vertices and never reaches simplify, so
+  // testing it alone proves nothing. This repeats the coastline to clear 500.
+  const repeated = { type: "MultiLineString", coordinates: [] };
+  for (let k = 0; k < 4; k++) {
+    for (const part of COAST.coordinates) repeated.coordinates.push(part.map(([x, y]) => [x + k * 0.001, y]));
+  }
+  const verts = repeated.coordinates.reduce((n, p) => n + p.length, 0);
+  assert.ok(verts > 500, `the probe must exceed the simplify threshold, got ${verts}`);
+
+  const before = JSON.stringify(repeated);
+  computeElimination(step(repeated), squareArea([72.8777, 19.076], 0.4));
+  assert.equal(JSON.stringify(repeated), before, "turf.simplify must not have mutated the stored geometry");
+});
+
 test("the cache cannot pin deleted steps' geometry in memory", () => {
   const src = readFileSync(new URL("../src/tools.js", import.meta.url), "utf8");
   assert.match(src, /_bufferCache = new WeakMap\(\)/, "must be weakly keyed on the geometry");
