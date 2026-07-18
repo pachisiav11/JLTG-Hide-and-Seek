@@ -374,6 +374,46 @@ Geográfica Intermediária*). The boundary is real and identical for both player
 way, so the question stays well-posed — the card still names what it resolved to, and that
 is not optional.
 
+**Which country, when the board is in more than one.** The level is fixed per country, so
+the country has to be right before the level means anything. Resolving it from the board
+CENTRE was wrong for any board straddling a level-2 border: a Singapore/Johor board
+resolves Singapore, whose 1st division is level 5, and then draws level-5 features across
+the Malaysian half, where level 5 is not Malaysia's 1st division at all. That is a
+confidently WRONG reference line, and a wrong reference line eliminates real regions — the
+same failure as the early level-4 probe that answered "Johor" instead of answering nothing.
+
+The board is therefore sampled at up to 25 points and the countries are tallied. Three
+things about that sample are load-bearing, and each was forced by a live measurement:
+
+- **Sample the play-area POLYGON, not its bbox.** Singapore's bbox corners are in Johor and
+  Hong Kong's are in Shenzhen. A bbox sample reports a border crossing on both — and those
+  are exactly the boards people play. Only points a hider could stand on get a vote.
+- **Require 85% agreement, not unanimity.** A board is drawn with a fingertip, so a
+  Singapore board clips a sliver of Johor (measured 1/21 probes) and a Hong Kong board clips
+  Shenzhen (1/19), ~5% either way. Genuine two-country boards look nothing like that:
+  Detroit+Windsor is 24% Canada; Basel, SG+Johor and HK+Shenzhen are all 44%. Nothing
+  measured falls between 5% and 24%, so the threshold sits in an empty gap rather than on a
+  judgement call. The tradeoff, stated plainly: on a board with a 5% sliver the dominant
+  country's level is drawn across the sliver too, which is wrong *for that sliver*. That is a
+  far smaller error than losing the border cards on every Singapore and Hong Kong game.
+- **A probe that never returns must not hang the card.** Found by playtesting Detroit+Windsor
+  live: 23 of 25 probes returned and two never did, and because the tally awaited all of them
+  the card hung forever — no line, no fallback, no error. The proxy retries a busy Overpass
+  endpoint internally, so "slow" and "never" are indistinguishable from the client; only a
+  deadline tells them apart. A dropped probe is already handled as silence, exactly like a sea
+  probe, so the tally decides on the votes that arrived.
+
+Probes run five at a time. Serially this is ~25 round-trips before the card can draw
+anything — minutes on a cold cache, for a card that used to need one probe. The cap matters
+as much as the parallelism: firing all 25 at once gets the proxy rate-limited, and a
+throttled probe is a lost vote, which skews the very tally this is counting.
+
+Verified live end-to-end through the real client (real IndexedDB, real proxy): Hong Kong
+→ L5 regions / L6 districts; Tokyo → L4 prefectures / L7 wards; Mumbai → Maharashtra /
+Mumbai Suburban; Singapore → L5 regions / L6 districts; London → falls back both ways (no
+level-4 border crosses the board, and the UK has no nationwide 2nd division);
+Detroit+Windsor and Basel → fall back, correctly, as binational boards.
+
 #### 5.6.2 Coastline
 
 ```

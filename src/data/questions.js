@@ -118,7 +118,10 @@ export function findMatching(id) {
 // is no such division: a city-sized board sits inside one state, so its 1st-division border
 // genuinely does not exist on it; a country outside the measured set, or an ordinal beyond
 // what that country has nationwide-consistent (the UK's 2nd division), has no table entry at
-// all. Either way the card falls back to hand-drawing, HAVING SAID SO.
+// all; and a board SPANNING two countries (Detroit+Windsor, Basel) has no single nationwide
+// level that is right on both halves, so it falls back rather than drawing one country's
+// level across the other's territory (src/lines.js: resolveBoardDivisions).
+// Either way the card falls back to hand-drawing, HAVING SAID SO.
 export const MEASURING = [
   { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
   { id: "hs_train", label: "High Speed Train Line", ref: "line", lineKind: "highspeed" },

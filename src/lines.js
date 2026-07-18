@@ -165,6 +165,128 @@ export function boardCentre(gameArea) {
   return [(bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2];
 }
 
+// The points whose COUNTRY must agree before a division level can be applied to this board.
+// The centre alone is not enough: it answers "what country is the middle in", and the card
+// then draws that country's fixed level across the whole bbox — so a Singapore/Johor board
+// resolves Singapore's level 5 and draws level-5 features over the Malaysian half, where
+// level 5 is not Malaysia's 1st division at all. That is a confidently WRONG line, not a
+// missing one, and a wrong reference line eliminates real regions.
+//
+// Sampled from the PLAY AREA POLYGON, not its bbox. That distinction is the whole design:
+// Singapore's bbox corners are in Johor and Hong Kong's are in Shenzhen, so a bbox sample
+// reports a border crossing on boards that have none — and those are exactly the boards
+// people play. Only points a hider could actually be standing on can decide whether the
+// board spans two countries. A 5x5 inset grid, filtered to the polygon, with the centroid
+// always included so a board thinner than the grid spacing still gets one probe.
+const PROBE_GRID = 5;
+
+export function boardProbePoints(gameArea) {
+  const turf = window.turf;
+  if (!gameArea || !turf) return [];
+  const feature = turf.feature(gameArea);
+  const [w, s, e, n] = turf.bbox(feature);
+  const inside = [];
+  for (let i = 0; i < PROBE_GRID; i++) {
+    for (let j = 0; j < PROBE_GRID; j++) {
+      // Cell centres, so no probe ever lands exactly on the board's edge.
+      const lon = w + ((e - w) * (i + 0.5)) / PROBE_GRID;
+      const lat = s + ((n - s) * (j + 0.5)) / PROBE_GRID;
+      try {
+        if (turf.booleanPointInPolygon(turf.point([lon, lat]), feature)) inside.push([lat, lon]);
+      } catch { /* a self-intersecting draw: skip the point, not the board */ }
+    }
+  }
+  if (inside.length) return inside;
+  // A board thinner than the grid spacing (a narrow strip, a river corridor) can miss every
+  // cell centre. turf.pointOnFeature is guaranteed to be ON the feature, unlike the bbox
+  // centre, which for any concave board — an L, a ring road with a notch — sits outside it.
+  try {
+    const p = turf.pointOnFeature(feature).geometry.coordinates;
+    return [[p[1], p[0]]];
+  } catch {
+    return [boardCentre(gameArea)];
+  }
+}
+
+// The share of informative probes one country must hold for its levels to apply to the board.
+//
+// Not 100%, and the live measurement is why. A board is drawn with a fingertip, so a board
+// "around Singapore" clips a sliver of Johor and one "around Hong Kong" clips a sliver of
+// Shenzhen — measured at 1/21 and 1/19 probes, ~5%. Genuine two-country boards are nothing
+// like that: Detroit+Windsor is 24% Canada, and Basel, SG+Johor and HK+Shenzhen are all
+// 44%. Nothing measured falls between 5% and 24%, so 85% sits in an empty gap rather than on
+// a judgement call.
+//
+// The tradeoff this accepts, stated plainly: on a board with a 5% sliver of a neighbour, the
+// dominant country's level is drawn across the sliver too, which is wrong for that sliver.
+// That is a far smaller error than the alternative, which is losing the border cards on every
+// Singapore and Hong Kong game — the boards the strict rule broke.
+const COUNTRY_DOMINANCE = 0.85;
+
+// How long any ONE probe may take before its vote is abandoned.
+//
+// Found by playtesting a Detroit+Windsor board: 23 of 25 probes returned and two never did,
+// and because the tally awaited all of them, the card hung forever — no line, no fallback, no
+// error, just a question that never answers. The proxy retries a busy Overpass endpoint
+// internally, so "still pending" and "never coming back" look identical from here.
+//
+// A dropped probe is already a case this handles: it is silence, exactly like a sea probe. So
+// the safe move is to stop waiting and decide on the votes that did arrive. The degradation is
+// graceful in the direction that matters — with fewer votes the tally is coarser, and if every
+// probe times out there are no informative votes at all, which returns null and hand-draws.
+const PROBE_TIMEOUT_MS = 20000;
+
+function withDeadline(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("probe timed out")), ms); }),
+  ]);
+}
+
+// Resolve the division levels for a board, or null if the board has no single answer.
+//
+// A probe that resolves to NO country is not a disagreement — it is silence. Coastal boards
+// have sea probes constantly (Mumbai, Singapore, NYC), and counting an ocean probe as "a
+// different country" would disable the border cards on exactly the boards people play. Sea
+// probes are therefore excluded from the tally entirely rather than voting against anyone.
+export async function resolveBoardDivisions(gameArea, { proxyBase = null, dbImpl = db } = {}) {
+  const points = boardProbePoints(gameArea);
+  if (!points.length) return null;
+
+  // Probes run PARALLEL, a few at a time. Serially this is ~25 Overpass round-trips before the
+  // card can draw anything — minutes on a cold cache, for a card that used to need one. The
+  // cap matters as much as the parallelism: firing all 25 at once gets the proxy rate-limited,
+  // and a throttled probe is a lost vote, which skews the very tally this is counting.
+  const CONCURRENCY = 5;
+  const results = new Array(points.length).fill(null);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, points.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= points.length) return;
+      try {
+        results[i] = await withDeadline(
+          loadCountryDivisions(points[i][0], points[i][1], { proxyBase, dbImpl }), PROBE_TIMEOUT_MS);
+      } catch { /* one flaky probe must not veto a board the others agree on */ }
+    }
+  }));
+
+  const tally = new Map();  // country -> { count, res }
+  let informative = 0;
+  for (const res of results) {
+    if (!res?.country) continue; // failed, sea, or an unmapped point: no information
+    informative++;
+    const seen = tally.get(res.country);
+    if (seen) seen.count++;
+    else tally.set(res.country, { count: 1, res });
+  }
+  if (!informative) return null;
+  const [top] = [...tally.values()].sort((a, b) => b.count - a.count);
+  if (top.count / informative < COUNTRY_DOMINANCE) return null; // genuinely spans a border
+  return top.res;
+}
+
 // Bump whenever the /overpass/lines payload SHAPE changes. Without this the key is just
 // kind+level+bbox, so a deploy that changes the shape keeps serving 30-day-cached entries in
 // the OLD shape to new code — and the failure is silent, because the JSON still parses and
@@ -335,14 +457,17 @@ export async function loadCountryDivisions(lat, lon, { proxyBase = null, now = D
 // Mumbai-sized board sits inside ONE state, so its "1st division border" genuinely does not
 // exist on this board; a country outside the measured set, or an ordinal beyond what that
 // country has nationwide-consistent (the UK's 2nd division; the Philippines' 1st), has no
-// entry in COUNTRY_DIVISION_LEVELS at all — by design, not by omission.
+// entry in COUNTRY_DIVISION_LEVELS at all — by design, not by omission; and a board SPANNING
+// two countries has no single nationwide level that is right on both halves at once.
 export async function lineGeometry(kind, gameArea, { level = null, divisionOrdinal = null } = {}) {
   const bbox = boardBbox(gameArea);
   if (!bbox) return null;
   const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
   let division = null;
   if (divisionOrdinal != null) {
-    const { country, levels } = await loadCountryDivisions(...boardCentre(gameArea), { proxyBase });
+    const agreed = await resolveBoardDivisions(gameArea, { proxyBase });
+    if (!agreed) return null; // no country, or a board spanning two — see resolveBoardDivisions
+    const { country, levels } = agreed;
     const resolvedLevel = levels?.[divisionOrdinal - 1] ?? null;
     if (resolvedLevel == null) return null;
     division = { ordinal: divisionOrdinal, level: resolvedLevel, country };
