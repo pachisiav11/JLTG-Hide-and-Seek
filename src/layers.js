@@ -118,9 +118,10 @@ function sourceToast(reason) {
 }
 
 export class Layers {
-  constructor(map, { boundaries } = {}) {
+  constructor(map, { boundaries, lines } = {}) {
     this.map = map;
     this.boundaries = boundaries || null; // for the admin-division tracing helper (DDS)
+    this.lines = lines || null; // the 🚄 rail panel, so a refused line card can open it (P4)
     this.overlays = [];
     this._pick = null;
     this.failedSteps = new Set(); // step ids whose geometry failed on the last render
@@ -1249,8 +1250,22 @@ export class Layers {
     // The refusal above is B2's guard; this one is the candidate-set problem. Both players must
     // be answering about the SAME small set they can each name, and an unfiltered mainline
     // query is neither small nor nameable.
+    // P4: measured on both default Mumbai boards, this is the path a new board ALWAYS takes —
+    // 44 lines on MMR, 32 on the city board, against a limit of 8 — because `hiddenRoutes`
+    // starts empty. So this refusal, not the card, is the common first experience, and telling
+    // the player to go and find 🚄 themselves makes them pay the fetch again to find out
+    // whether they picked few enough. Hand them the panel instead.
+    //
+    // Deliberately NOT solved by defaulting `hiddenRoutes` to hide `train`. Measured across two
+    // captures of this same city it lands on opposite sides of the limit — the live MMR board
+    // (35 train + 9 subway) keeps 9 and still refuses, an older capture (9 + 4) keeps 4 and
+    // passes. A default whose correctness depends on the day the board was captured is not a
+    // fix, and it would also decide for the players which lines are in play.
     if (sourced.length > MATCH_LINE_LIMIT) {
-      toast(`${sourced.length} ${pluralLabel(card.label).toLowerCase()} on this board — too many to answer. Use 🚄 to pick which lines are in play, then ask again.`);
+      const open = this.lines && await this._confirm(
+        `${sourced.length} ${pluralLabel(card.label).toLowerCase()} on this board — too many to answer, because both players have to name the same line. Pick which lines are in play now?`);
+      if (open) await this.lines.openPanel(g.gameArea);
+      else toast(`Use 🚄 to pick which ${pluralLabel(card.label).toLowerCase()} are in play, then ask again.`);
       return false;
     }
     // Store geometry, not a reference to it — the partition must recompute identically for the

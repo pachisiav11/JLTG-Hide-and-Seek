@@ -10,14 +10,20 @@ board, against the local Overpass proxy and real Google Places. Where a suspicio
 survive measurement it is recorded in [Checked and cleared](#checked-and-cleared) rather than
 quietly dropped — a review that only lists confirmed hits hides how much of it was guesswork.
 
-| | finding | cost | where | severity |
-|---|---|---|---|---|
-| **P1** | Admin-division trace sheet blocks on ~25 Overpass probes | **~38 s**, once per board | `layers.js:_adminTracePrompt` | high |
-| **P2** | `candidateLines` computes 2,109 distances it then discards | **213 ms** of 220 ms | `lines.js:candidateLines` | high |
-| **P3** | Sourced-geometry steps are ~280× a drawn step, rewritten whole on every change | 43 KB/step, ~345 KB games | `store.js:scheduleSave` | medium |
-| **P4** | Unfiltered board pays the full fetch + partition, then refuses | ~220 ms + network | `layers.js:_sourcedMatchLines` | medium |
-| **P5** | `_mapClaimed` is a boolean where nesting needs a counter | latent wrong result | `features.js:init` | medium |
-| **P6** | A refused zone still emits and schedules a save | one wasted write | `zones.js:addZone` | low |
+| | finding | cost | where | severity | status |
+|---|---|---|---|---|---|
+| **P1** | Admin-division trace sheet blocks on ~25 Overpass probes | **~38 s**, once per board | `layers.js:_adminTracePrompt` | high | **fixed** `9f65438` |
+| **P2** | `candidateLines` computes 2,109 distances it then discards | **213 ms** of 220 ms | `lines.js:candidateLines` | high | **fixed** `9f65438` |
+| **P3** | Sourced-geometry steps are ~280× a drawn step, rewritten whole on every change | 43 KB/step, ~345 KB games | `store.js:scheduleSave` | medium | **cleared** — premise did not survive measurement |
+| **P4** | Unfiltered board pays the full fetch + partition, then refuses | ~220 ms + network | `layers.js:_sourcedMatchLines` | medium | **fixed** (compute by P2; interaction below) |
+| **P5** | `_mapClaimed` is a boolean where nesting needs a counter | latent wrong result | `features.js:init` | medium | open |
+| **P6** | A refused zone still emits and schedules a save | one wasted write | `zones.js:addZone` | low | open |
+
+> **Status as of cycle 1.** P1 and P2 are fixed and pushed; measured before/after are recorded
+> under each finding. P3 is **cleared**: its cost is real but its failure scenario is not — the
+> autosave debounce already coalesces a drag into one write. P4's compute was carried away by
+> P2's fix, and its remaining half was an interaction problem, now addressed. See
+> [`CYCLE1_FINDINGS_2026-07-19.md`](CYCLE1_FINDINGS_2026-07-19.md).
 
 ---
 
@@ -113,6 +119,24 @@ The Tentacles caller passes a real radius (2 km / 25 km) and is unaffected.
 
 ## P3. A sourced-geometry step is ~280× a drawn one, and the whole game is rewritten on every change
 
+> **CLEARED (cycle 1, 2026-07-19).** The size claim is right; the frequency claim is wrong, and
+> the frequency claim was the whole failure scenario. `scheduleSave` is a *trailing* debounce
+> that clears its timer on every call, so a drag does not write per event — it writes once, 500
+> ms after the drag stops. Measured on a 240.8 KB board carrying three sourced questions:
+>
+> ```
+> 60-event drag burst   0 IndexedDB writes, 0 KB written
+> burst cost            212.9 ms total = 3.55 ms/event  (emit/re-render, not the write)
+> the one settled write 18.4 ms
+> ```
+>
+> No fix adopted. `turf.simplify` was rejected outright (it mutates geometry that is deliberately
+> permanent). A separate step-geometry store would add migration, export/import referential
+> integrity and undo/redo complexity to remove an 18 ms write that already happens once per
+> interaction pause. Harder debouncing has nothing left to coalesce. What the measurement *does*
+> surface is the 3.55 ms/event re-render, which is a different finding and is recorded as C1-1
+> in the cycle document rather than folded in here.
+
 Storing geometry rather than a reference is deliberate and correct — the partition must
 recompute identically for the life of the game even if OSM is edited. The cost is real though:
 
@@ -163,6 +187,24 @@ this one too.
 must visit 🚄 before this card will ever source. That was a deliberate call (documented in
 `9b6d321`) but it means the sourced path is unreachable by default, and it may be worth
 defaulting `hiddenRoutes` to exclude `train` on a new board.
+
+> **RESOLVED (cycle 1, 2026-07-19).** The compute half went with P2's fix: the refusal path is
+> now 16.4–36.4 ms instead of 606.5 ms. The network round-trip is inherent — you cannot count
+> the lines without fetching them.
+>
+> The suggested default was **measured and not adopted**. Across two captures of this same city
+> it falls on opposite sides of the limit:
+>
+> ```
+> live MMR board   44 grouped (35 train + 9 subway)  -> hiding train leaves 9, still refuses
+> repo fixture     13 grouped ( 9 train + 4 subway)  -> hiding train leaves 4, passes
+> ```
+>
+> A default whose correctness depends on when the board was captured is not a fix, and it also
+> decides for the players which lines are in play — the one thing the filter exists to let them
+> decide. Instead the refusal now *offers the panel*: a confirm, then `lines.openPanel()`.
+> Verified live — the sheet read "44 transit lines on this board", and Yes opened Rail lines
+> showing "Metro / subway · 9/9 shown".
 
 ---
 

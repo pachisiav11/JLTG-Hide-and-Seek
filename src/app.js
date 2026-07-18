@@ -170,9 +170,11 @@ async function main() {
     }
     const zones = new Zones(map, boundaries);
     const features = new MapFeatures(map);
-    const layers = new Layers(map, { boundaries });
     const focus = new Focus(map);
+    // Constructed before Layers because the Matching line card hands the player straight to
+    // this panel when the board's rail set is too large to answer (P4).
     const lines = new Lines(map);
+    const layers = new Layers(map, { boundaries, lines });
     await Promise.all([zones.init(), features.init()]);
     // Reusable custom library (Phase 9): custom categories + pins. Attached to
     // layers so the tool flows can offer them, and to games for the menu manager.
