@@ -137,10 +137,25 @@ export class Zones {
   // areaSummary(null) is null and the message falls back to the no-size wording.
   //
   // An empty zone list is the one case where a null area is the truth.
+  // A THROWN union is the same event as a null one, and must reach the same answer. It did not:
+  // `unionRings` throws on some degenerate rings (turf: "object is not iterable"), the exception
+  // propagated out of the `store.update` mutator in addZone, and so `g.zones.pop()` never ran —
+  // leaving the rejected zone on the board with no gameArea rebuilt. That is the precise
+  // opposite of what the guard below it exists to do, and it was reproduced on a live board.
+  //
+  // Converting it to ok:false is not swallowing it. Both callers already have an explicit
+  // ok:false path that undoes their change and tells the player what happened in words; a
+  // throw simply had no route to that path. The cause is still logged.
   static _fold(zones) {
     const rings = (zones || []).map((z) => z.polygon);
     if (!rings.length) return { ok: true, area: null };
-    const area = unionRings(rings);
+    let area = null;
+    try {
+      area = unionRings(rings);
+    } catch (e) {
+      console.warn("zone union threw — treating as a failed union", e);
+      return { ok: false, area: null };
+    }
     return area ? { ok: true, area } : { ok: false, area: null };
   }
 

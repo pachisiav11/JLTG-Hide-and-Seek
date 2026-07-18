@@ -12,6 +12,7 @@ suite where stated.
 |---|---|---|---|---|---|
 | **C1-1** | `store.update` re-renders synchronously on every drag event | 3.55 ms/event, 213 ms per drag | `store.js:update` → `emit` | medium | open |
 | **C1-2** | The review's own P4 default would not have worked | would still refuse | `PERF_REVIEW` P4 | — | resolved, not adopted |
+| **C1-3** | A thrown zone union leaves the rejected zone on the board | corrupt board | `zones.js:_fold` | high | **fixed** |
 
 ---
 
@@ -55,6 +56,53 @@ repo fixture     13 grouped ( 9 train + 4 subway)  -> 4 visible, under the limit
 Two captures of the same city, opposite outcomes. Beyond being unreliable it also answers, on
 the players' behalf, the one question the rail filter exists to let them answer. The refusal now
 offers to open the filter panel instead. Pinned in `test/sourced-match-refusal.test.mjs`.
+
+## C1-3. A thrown zone union left the rejected zone on the board
+
+Found while verifying P6 — a correctness bug, not a performance one, so it got its own phase.
+
+`addZone` pushes the zone, folds, and pops again if the fold failed. But `Zones._fold` handled
+only a union that *returned* null, not one that **threw**. The exception propagated out of the
+`store.update` mutator, so the `pop()` on the next line never ran:
+
+```js
+store.update((g) => {
+  g.zones.push(zone);
+  const { ok, area } = Zones._fold(g.zones);   // <- threw here
+  ...
+  g.zones.pop();                               // <- never reached
+});
+```
+
+Reproduced live: the board went 1 zone → 2, the second being the one just refused, with
+`gameArea` never rebuilt to include it. That is the exact opposite of the guard's stated
+purpose — *refuse the ZONE rather than lose the BOARD*.
+
+**Narrower than it first looked, and the measurement is why.** Genuinely degenerate rings do
+not throw at all; `unionRings` skips them and the fold succeeds:
+
+```
+[[19,72],[19,72],[19,72],[19,72]]      identical points -> ok: true
+[[19,72],[19.1,72.1]]                  two points       -> ok: true
+[[19,72],[19,72.1],[19,72.2],[19,72]]  collinear        -> ok: true
+[]  /  null                                             -> ok: true
+```
+
+What throws is a ring of the wrong **shape** — `[{lat,lng}]` instead of `[[lat,lng]]` — because
+`ringToTurf` destructures each vertex (`geo.js:40`). My first live repro used that shape by
+accident, and the honest reading is that no drawing or paste path produces it.
+
+It is still reachable, and that is why it was fixed rather than filed: `validateGame` checks
+`Array.isArray(z.polygon)` but never the element shape (`model.js:99`), so an **imported board
+file** — a shared game, a hand-edited export, anything third-party — whose zones use the object
+shape passes validation, loads, and throws on the next zone edit.
+
+**Fix.** `_fold` converts a throw into the `ok:false` it already had a route for. Not swallowing:
+both callers act on `ok` and tell the player in words what happened, and the cause is still
+logged. Verified live — the call that previously left a zombie zone now returns `null`, leaves
+the board at one zone, and does not throw. Pinned in `test/zone-union-throw.test.mjs`, including
+two tests asserting that genuinely degenerate rings are still *tolerated*, so the fix cannot
+start refusing boards that work today.
 
 ---
 

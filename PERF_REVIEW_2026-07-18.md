@@ -16,8 +16,8 @@ quietly dropped — a review that only lists confirmed hits hides how much of it
 | **P2** | `candidateLines` computes 2,109 distances it then discards | **213 ms** of 220 ms | `lines.js:candidateLines` | high | **fixed** `9f65438` |
 | **P3** | Sourced-geometry steps are ~280× a drawn step, rewritten whole on every change | 43 KB/step, ~345 KB games | `store.js:scheduleSave` | medium | **cleared** — premise did not survive measurement |
 | **P4** | Unfiltered board pays the full fetch + partition, then refuses | ~220 ms + network | `layers.js:_sourcedMatchLines` | medium | **fixed** (compute by P2; interaction below) |
-| **P5** | `_mapClaimed` is a boolean where nesting needs a counter | latent wrong result | `features.js:init` | medium | **fixed** `2a1c3f9` |
-| **P6** | A refused zone still emits and schedules a save | one wasted write | `zones.js:addZone` | low | **fixed** `2a1c3f9` |
+| **P5** | `_mapClaimed` is a boolean where nesting needs a counter | latent wrong result | `features.js:init` | medium | **fixed** `363e515` |
+| **P6** | A refused zone still emits and schedules a save | one wasted write | `zones.js:addZone` | low | **fixed** `363e515` |
 
 > **Status as of cycle 1.** P1 and P2 are fixed and pushed; measured before/after are recorded
 > under each finding. P3 is **cleared**: its cost is real but its failure scenario is not — the
