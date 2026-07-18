@@ -8,6 +8,7 @@ import { Focus } from "./focus.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
+import * as db from "./db.js";
 
 // A cheap identity for "which board is this". Rail lines are fetched for the board's bbox, so
 // what matters is whether that extent moved — not which zone changed or how it was edited.
@@ -219,10 +220,23 @@ async function main() {
       }
     });
 
-    // Transit on by default — hiders often stay near transit lines, so seekers
-    // want the layer visible without having to find the toggle first.
+    // Transit on by default — hiders often stay near transit lines, so seekers want the layer
+    // visible without having to find the toggle first, and it is instant where 🚄 Rail is a
+    // slow fetch that fails ~64% of the time.
+    //
+    // But it is the INCOMPLETE source: raster tiles from Google's own feed inventory, drawing
+    // Mumbai's Metro and not its suburban locals — the lines that decide the game, and the
+    // reason the Overpass pipeline exists. Shipping the known-incomplete layer as the thing a
+    // player sees without asking is only defensible if they are told, so say it once per
+    // install rather than never (toggling it says so every time; see features.toggleTransit).
     features.setTransit(true);
     document.querySelector('#toolbar [data-act="transit"]')?.classList.add("active");
+    db.getSetting("transitCaveatSeen", false).then((seen) => {
+      if (seen) return;
+      // After boot settles, so it does not land under the restore/zone toasts.
+      setTimeout(() => toast("🚆 Transit is Google's layer and misses some agencies. 🚄 Rail loads the full network from OpenStreetMap.", 6000), 3000);
+      db.setSetting("transitCaveatSeen", true);
+    }).catch(() => { /* settings unavailable — the tooltip and the toggle still say it */ });
 
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());

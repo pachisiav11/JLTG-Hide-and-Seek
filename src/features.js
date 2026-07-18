@@ -60,7 +60,13 @@ export class MapFeatures {
     if (!this.transit) this.transit = new google.maps.TransitLayer();
     const on = this.transit.getMap() == null;
     this.transit.setMap(on ? this.map : null);
-    toast(on ? "Transit layer on" : "Transit layer off");
+    // Name the limitation when it is switched ON, not just in the tooltip. This layer is raster
+    // tiles from Google's own feed inventory: it takes no options, and in Mumbai it draws the
+    // Metro but not the suburban locals — the lines that actually decide the game, and the
+    // whole reason the Overpass line pipeline exists. It stays the default because it is
+    // instant and 🚄 Rail is a slow fetch that fails ~64% of the time, but a player must not
+    // have to already know that to read the map correctly.
+    toast(on ? "Transit layer on — Google's feed, missing some agencies. Use 🚄 Rail for the full network." : "Transit layer off");
     return on;
   }
   isTransitOn() {
