@@ -37,13 +37,55 @@ export const RAIL_ROUTE_TYPES = ["train", "subway", "light_rail", "tram", "monor
 // light_rail includes the Capitol people-movers).
 export const METRO_ROUTE_TYPES = ["subway", "light_rail", "monorail"];
 
-// OSM admin_level for borders. Measured across 14 countries × 3 cities (2026-07-15):
-// level 4 is the first-order division in 14/14 — the one level that is safe to hardcode.
-// The SECOND-order division has no fixed level and varies WITHIN countries (Germany is
-// mostly 5, but Berlin jumps 4→9; France and the UK use 5 or 6), so there is deliberately
-// no "second division" option here: a per-country lookup table cannot express it.
-export const BORDER_LEVELS = { country: 2, division: 4 };
-export const DEFAULT_BORDER_LEVEL = BORDER_LEVELS.division;
+// OSM admin_level for borders.
+//
+// Level 2 is the international border BY DEFINITION, so it is the one level that is safe to
+// hardcode. Level 4 is not: re-measured 2026-07-18 across 271 probes / 44 countries, level 4
+// is ABSENT in 22 of them. Singapore's 1st division is level 5 (Regions), Portugal's is 6
+// (Districts), Ireland's is 5 (Provinces). Asking for level 4 there does not fail loudly —
+// Dublin and Lisbon return zero ways, and a Singapore board returns ONE way named "Johor",
+// i.e. it silently draws Malaysia's state border and calls it Singapore's 1st division.
+//
+// The ordinal → level mapping also varies WITHIN countries in 17 of the 44 (Japan's Sapporo
+// is 5 where the other 46 prefectures are 7, because Hokkaido genuinely has a subprefecture
+// tier; the USA is 6 except New York=5 and DC=9). So neither a constant nor a per-country
+// table can express it — the level must be DERIVED at the board. See deriveDivisionLevels.
+export const BORDER_LEVELS = { country: 2 };
+
+// Only used when a caller names no level at all. Kept as 4 because it is the most common
+// 1st division by a wide margin, but every in-app border card now derives instead.
+export const DEFAULT_BORDER_LEVEL = 4;
+
+// The areas CONTAINING a point. `is_in` is required here: an `around:` query answers a
+// different question and omits the enclosing country entirely.
+export function buildDivisionsQuery(lat, lon) {
+  return `[out:json][timeout:90];
+is_in(${lat},${lon})->.a;
+area.a["boundary"="administrative"];
+out tags;`;
+}
+
+// Turn the `is_in` areas into the board's division hierarchy, outermost first.
+//
+// Level 2 (country) and level 3 are dropped. Level 3 is load-bearing: it is a macro-region
+// rather than an administrative division — Brazil's "North Region", France's "Metropolitan
+// France", and in the Netherlands it is the country's own name repeated. Keeping it broke
+// the derivation in 9 of the original 42 samples.
+//
+// Several relations can share one level, so levels are de-duplicated; the first name seen at
+// a level wins. Callers show that name on the card, which is what keeps an ordinal honest
+// when it lands on a statistical rather than administrative region.
+export function deriveDivisionLevels(json) {
+  const seen = new Map();
+  for (const el of json?.elements || []) {
+    const level = Number(el?.tags?.admin_level);
+    if (!Number.isFinite(level) || level <= 3) continue;
+    if (!seen.has(level)) seen.set(level, el.tags["name:en"] || el.tags.name || null);
+  }
+  return [...seen.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([level, name], i) => ({ ordinal: i + 1, level, name }));
+}
 
 // 5 decimal places ≈ 1.1 m — well inside hand-tracing error, and it is most of what makes a
 // dense board viable (raw Overpass coords carry ~7dp of noise nobody can see).

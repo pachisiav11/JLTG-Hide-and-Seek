@@ -18,7 +18,7 @@ import express from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
-import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL } from "./overpass-lines.js";
+import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildDivisionsQuery, deriveDivisionLevels } from "./overpass-lines.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -134,6 +134,26 @@ app.get("/overpass/lines", async (req, res) => {
       return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
     }
     console.error(`Overpass lines (${kind}) failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
+    res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
+  }
+});
+
+// The board's admin-division hierarchy, so a border card can ask for "the 1st division"
+// rather than for a hardcoded admin_level that does not exist everywhere (§5.6.1).
+app.get("/overpass/divisions", async (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180) {
+    return res.status(400).json({ error: "lat/lon must be numbers within ±90/±180." });
+  }
+  try {
+    const json = await runOverpass(buildDivisionsQuery(lat, lon));
+    res.json({ source: "overpass", levels: deriveDivisionLevels(json) });
+  } catch (err) {
+    if (err.fatal) {
+      console.error("Overpass rejected the divisions query (query bug, not an outage):", err.message);
+      return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
+    }
+    console.error(`Overpass divisions failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
     res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
   }
 });

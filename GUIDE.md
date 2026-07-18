@@ -308,24 +308,43 @@ out tags;
    seeker sees what they are actually being asked about.
 6. Several relations may share one level — handle duplicates, don't assume uniqueness.
 
-**Evidence** (measured 2026-07-15; 42 samples = 14 countries × 3 cities, each capital
-paired with two ordinary cities to expose capital bias; raw data in the spike cache):
+**Evidence** (re-measured 2026-07-18; 271 probes across 44 countries; raw data in spike
+cache):
 
-- **Level 4 = 1st division in 14/14 countries** — Maharashtra, Illinois, Bavaria, Osaka
-  Prefecture, New South Wales, Wales. This one assumption is safe.
-- **Step 2 (discard level 3) is load-bearing.** Without it the derivation breaks in 9/42
-  samples: Brazil's level 3 is a macro-region (*North Region*), France's is *Metropolitan
-  France*, and the Netherlands' level 3 is **"Netherlands" — the country repeated**. With
-  it, the derivation holds 42/42.
-- **The 2nd division has no fixed level, not even per country.** Japan uses **7** (levels
-  5 and 6 do not exist); the Netherlands uses **8** (no 5/6/7); the USA, Italy, South
-  Africa, South Korea and Australia use 6; India uses 5. Worse, it varies *within* a
-  country: France is 5 in Lyon (Rhône) but 6 in Toulouse (Haute-Garonne); the UK is 5 in
-  England (Greater Manchester) but 6 in Wales (Cardiff); Canada is 5 in Halifax but 6 in
-  Calgary; Germany is 5 in Munich/Cologne but **Berlin has none and jumps 4 → 9**.
+- **Level 4 is not the 1st division everywhere — it is entirely ABSENT in 22 probes.**
+  Singapore's 1st division is level **5** (Regions), Portugal's is **6** (Districts),
+  Ireland's is **5** (Provinces: Leinster, Munster, Connacht), and the Philippines is
+  mixed 5/6. The prior claim "level 4 = 1st division in 14/14" was an artefact of which
+  14 countries were sampled, and is falsified.
+- **Asking for level 4 anyway does not fail loudly — it answers wrongly.** Dublin and
+  Lisbon return zero ways. A Singapore board returns **one way named "Johor"** — Malaysia's
+  state border — which the card would buffer and measure against as Singapore's 1st
+  division. Silence would have been the kinder failure.
+- **Step 2 (discard level 3) is load-bearing** and re-confirmed. Without it the derivation
+  breaks: Brazil's level 3 is a macro-region (*North Region*), France's is *Metropolitan
+  France*, and the Netherlands' level 3 is **"Netherlands" — the country repeated**.
+- **Only 27 of 44 countries are internally consistent; 17 contradict themselves.** Each
+  entry below is *dissenting cities* vs *that country's own majority 2nd-division level*:
+  Australia (Canberra 7 vs 6), Belgium (Brussels 7 vs 6), Canada (Vancouver/Calgary 6 vs
+  5), China (Shanghai/Beijing 6 vs 5), France (Lyon 5 vs 6), Germany (Berlin/Hamburg 9,
+  Bremen 6, vs 5), Israel (6 vs 5), Japan (Sapporo 5 vs 7), Malaysia (George Town/Kota
+  Kinabalu 5 vs 6), Mexico (Guadalajara 5 vs 6), Philippines (Cebu City 10, Davao 8, vs
+  6), Russia (Moscow/St Petersburg 5 vs 6), Switzerland (Zurich/Lausanne/Lugano 6, Bern
+  5), Taiwan (8 vs 7), UAE (Dubai 10, Abu Dhabi 5, Sharjah 8), UK (Glasgow/Cardiff/
+  Edinburgh 6, Belfast 7, vs 5), USA (New York 5, Washington DC 9, vs 6).
+- **Japan is the instructive case, because it is the one that looks tabulatable.** The
+  intuitive rule is "prefecture, then subprefecture". In fact 9 of the 10 Japanese cities
+  probed return **7** (Tokyo → Suginami, a special ward), and only Sapporo returns **5** —
+  because Hokkaido genuinely *has* a subprefecture tier (Ishikari) that the other 46
+  prefectures lack. The variation is real administrative geography, not bad tagging, which
+  is exactly why no per-country table can express it.
 
-> **A per-country lookup table cannot work.** France, the UK, Canada and Germany each
-> disagree with *themselves*. Derive from the hierarchy at the play area, per game.
+> **A per-country lookup table cannot work.** 17 of 44 countries disagree with
+> *themselves*, and 4 have no level 4 at all. Derive from the hierarchy at the play area,
+> per game — `deriveDivisionLevels()` in `overpass-lines.js`, served by
+> `GET /overpass/divisions`. Cards name a `divisionOrdinal` ("the 1st division here"),
+> never an `admin_level`; only `intl_border` names a level, because level 2 is the
+> international border by definition.
 
 Caveat, recorded honestly: ordinal derivation returns whatever OSM ranks next, which is
 occasionally a statistical rather than administrative region (Canada level 5 = *Golden
@@ -370,11 +389,12 @@ the ~50% previously recorded. Per endpoint:
 | `maps.mail.ru/osm/tools/overpass` | **15/18 (83%)** |
 
 `server.js` tries these **in exactly the wrong order** — the 0%-success endpoint is tried
-second and the 83% endpoint last. Reorder it. Also required (per D3): sniff the body
-before parsing (Overpass returns HTTP **200** with an HTML error body when busy, which
-`resp.json()` reports as a bogus parse error), treat HTTP **400** as fatal rather than
-retrying it, and set a client-side fetch timeout — `fetch` has no default, so a stalled
-endpoint hangs forever while appearing to work.
+second and the 83% endpoint last. Reorder it. A follow-up spike (271 consecutive Overpass
+calls via maps.mail.ru first) achieved 100% success, corroborating this reordering. Also
+required (per D3): sniff the body before parsing (Overpass returns HTTP **200** with an
+HTML error body when busy, which `resp.json()` reports as a bogus parse error), treat HTTP
+**400** as fatal rather than retrying it, and set a client-side fetch timeout — `fetch`
+has no default, so a stalled endpoint hangs forever while appearing to work.
 
 **Still unrun:** the Overpass-side clip (`relation(BBOX)->.r; way(r)(BBOX); out geom;`).
 If it works it pushes clipping server-side and avoids pulling 8.3 MB into the proxy; if

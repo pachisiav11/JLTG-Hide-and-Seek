@@ -83,15 +83,20 @@ test("BOTH ways constrain the answer — not just the first", () => {
 });
 
 test("only the cards with a worldwide-valid query are auto-sourced", () => {
-  // The admin_level lesson, as a test. admin_level=2 IS the international border by
-  // definition and 4 measured as the 1st division in 14/14 countries sampled — but the 2nd
-  // division has no fixed level (5, 6 or 8 depending on the country). Wiring a guess there
-  // would be silently wrong in every country it didn't match, which is worse than drawing it.
+  // The admin_level lesson, as a test — and it got STRONGER on re-measurement. Level 2 IS
+  // the international border by definition, so it is still named outright. Level 4 is not:
+  // re-measured 2026-07-18 over 271 probes / 44 countries, level 4 is absent in 22 of them,
+  // and the old "1st division = 4 in 14/14" was an artefact of which 14 were sampled.
+  //
+  // Naming 4 anyway is not a near-miss, it is a wrong answer: a Singapore board asked for
+  // level 4 returns one way named "Johor" — Malaysia's state border, drawn and measured
+  // against as if it were Singapore's 1st division. So neither border card names a level.
   assert.equal(findMeasuring("coastline").lineKind, "coastline");
   assert.equal(findMeasuring("intl_border").lineKind, "border");
   assert.equal(findMeasuring("intl_border").level, 2);
   assert.equal(findMeasuring("admin1_border").lineKind, "border");
-  assert.equal(findMeasuring("admin1_border").level, 4);
+  assert.equal(findMeasuring("admin1_border").divisionOrdinal, 1);
+  assert.equal(findMeasuring("admin1_border").level, undefined, "no level is right in all 36");
   // hs_train was ALSO left hand-drawn at first, on my own claim that "OSM tags high-speed
   // inconsistently across networks". That claim was asserted, not measured, and measuring it
   // proved it wrong: way[railway=rail][highspeed=yes] returns the real line in 9/9 networks.
@@ -99,7 +104,13 @@ test("only the cards with a worldwide-valid query are auto-sourced", () => {
   // because it asks distance to the nearest high-speed line, not which one.
   assert.equal(findMeasuring("hs_train").lineKind, "highspeed");
 
-  assert.equal(findMeasuring("admin2_border").lineKind, undefined, "no fixed admin_level worldwide");
+  // admin2_border was hand-drawn precisely BECAUSE no fixed level exists. Deriving per board
+  // is what makes it sourceable — the ordinal is stable even where the level under it is not
+  // (17 of 44 countries disagree with themselves; Japan's Sapporo is 5 and its other 46
+  // prefectures are 7, because Hokkaido really does have a subprefecture tier).
+  assert.equal(findMeasuring("admin2_border").lineKind, "border");
+  assert.equal(findMeasuring("admin2_border").divisionOrdinal, 2);
+  assert.equal(findMeasuring("admin2_border").level, undefined, "no fixed admin_level worldwide");
 });
 
 test("every auto-sourced card is still a line card the proxy can serve", () => {
@@ -109,7 +120,11 @@ test("every auto-sourced card is still a line card the proxy can serve", () => {
     assert.equal(c.ref, "line", `${c.id} sources geometry, so it must buffer as a line`);
     assert.ok(LINE_KINDS.includes(c.lineKind), `${c.id} names kind "${c.lineKind}", which /overpass/lines does not serve`);
     if (c.lineKind === "border") {
-      assert.ok(Number.isInteger(c.level), `${c.id} is a border card and must name an admin_level`);
+      // Exactly one of the two, never both and never neither. A border card with no level at
+      // all would fetch DEFAULT_BORDER_LEVEL and quietly draw the wrong division; one with
+      // both would make which of them wins a matter of argument order in lineGeometry.
+      const named = [Number.isInteger(c.level), Number.isInteger(c.divisionOrdinal)].filter(Boolean).length;
+      assert.equal(named, 1, `${c.id} must name exactly one of level / divisionOrdinal`);
     }
   }
 });

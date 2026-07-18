@@ -156,6 +156,15 @@ export function boardBbox(gameArea, padFrac = 0.1) {
   return `${s},${w},${n},${e}`;
 }
 
+// The board's centre as [lat, lon], for the division lookup. turf.center is the bbox centre,
+// which is what we want: the division question is about the board, not its centre of mass.
+export function boardCentre(gameArea) {
+  const turf = window.turf;
+  if (!gameArea || !turf) return [NaN, NaN];
+  const bb = turf.bbox(turf.feature(gameArea)); // [W,S,E,N]
+  return [(bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2];
+}
+
 // Bump whenever the /overpass/lines payload SHAPE changes. Without this the key is just
 // kind+level+bbox, so a deploy that changes the shape keeps serving 30-day-cached entries in
 // the OLD shape to new code — and the failure is silent, because the JSON still parses and
@@ -286,10 +295,52 @@ export async function candidateLines(kind, gameArea, center, radius, { game = nu
 // Returns null when the board yields no geometry, which is a real answer, not a failure:
 // `border&level=2` over Mumbai correctly returns zero (no international border crosses it).
 // The caller must tell that apart from an outage — hence null vs throw.
-export async function lineGeometry(kind, gameArea, { level = null } = {}) {
+// The board's admin-division hierarchy, cached like the line payloads. Coordinates are
+// rounded to 2dp (~1 km) for the cache key: divisions do not change across a city block, and
+// an exact-coordinate key would miss on every board whose centre moved by a metre.
+export async function loadDivisionLevels(lat, lon, { proxyBase = null, now = Date.now(), dbImpl = db } = {}) {
+  const key = `divisions|${lat.toFixed(2)}|${lon.toFixed(2)}`;
+  let cached = null;
+  try { cached = await dbImpl.get("lines", key); } catch { /* IndexedDB unavailable — network only */ }
+  if (cached && now - cached.fetchedAt < TTL_MS) return cached.data.levels;
+  if (!proxyBase) {
+    if (cached) return cached.data.levels;
+    throw new Error("No Overpass proxy configured (set OVERPASS_PROXY_URL in config.js).");
+  }
+  const url = new URL(proxyBase.replace(/\/+$/, "") + "/overpass/divisions");
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lon));
+  try {
+    const resp = await fetch(url.toString());
+    if (!resp.ok) throw new Error(`Divisions proxy HTTP ${resp.status}`);
+    const data = await resp.json();
+    try { await dbImpl.put("lines", { key, kind: "divisions", fetchedAt: now, data }); } catch { /* over quota */ }
+    return data.levels;
+  } catch (err) {
+    // Stale beats nothing outdoors, for the same reason loadLines falls back.
+    if (cached) return cached.data.levels;
+    throw err;
+  }
+}
+
+// `level` names an exact admin_level (only level 2, the international border, is safe to name).
+// `divisionOrdinal` asks for "the Nth division AT THIS BOARD" and resolves against the live
+// hierarchy, because no fixed level means "1st division" worldwide — see overpass-lines.js.
+//
+// Returns null (never a wrong border) when the board has no such division: a Mumbai-sized
+// board sits inside ONE state, so its "1st division border" genuinely does not exist, and a
+// Singapore board asked for a hardcoded level 4 would otherwise draw Malaysia's Johor border.
+export async function lineGeometry(kind, gameArea, { level = null, divisionOrdinal = null } = {}) {
   const bbox = boardBbox(gameArea);
   if (!bbox) return null;
   const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
+  let division = null;
+  if (divisionOrdinal != null) {
+    const levels = await loadDivisionLevels(...boardCentre(gameArea), { proxyBase });
+    division = levels?.find((d) => d.ordinal === divisionOrdinal) || null;
+    if (!division) return null;
+    level = division.level;
+  }
   const data = await loadLines(kind, bbox, { level, proxyBase });
   const coordinates = [];
   for (const coords of Object.values(data.ways || {})) {
@@ -300,6 +351,10 @@ export async function lineGeometry(kind, gameArea, { level = null } = {}) {
     geometry: { type: "MultiLineString", coordinates },
     from: data.from,
     counts: data.counts,
+    // Named so the card can SAY which division it resolved to. §5.6.1 step 5: an ordinal can
+    // land on a statistical rather than administrative region, and showing the name is what
+    // keeps the question well-posed rather than a guess the players can't check.
+    division,
   };
 }
 
