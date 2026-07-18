@@ -96,14 +96,34 @@ export function reverseGeocode({ lat, lng }) {
   });
 }
 
-// DDS-highlightable admin levels, outermost→innermost. Google's Data-Driven
-// Styling only exposes FeatureLayers for these (there is no level-3/-4 FeatureType),
-// so the tracing helper can only draw these boundaries even though the game asks
-// about 1st–4th divisions. Geocoding `type` → DDS FeatureType enum name.
+// DDS-highlightable admin levels, outermost→innermost. Google's Data-Driven Styling only
+// exposes FeatureLayers for these (there is no level-3/-4 FeatureType), so the tracing helper
+// can only draw these boundaries even though the game asks about 1st–4th divisions.
+// Geocoding `type` → DDS FeatureType enum name.
+//
+// These labels used to read "1st Admin division" / "2nd Admin division" / "≈3rd", which made
+// the app ship TWO contradicting answers to what a division IS. The other one is
+// COUNTRY_DIVISION_LEVELS in overpass-lines.js: a measured, nationwide-constant OSM
+// admin_level per country (1100 grid probes + 271 city probes), and it is what the Measuring
+// border cards actually draw. They disagree in real places:
+//
+//   Japan     — game 2nd division is admin_level 7 (municipality); Google's level-2 is the
+//               gun/county, which is not a municipality and is not what the border card draws.
+//   Ireland   — game levels are [5, 6]; Google's level-1 is the province, which the game does
+//               not use as a division at all.
+//   Singapore — game levels are [5, 6] (region, planning area); Google's level-1 is the whole
+//               city-state.
+//   Germany   — game 1st division is 4 with NO second (Berlin/Hamburg/Bremen jump 4 → 9), so
+//               Google's level-2 has no game meaning nationwide.
+//
+// So these are named in GOOGLE's terms and carry no ordinal. The tracing helper reconciles
+// them against the board's measured levels at the point of use (layers.js _adminTracePrompt)
+// — a player tracing "the 1st division" must not be handed a boundary that answers a
+// different question from the one the border card will draw.
 const DDS_ADMIN_LEVELS = [
-  { type: "administrative_area_level_1", feature: "ADMINISTRATIVE_AREA_LEVEL_1", label: "1st Admin division" },
-  { type: "administrative_area_level_2", feature: "ADMINISTRATIVE_AREA_LEVEL_2", label: "2nd Admin division" },
-  { type: "locality",                    feature: "LOCALITY",                    label: "City / locality (≈3rd)" },
+  { type: "administrative_area_level_1", feature: "ADMINISTRATIVE_AREA_LEVEL_1", label: "Google: state / province" },
+  { type: "administrative_area_level_2", feature: "ADMINISTRATIVE_AREA_LEVEL_2", label: "Google: county / district" },
+  { type: "locality",                    feature: "LOCALITY",                    label: "Google: city / locality" },
 ];
 
 // Reverse-geocode a point into the admin divisions Data-Driven Styling can

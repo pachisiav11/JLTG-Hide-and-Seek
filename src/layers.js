@@ -821,11 +821,17 @@ export class Layers {
       toast(e.message);
       return this.openPanel();
     }
+    // Labelled in GOOGLE's terms, with no ordinals. These rows come from reverse geocoding, and
+    // "County / 2nd admin" / "State / 1st admin" asserted an equivalence to the game's division
+    // ordinals that is not true: the game's ordinals are COUNTRY_DIVISION_LEVELS, a measured
+    // per-country OSM admin_level, and they disagree with Google's numbering in Japan, Ireland,
+    // Singapore and Germany among others. A diagnostic that helps a seeker reason about an
+    // admin-division question must not answer a different question from the cards.
     const levels = [
       ["Neighbourhood", "neighbourhood"],
       ["City / town", "city"],
-      ["County / 2nd admin", "county"],
-      ["State / 1st admin", "state"],
+      ["County / district", "county"],
+      ["State / province", "state"],
       ["Country", "country"],
     ];
     const rows = levels.map(([label, key]) => {
@@ -843,6 +849,7 @@ export class Layers {
       title: "Admin divisions",
       bodyHTML: `
         <p class="muted">Comparing point ➊ and point ➋. ✓ same · ✗ different · – unknown.</p>
+        <p class="muted">These are Google's administrative names, not the game's division ordinals — the 1st/2nd Division cards use a measured per-country boundary level that can sit at a different tier. Use this to reason, not to answer.</p>
         <div class="adm-wrap">
           <table class="adm-table">
             <thead><tr><th>Level</th><th>➊</th><th>➋</th><th></th></tr></thead>
@@ -1315,7 +1322,7 @@ export class Layers {
     // the division you're in (via DDS) so you can trace it. Cleared once drawing ends.
     const isAdmin = ["admin1", "admin2", "admin3", "admin4"].includes(card.id);
     let cleanup = () => {};
-    if (isAdmin) cleanup = await this._adminTracePrompt();
+    if (isAdmin) cleanup = await this._adminTracePrompt(card);
     try {
       await this._regionSideSheet(
         { drawHint: `Outline the ${card.label} you (the seeker) are in`, title: card.label, intro: `Draw the ${card.label.toLowerCase()} you're in, then answer whether the hider is in the same one.` },
@@ -1343,7 +1350,47 @@ export class Layers {
 
   // Pre-draw helper: toggle official admin-division boundaries (DDS) to trace over.
   // Resolves to a cleanup() that removes any highlights (called once drawing ends).
-  async _adminTracePrompt() {
+  // What the GAME means by "the Nth division" on this board, as an HTML note (or "" when there
+  // is nothing worth saying). Deliberately does NOT claim an equivalence between Google's
+  // FeatureLayers and an OSM admin_level: no such mapping has been measured, and asserting one
+  // would be the third contradicting definition rather than a resolution of the first two.
+  // It states both facts and names which one the border card will draw.
+  async _divisionDefinitionNote(card) {
+    const ordinal = { admin1: 1, admin2: 2, admin3: 3, admin4: 4 }[card?.id];
+    if (!ordinal) return "";
+    const g = store.getCurrent();
+    if (!g?.gameArea) return "";
+    let agreed = null;
+    try {
+      const { resolveBoardDivisions } = await import("./lines.js");
+      agreed = await resolveBoardDivisions(g.gameArea, { proxyBase: window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null });
+    } catch (_) { return ""; } // the note is a courtesy; a probe failure must not block tracing
+    if (!agreed?.country) return "";
+    const { country, levels } = agreed;
+    const nth = ["1st", "2nd", "3rd", "4th"][ordinal - 1];
+    // DDS only reaches Google's level-1, level-2 and locality — three layers for four cards.
+    // A 4th-division card has never had a boundary to trace and never said so (R4).
+    const beyondDds = ordinal > 3
+      ? ` Google exposes no boundary layer this deep, so nothing below will outline a ${nth} division.`
+      : "";
+    // Only the 1st and 2nd division have a Measuring Border card (questions.js:145-146), so
+    // only those two can be pointed at one. Naming a "3rd Admin. Division Border card" would
+    // send a player looking for a card that does not exist.
+    const hasBorderCard = ordinal <= 2;
+    const measured = levels?.[ordinal - 1];
+    if (measured == null) {
+      const consequence = hasBorderCard
+        ? `, so the ${escapeHtml(card.label)} Border card won't draw one here`
+        : " and no automatic boundary at this depth";
+      return `<p class="warn-note">⚠ ${escapeHtml(country)} has no measured ${nth} division in this game${consequence}. Whatever you trace below is your own boundary — make sure the hider is answering about the same one.${beyondDds}</p>`;
+    }
+    const draws = hasBorderCard
+      ? ` — that is what the ${escapeHtml(card.label)} Border card draws.`
+      : ".";
+    return `<p class="warn-note">⚠ In ${escapeHtml(country)} this game's ${nth} division is OSM <code>admin_level ${measured}</code>${draws} The boundaries below are Google's and are not tagged by admin_level, so they may outline something different. Trace one only if it matches the division you and the hider agreed on.${beyondDds}</p>`;
+  }
+
+  async _adminTracePrompt(card) {
     const b = this.boundaries;
     if (!b) return () => {};
     if (!b.ddsAvailable) {
@@ -1354,6 +1401,15 @@ export class Layers {
     try { levels = await adminDivisionsAt(this._adminRefPoint()); }
     catch (_) { /* geocode failed — just skip the helper */ }
     if (!levels.length) return () => {};
+
+    // Reconcile Google's boundaries against the game's OWN definition of a division before the
+    // player traces one. DDS can only offer Google's level-1/-2/locality; the border cards draw
+    // COUNTRY_DIVISION_LEVELS, a measured per-country OSM admin_level. Where those disagree —
+    // Japan, Ireland, Singapore, Germany among the measured set — tracing the highlighted
+    // boundary answers a DIFFERENT question from the one the card will draw, and nothing said
+    // so. This is a note, not a block: the helper is still useful when they agree, and a player
+    // who knows the boundary is approximate can still trace it deliberately.
+    const note = await this._divisionDefinitionNote(card);
 
     const active = new Set(); // "feature|placeId"
     const clearAll = () => {
@@ -1369,6 +1425,7 @@ export class Layers {
         title: "Trace division boundaries",
         bodyHTML: `
           <p class="muted">Toggle the official boundary of the division you're in to trace over it, then start drawing. Needs boundary FeatureLayers enabled on your Map ID — if a toggle shows nothing on the map, they aren't enabled.</p>
+          ${note}
           <div class="seg feat-list">${rows}</div>
           <div class="sheet-actions">
             <button id="at-skip" class="btn btn-ghost">Skip</button>
