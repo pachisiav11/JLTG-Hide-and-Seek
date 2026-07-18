@@ -315,12 +315,30 @@ async function pruneOldPayloads(dbImpl) {
   } catch { /* best effort — never block a load on housekeeping */ }
 }
 
+// How long the CLIENT waits for the proxy before falling back to the cache ladder.
+//
+// Not a mirror of the server's own budget, and deliberately much shorter than it. `runOverpass`
+// makes up to 4 passes over 3 endpoints at 45 s each, plus 3/6/12 s backoffs — a worst case
+// near ten minutes. `fetch` has no default timeout, so the browser simply waited: observed live
+// during cycle 2, a `/overpass/lines?kind=coastline` request sat pending with no response and
+// nothing to end it.
+//
+// 60 s is a product decision, not a technical one. A Hide & Seek round has a clock, and a
+// player standing outdoors is better served by the month-old copy the cache ladder already
+// keeps ("a month-old rail line is worth far more than an empty map") than by a spinner that
+// might resolve in nine minutes. Aborting therefore does not lose data: the throw lands in
+// loadLines' catch, which returns the stale cache when it has one.
+//
+// The cost is explicit: a query the proxy WOULD have answered at 90 s is abandoned at 60 s and
+// served stale instead. That is the intended trade.
+const PROXY_FETCH_TIMEOUT_MS = 60000;
+
 async function fetchFromProxy(proxyBase, kind, bbox, level) {
   const url = new URL(proxyBase.replace(/\/+$/, "") + "/overpass/lines");
   url.searchParams.set("kind", kind);
   url.searchParams.set("bbox", bbox);
   if (level != null) url.searchParams.set("level", String(level));
-  const resp = await fetch(url.toString());
+  const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS) });
   if (!resp.ok) {
     // The proxy already separates these: 400 = our query is wrong (never retry, it fails
     // identically everywhere), 502 = every Overpass endpoint was busy (transient, retry later).
@@ -440,7 +458,10 @@ export async function loadCountryDivisions(lat, lon, { proxyBase = null, now = D
   url.searchParams.set("lat", String(lat));
   url.searchParams.set("lon", String(lon));
   try {
-    const resp = await fetch(url.toString());
+    // Same reasoning as fetchFromProxy. `resolveBoardDivisions` races each probe against
+    // PROBE_TIMEOUT_MS, but that only abandons the WAIT — the request itself kept running and
+    // held a connection. This ends it, and covers any caller that does not race.
+    const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error(`Divisions proxy HTTP ${resp.status}`);
     const data = await resp.json();
     try { await dbImpl.put("lines", { key, kind: "divisions", fetchedAt: now, data }); } catch { /* over quota */ }
