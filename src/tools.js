@@ -684,7 +684,35 @@ function featureVertexCount(f) {
 const BUFFER_SIMPLIFY_THRESHOLD = 500;
 const BUFFER_SIMPLIFY_TOLERANCE = 5e-4;
 
+// Buffering a sourced reference is the single most expensive thing the app does, and it was
+// redone from scratch on every render. Measured against the repo's Mumbai coastline fixture
+// (1 part, 281 vertices):
+//
+//     buffer      183.6 ms    92.9% of the whole elimination
+//     difference    5.2 ms
+//     intersect     2.6 ms
+//     elimination 197.7 ms
+//
+// The live Mumbai coastline is 98 parts and 5,320 vertices, where one elimination measured
+// ~3,900 ms — and `computeActiveArea` runs on every `emit`, which runs on every `store.update`.
+// One drag event on a board carrying a single coastline question measured 6,948 ms.
+//
+// Memoised on (geometry IDENTITY, distance). Identity is the right key precisely because
+// sourced geometry is stored rather than referenced, deliberately, so that a partition
+// recomputes identically for the life of the game even if OSM is edited — it is never mutated
+// in place, so a cache hit can never be stale. A WeakMap keeps this from pinning the geometry
+// of deleted steps in memory.
+//
+// Deliberately NOT keyed on a hash of the coordinates: hashing 5,320 vertices on every render
+// would reintroduce a cost of the same order as the one being removed.
+const _bufferCache = new WeakMap(); // geometry -> Map(meters -> buffered geometry | null)
+
 function bufferGeometry(geom, meters) {
+  if (!geom || typeof geom !== "object") return null;
+  let byDistance = _bufferCache.get(geom);
+  if (byDistance?.has(meters)) return byDistance.get(meters);
+
+  let out = null;
   try {
     let input = feat(geom);
     if (featureVertexCount(input) > BUFFER_SIMPLIFY_THRESHOLD) {
@@ -692,8 +720,14 @@ function bufferGeometry(geom, meters) {
       input = T().simplify(input, { tolerance: BUFFER_SIMPLIFY_TOLERANCE, highQuality: false });
     }
     const b = T().buffer(input, meters, { units: "meters" });
-    return b ? b.geometry : null;
-  } catch (e) { console.warn("buffer failed", e); return null; }
+    out = b ? b.geometry : null;
+  } catch (e) { console.warn("buffer failed", e); out = null; }
+
+  // A null is cached too: a geometry that cannot be buffered will not start being bufferable,
+  // and retrying it every render is exactly the cost this exists to remove.
+  if (!byDistance) { byDistance = new Map(); _bufferCache.set(geom, byDistance); }
+  byDistance.set(meters, out);
+  return out;
 }
 
 function measuring(step, gameArea) {

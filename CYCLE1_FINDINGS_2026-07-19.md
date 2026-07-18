@@ -13,7 +13,7 @@ suite where stated.
 | **C1-1** | `store.update` re-renders synchronously on every drag event | 3.55 ms/event, 213 ms per drag | `store.js:update` → `emit` | medium | open |
 | **C1-2** | The review's own P4 default would not have worked | would still refuse | `PERF_REVIEW` P4 | — | resolved, not adopted |
 | **C1-3** | A thrown zone union leaves the rejected zone on the board | corrupt board | `zones.js:_fold` | high | **fixed** |
-| **C1-4** | A coastline question costs ~3.9 s per elimination, uncached, per render | **6,948 ms** per drag event | `tools.js:measuring` | high | open |
+| **C1-4** | A coastline question costs ~3.9 s per elimination, uncached, per render | **6,948 ms** per drag event | `tools.js:measuring` | high | **fixed** in cycle 2 |
 | **C1-5** | A failed union mid-fold discards everything folded so far | wrong elimination | `tools.js:310,567` | high | **fixed** |
 | **C1-6** | Client-side proxy fetches have no timeout | UI stall | `lines.js:323,443` | medium | open |
 | **C1-7** | An unreadable answer produced a confident WRONG elimination | 369.5 km² from no answer | `tools.js` radar/thermo/measuring | high | **fixed** |
@@ -169,10 +169,16 @@ than the ones C1-1 was measured against.
 The answer itself is correct — within-3 km and beyond-3 km partition the board exactly
 (631.8 + 613.7 = 1,245.5 km²). It is purely a cost.
 
-**Not fixed in this cycle.** The obvious fix is to memoise a step's elimination on its inputs,
-which is a change to the hottest, most correctness-critical path in the app and deserves its own
-cycle with its own tests rather than being appended to this one. Carried into cycle 2 as the
-first phase.
+**Fixed in cycle 2, phase 1.** Measuring where the time went first changed the fix: the buffer
+alone is **92.9%** of the elimination (183.6 ms of 197.7 ms on the repo's coastline fixture), so
+memoising *the buffer* on (geometry identity, distance) was enough — a much smaller change than
+memoising whole eliminations on their inputs. Live result on the 98-part / 5,320-vertex coastline:
+
+```
+elimination, warm      3,954 ms -> 71.2 ms     59x
+one store.update       6,948 ms -> 333.6 ms    20.8x
+active area              631.8 km2 -> 631.8 km2   unchanged
+```
 
 ## C1-6. Client-side proxy fetches have no timeout
 
