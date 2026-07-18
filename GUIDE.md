@@ -302,62 +302,64 @@ level nationwide, even where it is rarely discriminating almost anywhere in the 
 
 **Two-step design:**
 
-1. **Which country.** `is_in` filtered to `admin_level=2` at the board centre — cheap,
-   only the country name is needed:
+1. **Which country (or territory).** `is_in` for the whole containing hierarchy at the
+   board centre. The country is its level-2 name — but two adjustments matter (both in
+   `countryNameFromQuery`): a maritime-boundary area (`"Taiwan maritime boundary"`,
+   `"Territorial waters of Greece"`) is *ignored*, and a Special Administrative Region
+   (Hong Kong, Macau — which sit under China's level-2 polygon) is keyed by *its own* name.
    ```
    [out:json][timeout:90];
    is_in(LAT,LON)->.a;
-   area.a["boundary"="administrative"]["admin_level"="2"];
+   area.a["boundary"="administrative"];
    out tags;
    ```
 2. **Which level, for that country.** A lookup into a measured, per-country table
    (`COUNTRY_DIVISION_LEVELS` in `overpass-lines.js`) — not a derivation, and not a guess.
 
-**How the table was measured (2026-07-19):** a 5×5 grid of points spread across each of 44
-countries' full territory (`scripts/spike-country-levels.js`, 1100 probes), not city
-centres — a city-only sample cannot see this, because e.g. Japanese cities (`市`) are not
-inside districts (`郡`), so a city point systematically misses tiers a rural point has. A
-level goes in the table only at **100% territorial coverage**: the fraction of in-country
-grid points that have a boundary at that level. Below 100%, the country is either omitted
-or capped at fewer than 2 divisions.
+**How the table was measured (2026-07-19):** two probe sets are merged
+(`scripts/spike-country-levels.js --report`): a 5×5 grid over each of 44 countries' full
+territory (1100 probes, for the rural tiers a city sample misses — Japanese cities `市` are
+not inside districts `郡`), AND the major-city probes from `spike-admin-levels.js` (271
+probes, for the CITY-STATES a coarse grid flies over). Both are essential: the grid alone
+credited the USA with a universal county level because it never landed on DC. A level goes
+in the table only at **100% coverage** across the merged, land-filtered points; below that
+the country is capped at fewer divisions, or omitted.
+
+The measurement is hardened against four ways a raw grid lies — a maritime level-2 area, an
+offshore point where a coastal province extends over the sea (counted only if it hit a
+sub-province tier), a border-straddle point whose province belongs to a neighbour, and
+under-sampled city-states. Each is handled identically in `--report` and in production.
 
 **Findings:**
 
-- **Japan resolves cleanly to `[4, 7]`, and it is the case that motivated this design.**
-  Level 7 (municipality) has 100% coverage — INCLUDING Hokkaido: Shintoku, a Hokkaido
-  town, is level 7, the same tier as a Tokyo ward. Level 5 (subprefecture) covers only 29%
-  of the grid — it exists *only* in Hokkaido — so it is correctly excluded from the table
-  even though it is the level a Sapporo-centred `is_in` query itself returns. "Prefecture,
-  then subprefecture" is not the rule; "prefecture, then municipality — which happens to
-  also be what a subprefecture ultimately contains" is.
-- **Two countries have a genuine, non-artifact gap, not a table entry.** The UK has no
-  single level that is a 2nd division everywhere (England/Scotland/Wales/Northern Ireland
-  diverge; the best measured was 59% coverage) — `COUNTRY_DIVISION_LEVELS["United Kingdom"]`
-  stops at `[4]`. The Philippines has no consistent 1st division AT ALL: Zamboanga City
-  sits outside any province, so even ordinal 1 fails — Philippines has no table entry.
-  Both fall back to hand-drawing, having said so, exactly like a board with no such
-  division at all.
-- **Table keys must be what `is_in` actually returns, not this game's shorthand.**
-  Verified live: London and Edinburgh both return `name:en` **"United Kingdom"**, never
-  "UK"; similarly "United States", "United Arab Emirates". A mismatched key is a silent
-  miss — the lookup returns null and the card quietly falls back to hand-drawing for that
-  entire country, forever. The table was first written with "UK"/"USA"/"UAE" and caught
-  exactly this bug on the first live check before it shipped.
-- **Hong Kong and Taiwan are absent, and deliberately so — not yet solved.** Neither ever
-  returned a clean country-level match in the grid: Hong Kong's OSM boundary nests under
-  China's level-2 polygon rather than having its own, and Taiwan's level-2 query returned
-  a `"Taiwan maritime boundary"` fragment rather than the country polygon. No entry in the
-  table, so both fall back to hand-drawing rather than getting a guess. Fixing this needs
-  a dedicated look at which level actually represents each territory in OSM — not
-  attempted here.
-- The `is_in` query itself, and discarding level 3 (a macro-region, not a division —
-  Brazil's level 3 is *North Region*, France's is *Metropolitan France*, the
-  Netherlands' is the country's own name repeated), carry over unchanged from the
-  original per-board spike; only the level-selection step changed.
-- **The card still names what it resolved to.** The fixed level is nationwide, but which
-  named area it matches on THIS board is worth showing (e.g. "2nd Admin. Division:
-  Suginami"), so the seeker sees what they're actually being asked and can check the
-  question is well-posed.
+- **Japan → `[4, 7]`, the case that motivated the design.** Level 7 (municipality) covers
+  Hokkaido too (Shintoku, a Hokkaido town, is level 7 — a Tokyo ward's tier); level 5
+  (subprefecture) is Hokkaido-only, so excluded. **Taiwan → `[4, 9]`**, the same shape one
+  level down: level 7 (district) exists only in cities and level 8 (township) only in
+  counties, so neither is universal, but level 9 (village) is, at 18/18 land points.
+- **City-states demote their country, honestly.** A level absent anywhere a hider could
+  stand is not usable, so: the **USA → `[4]`** (Washington DC has no county), **Germany →
+  `[4]`** (Berlin/Hamburg/Bremen jump 4→9), **Russia → `[4]`** (Moscow/St Petersburg are
+  federal cities), **Australia → `[4]`** (ACT), **Malaysia → `[4]`** (Kuala Lumpur is a
+  federal territory), **Belgium → `[4, 7]`** (Brussels is in no province, so level 6 is
+  skipped). These cards fall back to hand-drawing rather than drawing a boundary the
+  city-state hider has no equivalent of — which is the entire point of the redo.
+- **Hong Kong → `[5, 6]` (region, district), now fixed and a viable board.** It nests under
+  China's level-2 polygon, so it is keyed by the SAR name `"Hong Kong"` rather than
+  inheriting China's `[4, 6]` (meaningless in HK — it has no level-4 province). Macau is
+  detected the same way but under-sampled, so it has no levels entry and falls back — still
+  better than China's wrong levels. Verified end-to-end: an HK board draws its 3 regions
+  then its 18 districts.
+- **Two countries have a genuine gap, not a table entry.** The UK has no nationwide 2nd
+  division (England/Scotland/Wales/NI diverge) — stops at `[4]`. The Philippines has no
+  consistent 1st division AT ALL (Zamboanga City is outside any province) — no entry.
+- **Table keys must be what `is_in` actually returns.** London returns `name:en`
+  **"United Kingdom"**, never "UK"; likewise "United States", "United Arab Emirates". A
+  mismatched key is a silent miss — the card falls back for that whole country, forever.
+  The table was first written "UK"/"USA"/"UAE" and this was caught on the first live check.
+- **The card still names what it resolved to.** The level is nationwide, but which named
+  area it matched on THIS board is shown (e.g. "2nd Admin. Division: Suginami"), so the
+  seeker can check the question is well-posed.
 
 > **A per-BOARD derivation cannot work — a per-COUNTRY table can, where it's measured.**
 > `countryDivisionLevel()` in `overpass-lines.js` looks up `COUNTRY_DIVISION_LEVELS`,
@@ -365,12 +367,12 @@ or capped at fewer than 2 divisions.
 > nationwide"), never an `admin_level` directly; only `intl_border` names a level, because
 > level 2 is the international border by definition.
 
-Caveat, recorded honestly: even at 100% grid coverage, the level that satisfies "exists
+Caveat, recorded honestly: even at 100% coverage, the level that satisfies "exists
 everywhere" occasionally lands on a statistical rather than administrative region
 (Canada's level 5 includes the *Golden Horseshoe*; Brazil's level 5 includes *Região
 Geográfica Intermediária*). The boundary is real and identical for both players either
-way, so the question stays well-posed — the card still names what it resolved to
-(§5.6.1's last bullet), and that is not optional.
+way, so the question stays well-posed — the card still names what it resolved to, and that
+is not optional.
 
 #### 5.6.2 Coastline
 

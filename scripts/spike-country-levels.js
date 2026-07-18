@@ -175,58 +175,100 @@ async function run() {
 
 // ---------------------------------------------------------------------------
 // Report: per-country level coverage
+//
+// Merges THIS grid cache with the city-centre cache from spike-admin-levels.js (if present).
+// Both are needed. The grid catches rural tiers a city sample misses; the city probes catch
+// the CITY-STATES a coarse grid flies over — Berlin, Washington DC, Brussels, Kuala Lumpur —
+// which are exactly the points that (correctly) demote a country's 2nd division. Run
+// `spike-admin-levels.js` first for the full picture; the grid alone over-credits countries
+// like the USA with a universal county level it never tested against DC.
 // ---------------------------------------------------------------------------
-function report() {
-  const cache = loadCache();
-  const byCountry = new Map();
-  let seaDropped = 0;
-  for (const r of Object.values(cache)) {
-    if (!r.ok) continue;
-    // A grid point can land in the sea or in a neighbour. Neither is a gap in THIS country's
-    // coverage, so both are excluded rather than counted as a missing boundary.
-    const country2 = r.areas.find((a) => a.level === 2)?.name;
-    if (!country2 || !r.expect.includes(country2)) continue;
-    // A point can also sit in TERRITORIAL WATERS: inside the country's level-2 polygon (which
-    // commonly extends over the sea) but with no land division at all. Checked directly: the
-    // 3 points below are San Diego's coastal water, the Mediterranean off Nice, and the North
-    // Sea off Belgium — real land at those bboxes has a level-4 area, these points don't
-    // because there IS no land there. Counting them as a level-4 "miss" isn't measuring
-    // coverage, it's measuring how much of the bbox is ocean. Excluded from every level's
-    // denominator, not just level 4's, since the same water point is not-a-gap for ANY level.
-    if (!r.areas.some((a) => a.level > 3)) { seaDropped++; continue; }
-    if (!byCountry.has(r.country)) byCountry.set(r.country, []);
-    byCountry.get(r.country).push(r);
-  }
-  console.log(`(${seaDropped} grid points excluded as sea/territorial-water — no land division at all)\n`);
 
-  console.log(`# Country-wide level coverage — grid sample\n`);
+// A level-2 area OSM returns for a point that is really at sea. Must be stripped before
+// picking the country, or a coastal point resolves to "Taiwan maritime boundary" et al.
+const MARITIME_NAME = /coastal water|territorial|maritime|Küstengewässer|Festlandsockel|continental shelf|Strofades|exclusive economic|\bEEZ\b/i;
+// SARs that sit under another country's level-2 boundary but run their own divisions.
+const SAR_NAMES = new Set(["Hong Kong", "Macau", "Macao"]);
+
+const CITY_CACHE = process.env.CITY_CACHE
+  || CACHE.replace("country-levels-cache.json", "admin-levels-cache.json");
+
+function report() {
+  const grid = Object.values(loadCache());
+  const city = existsSync(CITY_CACHE) ? Object.values(JSON.parse(readFileSync(CITY_CACHE, "utf8"))) : [];
+  // `expect` (the accepted level-2 names) is defined on grid records; carry it to city
+  // records of the same country label, which don't store one.
+  const expectByCountry = new Map();
+  for (const r of grid) if (r.expect && !expectByCountry.has(r.country)) expectByCountry.set(r.country, r.expect);
+  const expectOf = (r) => r.expect || expectByCountry.get(r.country) || [r.country];
+
+  // Strip maritime areas up front; everything downstream reasons about land areas only.
+  const all = [...grid, ...city].filter((r) => r.ok)
+    .map((r) => ({ ...r, land: r.areas.filter((a) => !MARITIME_NAME.test(a.name || "")) }));
+  const isGrid = (r) => /^grid-\d+$/.test(r.name || "");
+  const keyOf = (r) => {
+    const sar = r.land.find((a) => SAR_NAMES.has(a.name));
+    if (sar) return sar.name;
+    const c2 = r.land.filter((a) => a.level === 2);
+    const good = c2.find((a) => expectOf(r).includes(a.name));
+    return good ? good.name : c2[0]?.name;
+  };
+
+  // Which surveyed countries claim each level-4 name — to catch border-straddle points whose
+  // only province belongs to a neighbour (a German-labelled point sitting in Dutch Drenthe).
+  const provCountry = new Map();
+  for (const r of all) {
+    if (!expectOf(r).includes(keyOf(r))) continue;
+    for (const a of r.land) if (a.level === 4 && a.name) (provCountry.get(a.name) || provCountry.set(a.name, new Set()).get(a.name)).add(r.country);
+  }
+
+  let dropped = 0;
+  const byCountry = new Map();
+  for (const r of all) {
+    const cn = keyOf(r);
+    if (!cn) { dropped++; continue; }
+    // SAR points are grouped by their own name; ordinary points must match their country.
+    const country = SAR_NAMES.has(cn) ? cn : r.country;
+    if (!SAR_NAMES.has(cn) && !expectOf(r).includes(cn)) { dropped++; continue; }
+    const max = Math.max(0, ...r.land.map((a) => a.level));
+    // A blind grid point is trustworthy as "inhabited land needing full coverage" only if it
+    // actually hit something finer than a province (≥5) — otherwise it is over territorial
+    // water where a coastal province extends to sea. A city probe is inhabited by definition,
+    // so it counts with just a level-4 area (Egypt tags no finer tier anywhere on land).
+    if (isGrid(r) ? max < 5 : max < 4) { dropped++; continue; }
+    const l4 = r.land.filter((a) => a.level === 4).map((a) => a.name);
+    if (l4.length && l4.every((n) => { const s = provCountry.get(n); return s && !s.has(r.country); })) { dropped++; continue; }
+    if (!byCountry.has(country)) byCountry.set(country, []);
+    byCountry.get(country).push(r);
+  }
+  console.log(`(${dropped} probes dropped as sea / territorial-water / wrong-country / border-straddle)\n`);
+  console.log(`# Country-wide level coverage — grid + city merge\n`);
   console.log(`A level is usable as a country's Nth division only at **100% coverage**: below`);
-  console.log(`that, some of the country has no such boundary and the card breaks there.\n`);
-  console.log(`| Country | in-country pts | full-coverage levels | 1st | 2nd | 3rd | partial (level:%) |`);
-  console.log(`|---|---|---|---|---|---|---|`);
+  console.log(`that, some inhabited part of the country has no such boundary and the card breaks there.\n`);
+  console.log(`| Country | pts | full-coverage levels | 1st | 2nd | near-miss (level:%) |`);
+  console.log(`|---|---|---|---|---|---|`);
 
   const table = {};
   for (const [country, list] of [...byCountry].sort()) {
+    // For a SAR the territory itself is tagged level 3–4 (Hong Kong is both), so its divisions
+    // start at level 5 — dropping ≤4 is the SAR analogue of dropping ≤3 for a normal country.
+    const floor = SAR_NAMES.has(country) ? 4 : 3;
     const counts = new Map();
-    for (const r of list) {
-      for (const lvl of new Set(r.areas.map((a) => a.level))) {
-        if (lvl <= 3) continue; // country + macro-region, per §5.6.1 step 2
-        counts.set(lvl, (counts.get(lvl) || 0) + 1);
-      }
+    for (const r of list) for (const lvl of new Set(r.land.map((a) => a.level))) {
+      if (lvl <= floor) continue; // country/territory + macro-region
+      counts.set(lvl, (counts.get(lvl) || 0) + 1);
     }
     const n = list.length;
     const full = [...counts].filter(([, c]) => c === n).map(([l]) => l).sort((a, b) => a - b);
-    const partial = [...counts].filter(([, c]) => c < n).sort((a, b) => a[0] - b[0])
+    const near = [...counts].filter(([, c]) => c < n && c / n >= 0.85).sort((a, b) => a[0] - b[0])
       .map(([l, c]) => `${l}:${Math.round((c / n) * 100)}%`);
-    table[country] = full;
-    console.log(`| ${country} | ${n} | ${full.join(", ") || "—"} | ${full[0] ?? "—"} | ${full[1] ?? "—"} | ${full[2] ?? "—"} | ${partial.join(" ") || "—"} |`);
+    table[country] = full.slice(0, 2); // the game uses only 1st + 2nd division
+    console.log(`| ${country} | ${n} | ${full.join(", ") || "—"} | ${full[0] ?? "—"} | ${full[1] ?? "—"} | ${near.join(" ") || "—"} |`);
   }
 
-  console.log(`\n## Proposed table (levels with 100% coverage, in order)\n`);
+  console.log(`\n## Proposed table (first two full-coverage levels per country)\n`);
   console.log("```js");
-  for (const [c, full] of Object.entries(table).sort()) {
-    console.log(`  ${JSON.stringify(c)}: [${full.join(", ")}],`);
-  }
+  for (const [c, full] of Object.entries(table).sort()) console.log(`  ${JSON.stringify(c)}: [${full.join(", ")}],`);
   console.log("```");
 }
 

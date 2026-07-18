@@ -95,10 +95,11 @@ export function findMatching(id) {
 //                  A per-board derivation was tried first and rejected: a Matching card asks
 //                  whether two players are in the SAME division, which is only well-posed if
 //                  both are comparing the same kind of boundary — including wherever a hider
-//                  could be standing. Measured 2026-07-19 by territorial COVERAGE (a 5×5 grid
-//                  per country, not city centres): level 4 has < 100% coverage in Singapore
-//                  (1st division is 5), Portugal (6), Ireland (5), and the Philippines has no
-//                  consistent 1st division at all (Zamboanga City sits outside any province).
+//                  could be standing. Measured 2026-07-19 by territorial COVERAGE (a grid +
+//                  city merge, not city centres alone): level 4 is not the 1st division in
+//                  Singapore (5), Portugal (6), Ireland (5), or Hong Kong (5, keyed as its
+//                  own SAR under China); the Philippines has no consistent 1st division at
+//                  all (Zamboanga City sits outside any province).
 //   hs_train     — way[railway=rail][highspeed=yes] measured in 9/9 networks (LGV, AVE,
 //                  Shinkansen, ICE, China, Italy, KTX, THSR, HS1). See overpass-lines.js:
 //                  RELATION-level highspeed tagging is inconsistent (2/4), but this card
@@ -106,15 +107,16 @@ export function findMatching(id) {
 //                  needs the relations.
 //   admin2_border— `divisionOrdinal: 2`. This used to be hand-drawn because no fixed level
 //                  looked safe (5, 6, 7 and 8 all occur). The coverage measurement resolves
-//                  it per country instead of per board: Japan's 2nd division is level 7
-//                  (municipality) EVERYWHERE, including Hokkaido — Shintoku, a Hokkaido town,
-//                  is level 7, the same tier as Tokyo's wards. Level 5 (subprefecture) only
-//                  covered 29% of the country — it is Hokkaido-only — so it is correctly
-//                  excluded even though it is the level Sapporo itself returns.
+//                  it per country: Japan's 2nd division is level 7 (municipality) EVERYWHERE,
+//                  including Hokkaido — Shintoku, a Hokkaido town, is level 7, the same tier
+//                  as Tokyo's wards. Level 5 (subprefecture) is Hokkaido-only, so excluded.
+//                  Where a city-state breaks consistency (Washington DC has no county, Berlin
+//                  no level 6) the country has NO 2nd division and the card falls back — the
+//                  USA, Germany, Russia, Australia and the UK are all [4]-only for this reason.
 //
 // Both border cards resolve to null rather than to a wrong or inconsistent border when there
 // is no such division: a city-sized board sits inside one state, so its 1st-division border
-// genuinely does not exist on it; a country outside the measured 44, or an ordinal beyond
+// genuinely does not exist on it; a country outside the measured set, or an ordinal beyond
 // what that country has nationwide-consistent (the UK's 2nd division), has no table entry at
 // all. Either way the card falls back to hand-drawing, HAVING SAID SO.
 export const MEASURING = [

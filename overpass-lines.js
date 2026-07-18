@@ -53,69 +53,88 @@ export const DEFAULT_BORDER_LEVEL = 4;
 // defined there too. The real game handles this by fixing ONE level per country, even where
 // it is rarely discriminating almost everywhere in it — a call worth matching here.
 //
-// So the level has to be a NATIONWIDE constant, not a per-board derivation. Measured
-// 2026-07-19: a 5×5 grid over each of 44 countries (scripts/spike-country-levels.js, 1100
-// probes), scored by COVERAGE — the fraction of in-country grid points that have a boundary
-// at each level. A level only goes in this table at 100% coverage; the country is omitted
-// entirely, or gets fewer than 2 ordinals, where no such level exists.
+// So the level is a NATIONWIDE constant. Measured by COVERAGE: over points spread across the
+// whole country, what fraction have a boundary at level L? A level is usable only at 100%.
+// Two probe sets are merged (scripts/spike-country-levels.js --report): a 5×5 grid per
+// country (1100 probes, for rural tiers a city sample misses) AND the major-city probes from
+// spike-admin-levels.js (271 probes, for the CITY-STATES a coarse grid misses — Berlin,
+// Washington DC, Brussels, Moscow). Both are needed: the grid alone wrongly credited the USA
+// with a universal county level because it never landed on DC.
 //
-// Japan is the case that motivated the redo, and it resolves cleanly: level 7 (municipality)
-// has 100% coverage, INCLUDING Hokkaido — Shintoku (a Hokkaido town) is level 7, same tier as
-// Tokyo's wards. So [4, 7] is both nationwide-consistent AND defined for a Hokkaido hider,
-// with no Hokkaido-specific rule needed. Level 5 (subprefecture) covered only 29% of the
-// grid — it exists ONLY in Hokkaido — so it is correctly excluded, not chosen.
+// The measurement was hardened against four ways a raw grid lies (all now handled in
+// --report and mirrored in countryNameFromQuery below):
+//   - MARITIME boundaries. `is_in` at a coastal point returns a level-2 "Taiwan maritime
+//     boundary" / "Territorial waters of Greece" area alongside the real country. Stripped by
+//     name, else Taiwan resolves to a maritime polygon and every city looks foreign.
+//   - TERRITORIAL-WATER points. A coastal province's polygon extends over the sea, so an
+//     offshore grid point has a level-4 area but no municipality — a false "gap" that killed
+//     level 6 for Australia, Thailand, Turkey, Vietnam. A grid point counts only if it hit
+//     something finer than a province (admin_level ≥ 5); a city probe always counts.
+//   - BORDER STRADDLE. A grid point on the DE/NL line returns Germany's level 2 but Dutch
+//     Drenthe beneath it. Dropped when a point's only level-4 area belongs to another
+//     surveyed country.
+//   - CITY-STATES. Berlin/Hamburg (no level 6), DC (no county), Brussels (no province),
+//     Moscow/St Petersburg (federal cities), Kuala Lumpur (federal territory) each break the
+//     "one level everywhere" assumption for real. They correctly DEMOTE their country: the
+//     USA, Germany, Russia, Australia and the UK have no nationwide 2nd division, so that
+//     card falls back to hand-drawing rather than drawing a county line a DC hider has no
+//     equivalent of. This is the whole point of the redo, applied honestly.
 //
-// Two real (non-artifact) findings, not measurement noise: the UK has no single level that
-// is a 2nd division everywhere (England/Scotland/Wales/NI diverge; best measured was 59%
-// coverage), and the Philippines has no consistent 1st division AT ALL — some cities
-// (Zamboanga) are independent of any province. Both are deliberately short entries or
-// omitted rather than populated with a guess.
+// Two showcases of the method working: Japan resolves to [4, 7] — level 7 (municipality)
+// covers Hokkaido too (Shintoku, a Hokkaido town, is level 7, same tier as a Tokyo ward),
+// while level 5 (subprefecture) is Hokkaido-only and correctly excluded. Taiwan resolves to
+// [4, 9] — level 7 (district) exists only in cities and level 8 (township) only in counties,
+// so neither is universal, but level 9 (village) is, at 18/18 land points.
 //
-// A country not in this table was not part of the 44 measured, and gets no auto-sourced
-// border card rather than a guessed level — the same "measure, don't guess" rule as
-// everything else in this file. Extending coverage means re-running the spike, not adding
-// an entry from intuition.
+// Hong Kong and Macau nest UNDER China's level-2 polygon but run their own division systems,
+// so they are keyed by their own name (see countryNameFromQuery's SAR override) rather than
+// inheriting China's [4, 6]. HK is measured ([5, 6] = region, district); Macau is detected
+// but under-sampled, so it has no levels entry and falls back — better than China's wrong
+// levels. The Philippines has no consistent 1st division at all (Zamboanga City is outside
+// any province) and is omitted. A country absent here was not measured and gets no
+// auto-sourced border card — measure, don't guess.
 export const COUNTRY_DIVISION_LEVELS = {
   "Argentina": [4, 5],
-  "Australia": [4],
+  "Australia": [4],       // Canberra/ACT has no level-6 area
   "Austria": [4, 6],
-  "Belgium": [4, 6],
+  "Belgium": [4, 7],      // Brussels-Capital is in no province (level 6); level 7 is universal
   "Brazil": [4, 5],
   "Canada": [4],
-  "China": [4, 5],
+  "China": [4, 6],        // Beijing/Shanghai are direct municipalities: level 4 → 6, no level 5
   "Czechia": [4, 5],
   "Denmark": [4, 7],
-  "Egypt": [4],
+  "Egypt": [4],           // governorates (level 4) are the finest tier OSM tags nationwide
   "Finland": [4, 7],
   "France": [4, 6],
-  "Germany": [4],
+  "Germany": [4],         // Berlin/Hamburg/Bremen city-states jump 4 → 9, no level 6
   "Greece": [4, 5],
+  "Hong Kong": [5, 6],    // keyed by SAR name, not China; region (5), district (6)
   "Hungary": [4, 5],
   "India": [4, 5],
-  "Indonesia": [4],
+  "Indonesia": [4, 5],
   "Ireland": [5, 6],
   "Israel": [4, 5],
   "Italy": [4, 6],
-  "Japan": [4, 7],
-  "Malaysia": [4],
+  "Japan": [4, 7],        // level 7 (municipality) covers Hokkaido; level 5 is Hokkaido-only
+  "Malaysia": [4],        // Kuala Lumpur (federal territory) has no district level
   "Mexico": [4, 6],
   "Netherlands": [4, 8],
-  "New Zealand": [4],
+  "New Zealand": [4, 6],
   "Norway": [4, 7],
   // Philippines intentionally has no entry: no level has 100% coverage even for the 1st
-  // division (Zamboanga City sits outside any province) — a country-wide consistent
-  // definition genuinely does not exist, so the card falls back to hand-drawing.
+  // division (Zamboanga City sits outside any province).
   "Poland": [4, 6],
   "Portugal": [6, 7],
-  "Russia": [4, 6],
+  "Russia": [4],          // Moscow/St Petersburg are federal cities: no level-6 rayon
   "Singapore": [5, 6],
   "South Africa": [4, 6],
   "South Korea": [4, 6],
   "Spain": [4, 6],
   "Sweden": [4, 7],
   "Switzerland": [4, 8],
-  "Thailand": [4],
-  "Turkey": [4],
+  "Taiwan": [4, 9],       // level 9 (village) is the only sub-county tier universal in TW
+  "Thailand": [4, 6],
+  "Turkey": [4, 6],
   // Keys here MUST match what `is_in` actually returns for a country's level-2 name:en, not
   // the shorthand this game uses casually — "UK" and "USA" are never what OSM hands back
   // (verified live: London and Edinburgh both return "United Kingdom"). A key that doesn't
@@ -123,25 +142,46 @@ export const COUNTRY_DIVISION_LEVELS = {
   // quietly falls back to hand-drawing everywhere in that country, forever.
   "United Arab Emirates": [4],
   // The United Kingdom intentionally stops at [4]: the 2nd division genuinely has no
-  // nationwide-consistent level (England, Scotland, Wales and Northern Ireland diverge),
-  // not merely unmeasured.
+  // nationwide-consistent level (England, Scotland, Wales and Northern Ireland diverge).
   "United Kingdom": [4],
-  "United States": [4, 6],
-  "Vietnam": [4],
+  "United States": [4],   // Washington DC has no county (level 6)
+  "Vietnam": [4, 6],
 };
 
-// Cheap version of the is_in query: only the level-2 (country) area is needed to key
-// COUNTRY_DIVISION_LEVELS, so this asks for just that rather than the whole hierarchy.
+// Names OSM attaches to a sea polygon that `is_in` returns as a level-2 area alongside the
+// real country. Stripping these is load-bearing: without it Taiwan's country resolves to
+// "Taiwan maritime boundary" and no HK/city point matches its country at all.
+const MARITIME_NAME = /maritime|territorial waters|exclusive economic|Küstengewässer|Festlandsockel|continental shelf|\bEEZ\b/i;
+
+// Special administrative regions that sit under another country's level-2 boundary but run
+// their own division hierarchy. Keyed by their own name so they don't inherit the parent's
+// levels (China's [4, 6] is meaningless in HK, which has no level-4 province of its own).
+const SAR_NAMES = new Set(["Hong Kong", "Macau", "Macao"]);
+
+// The whole containing hierarchy (tags only — cheap). NOT filtered to level 2, because SAR
+// detection needs the level-3/-4 areas too.
 export function buildCountryQuery(lat, lon) {
   return `[out:json][timeout:90];
 is_in(${lat},${lon})->.a;
-area.a["boundary"="administrative"]["admin_level"="2"];
+area.a["boundary"="administrative"];
 out tags;`;
 }
 
+// The key into COUNTRY_DIVISION_LEVELS for a point: its SAR name if it is in one, else its
+// level-2 country name with any maritime-boundary area ignored. Null if neither resolves.
 export function countryNameFromQuery(json) {
-  const el = (json?.elements || [])[0];
-  return el?.tags?.["name:en"] || el?.tags?.name || null;
+  const areas = (json?.elements || [])
+    .map((e) => ({
+      level: Number(e.tags?.admin_level),
+      name: e.tags?.["name:en"] || e.tags?.name || null,
+      border: e.tags?.border_type || (e.tags?.maritime ? "maritime" : ""),
+    }))
+    .filter((a) => a.name && !MARITIME_NAME.test(a.name) && !/territorial|maritime/i.test(a.border));
+  const sar = areas.find((a) => SAR_NAMES.has(a.name));
+  if (sar) return sar.name;
+  // Shortest level-2 name is a mild guard against a stray second country area on a border.
+  const country = areas.filter((a) => a.level === 2).sort((a, b) => a.name.length - b.name.length)[0];
+  return country?.name || null;
 }
 
 // The FIXED level for "the Nth division" in `country` (1 = 1st division, 2 = 2nd), or null

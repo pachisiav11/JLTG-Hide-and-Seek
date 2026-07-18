@@ -333,7 +333,7 @@ export async function loadCountryDivisions(lat, lon, { proxyBase = null, now = D
 //
 // Returns null (never a wrong or inconsistent border) when there is no such division: a
 // Mumbai-sized board sits inside ONE state, so its "1st division border" genuinely does not
-// exist on this board; a country outside the measured 44, or an ordinal beyond what that
+// exist on this board; a country outside the measured set, or an ordinal beyond what that
 // country has nationwide-consistent (the UK's 2nd division; the Philippines' 1st), has no
 // entry in COUNTRY_DIVISION_LEVELS at all — by design, not by omission.
 export async function lineGeometry(kind, gameArea, { level = null, divisionOrdinal = null } = {}) {

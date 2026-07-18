@@ -141,7 +141,7 @@ app.get("/overpass/lines", async (req, res) => {
 // What country the board is in, so a border card can look up its FIXED "1st/2nd division"
 // admin_level (§5.6.1) — a nationwide constant, not something derived per board, because
 // both players must be comparing the same kind of boundary. `country` is null and `levels`
-// empty for a country outside the measured 44; the card is meant to fall back, not guess.
+// empty for a country outside the measured set; the card is meant to fall back, not guess.
 app.get("/overpass/divisions", async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180) {
