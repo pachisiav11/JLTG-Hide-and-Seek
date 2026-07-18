@@ -217,12 +217,3 @@ function feat(g) {
   return g && g.type === "Feature" ? g : T().feature(g);
 }
 
-export function centroidOfRing(ring) {
-  try {
-    const c = T().centroid(ringToTurf(ring));
-    const [lng, lat] = c.geometry.coordinates;
-    return { lat, lng };
-  } catch (_) {
-    return null;
-  }
-}

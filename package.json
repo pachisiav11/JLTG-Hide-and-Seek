@@ -2,7 +2,7 @@
   "name": "jltg-hide-and-seek",
   "version": "1.0.0",
   "private": true,
-  "description": "JLTG Hide & Seek map companion — backend (Overpass proxy; Phase 13 realtime relay).",
+  "description": "JLTG Hide & Seek map companion — backend (Overpass proxy).",
   "type": "module",
   "engines": {
     "node": ">=18"
@@ -13,7 +13,6 @@
     "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "express": "^4.22.2",
-    "socket.io": "^4.8.3"
+    "express": "^4.22.2"
   }
 }

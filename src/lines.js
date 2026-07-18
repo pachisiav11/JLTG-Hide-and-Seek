@@ -43,8 +43,6 @@ const MODE_COLOUR = Object.fromEntries(ROUTE_MODES.map((m) => [m.route, m.colour
 const MODE_LABEL = Object.fromEntries(ROUTE_MODES.map((m) => [m.route, m.label]));
 const FALLBACK_COLOUR = "#94a3b8";
 
-export const LINE_KIND_LABEL = { rail: "Rail lines", metro: "Metro lines", coastline: "Coastline", highspeed: "High-speed rail", border: "Borders" };
-
 // ---- Grouping OSM route relations into the lines a player would name --------------------
 //
 // A route relation is not a line. OSM maps each SERVICE: Mumbai's Western Line is four

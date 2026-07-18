@@ -4,18 +4,6 @@
 // gets stored in the step's inputs (so the Voronoi partition can be recomputed
 // deterministically later — Places results are not stable over time).
 
-export const CATEGORIES = [
-  { id: "train_station", label: "Railway station", type: "train_station" },
-  { id: "subway_station", label: "Metro / subway", type: "subway_station" },
-  { id: "bus_station", label: "Bus station", type: "bus_station" },
-  { id: "park", label: "Park", type: "park" },
-  { id: "hospital", label: "Hospital", type: "hospital" },
-  { id: "school", label: "School", type: "school" },
-  { id: "place_of_worship", label: "Place of worship", type: "place_of_worship" },
-  { id: "tourist_attraction", label: "Tourist attraction", type: "tourist_attraction" },
-  { id: "shopping_mall", label: "Shopping mall", type: "shopping_mall" },
-  { id: "restaurant", label: "Restaurant", type: "restaurant" },
-];
 
 let service = null;
 

@@ -1,11 +1,17 @@
 // Google Maps JavaScript API loader.
-// Loads the API once with all libraries the app will need across phases:
-//   maps, places, geometry, drawing, marker, visualization  (guide §3).
+// Loads the API once with the libraries the app actually uses:
+//   maps, places, geometry (features.js computeDistanceBetween), marker.
 // Exposes google.maps.importLibrary(...) for on-demand library access.
+//
+// `drawing` and `visualization` were loaded here and never referenced. `drawing` could not
+// have been used even in principle — zones.js:30 records that DrawingManager was removed from
+// Maps JS in v3.65, which is why zones are drawn with a custom click tool — and there is no
+// heatmap or other visualization primitive anywhere. Two libraries off the first payload, on a
+// phone, outdoors, which is the target device. (`routes` is imported on demand in features.js.)
 
 let loadPromise = null;
 
-const LIBRARIES = ["maps", "places", "geometry", "drawing", "marker", "visualization"];
+const LIBRARIES = ["maps", "places", "geometry", "marker"];
 
 export function loadGoogleMaps(apiKey) {
   if (loadPromise) return loadPromise;

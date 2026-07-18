@@ -69,9 +69,6 @@ export class MapFeatures {
     toast(on ? "Transit layer on — Google's feed, missing some agencies. Use 🚄 Rail for the full network." : "Transit layer off");
     return on;
   }
-  isTransitOn() {
-    return !!this.transit && this.transit.getMap() != null;
-  }
 
   // ---- Directions here ----
   _onContextMenu(e) {

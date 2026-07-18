@@ -45,6 +45,3 @@ export function stopCountdown() {
   state = null;
 }
 
-export function isRunning() {
-  return !!state;
-}

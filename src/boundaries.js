@@ -172,12 +172,6 @@ export class Boundaries {
     else if (geometry?.location) this.map.setCenter(geometry.location);
   }
 
-  hasOverlays() {
-    if (this._boxes.length) return true;
-    for (const { placeIds } of this._featureLayers.values()) if (placeIds.size) return true;
-    return false;
-  }
-
   clear() {
     this._boxes.forEach((p) => p.setMap(null));
     this._boxes = [];

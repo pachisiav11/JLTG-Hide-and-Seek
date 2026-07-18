@@ -585,29 +585,6 @@ function tentacles(step, gameArea) {
   return { eliminated: safeDiff(gameArea, keepRegion), guides };
 }
 
-// Straight-line distance (metres) from a point to a game-area polygon: 0 if the
-// point is inside, else the distance to the nearest boundary edge. Used to bound
-// which candidate places are relevant to a tentacle radius.
-export function distancePointToArea(pt, area) {
-  const turf = T();
-  const p = turf.point([pt.lng, pt.lat]);
-  try {
-    const poly = feat(area);
-    if (turf.booleanPointInPolygon(p, poly)) return 0;
-    const lines = turf.polygonToLine(poly);
-    let best = Infinity;
-    const consider = (lineFeat) => {
-      try { best = Math.min(best, turf.pointToLineDistance(p, lineFeat, { units: "meters" })); } catch (_) {}
-    };
-    if (lines.type === "FeatureCollection") lines.features.forEach(consider);
-    else consider(lines);
-    return best;
-  } catch (e) {
-    console.warn("distancePointToArea failed", e);
-    return Infinity;
-  }
-}
-
 // Extract outer rings of a geometry as arrays of {lat,lng} for guide drawing.
 // The line counterpart of geojsonRings: every polyline in a (Multi)LineString, as {lat,lng}.
 // Anything else (a Polygon, a point set, nothing at all) yields none.
