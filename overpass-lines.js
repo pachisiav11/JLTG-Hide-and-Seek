@@ -40,51 +40,116 @@ export const METRO_ROUTE_TYPES = ["subway", "light_rail", "monorail"];
 // OSM admin_level for borders.
 //
 // Level 2 is the international border BY DEFINITION, so it is the one level that is safe to
-// hardcode. Level 4 is not: re-measured 2026-07-18 across 271 probes / 44 countries, level 4
-// is ABSENT in 22 of them. Singapore's 1st division is level 5 (Regions), Portugal's is 6
-// (Districts), Ireland's is 5 (Provinces). Asking for level 4 there does not fail loudly —
-// Dublin and Lisbon return zero ways, and a Singapore board returns ONE way named "Johor",
-// i.e. it silently draws Malaysia's state border and calls it Singapore's 1st division.
-//
-// The ordinal → level mapping also varies WITHIN countries in 17 of the 44 (Japan's Sapporo
-// is 5 where the other 46 prefectures are 7, because Hokkaido genuinely has a subprefecture
-// tier; the USA is 6 except New York=5 and DC=9). So neither a constant nor a per-country
-// table can express it — the level must be DERIVED at the board. See deriveDivisionLevels.
+// hardcode.
 export const BORDER_LEVELS = { country: 2 };
-
-// Only used when a caller names no level at all. Kept as 4 because it is the most common
-// 1st division by a wide margin, but every in-app border card now derives instead.
 export const DEFAULT_BORDER_LEVEL = 4;
 
-// The areas CONTAINING a point. `is_in` is required here: an `around:` query answers a
-// different question and omits the enclosing country entirely.
-export function buildDivisionsQuery(lat, lon) {
+// First pass at this got it backwards: deriving "the Nth division" per BOARD (a Tokyo board
+// ranking its own hierarchy as [4, 7], a Sapporo board as [4, 5]) answers the wrong question.
+// A Matching card asks "are you in the same 2nd division as me?", which only makes sense if
+// BOTH players are comparing the same KIND of boundary. A seeker on Tokyo wards and a hider
+// on a Hokkaido subprefecture are not answering one question, even though each board's own
+// hierarchy is internally correct — and a hider CAN be in Hokkaido, so the level has to be
+// defined there too. The real game handles this by fixing ONE level per country, even where
+// it is rarely discriminating almost everywhere in it — a call worth matching here.
+//
+// So the level has to be a NATIONWIDE constant, not a per-board derivation. Measured
+// 2026-07-19: a 5×5 grid over each of 44 countries (scripts/spike-country-levels.js, 1100
+// probes), scored by COVERAGE — the fraction of in-country grid points that have a boundary
+// at each level. A level only goes in this table at 100% coverage; the country is omitted
+// entirely, or gets fewer than 2 ordinals, where no such level exists.
+//
+// Japan is the case that motivated the redo, and it resolves cleanly: level 7 (municipality)
+// has 100% coverage, INCLUDING Hokkaido — Shintoku (a Hokkaido town) is level 7, same tier as
+// Tokyo's wards. So [4, 7] is both nationwide-consistent AND defined for a Hokkaido hider,
+// with no Hokkaido-specific rule needed. Level 5 (subprefecture) covered only 29% of the
+// grid — it exists ONLY in Hokkaido — so it is correctly excluded, not chosen.
+//
+// Two real (non-artifact) findings, not measurement noise: the UK has no single level that
+// is a 2nd division everywhere (England/Scotland/Wales/NI diverge; best measured was 59%
+// coverage), and the Philippines has no consistent 1st division AT ALL — some cities
+// (Zamboanga) are independent of any province. Both are deliberately short entries or
+// omitted rather than populated with a guess.
+//
+// A country not in this table was not part of the 44 measured, and gets no auto-sourced
+// border card rather than a guessed level — the same "measure, don't guess" rule as
+// everything else in this file. Extending coverage means re-running the spike, not adding
+// an entry from intuition.
+export const COUNTRY_DIVISION_LEVELS = {
+  "Argentina": [4, 5],
+  "Australia": [4],
+  "Austria": [4, 6],
+  "Belgium": [4, 6],
+  "Brazil": [4, 5],
+  "Canada": [4],
+  "China": [4, 5],
+  "Czechia": [4, 5],
+  "Denmark": [4, 7],
+  "Egypt": [4],
+  "Finland": [4, 7],
+  "France": [4, 6],
+  "Germany": [4],
+  "Greece": [4, 5],
+  "Hungary": [4, 5],
+  "India": [4, 5],
+  "Indonesia": [4],
+  "Ireland": [5, 6],
+  "Israel": [4, 5],
+  "Italy": [4, 6],
+  "Japan": [4, 7],
+  "Malaysia": [4],
+  "Mexico": [4, 6],
+  "Netherlands": [4, 8],
+  "New Zealand": [4],
+  "Norway": [4, 7],
+  // Philippines intentionally has no entry: no level has 100% coverage even for the 1st
+  // division (Zamboanga City sits outside any province) — a country-wide consistent
+  // definition genuinely does not exist, so the card falls back to hand-drawing.
+  "Poland": [4, 6],
+  "Portugal": [6, 7],
+  "Russia": [4, 6],
+  "Singapore": [5, 6],
+  "South Africa": [4, 6],
+  "South Korea": [4, 6],
+  "Spain": [4, 6],
+  "Sweden": [4, 7],
+  "Switzerland": [4, 8],
+  "Thailand": [4],
+  "Turkey": [4],
+  // Keys here MUST match what `is_in` actually returns for a country's level-2 name:en, not
+  // the shorthand this game uses casually — "UK" and "USA" are never what OSM hands back
+  // (verified live: London and Edinburgh both return "United Kingdom"). A key that doesn't
+  // match is a silent miss, not an error: countryDivisionLevel returns null and the card
+  // quietly falls back to hand-drawing everywhere in that country, forever.
+  "United Arab Emirates": [4],
+  // The United Kingdom intentionally stops at [4]: the 2nd division genuinely has no
+  // nationwide-consistent level (England, Scotland, Wales and Northern Ireland diverge),
+  // not merely unmeasured.
+  "United Kingdom": [4],
+  "United States": [4, 6],
+  "Vietnam": [4],
+};
+
+// Cheap version of the is_in query: only the level-2 (country) area is needed to key
+// COUNTRY_DIVISION_LEVELS, so this asks for just that rather than the whole hierarchy.
+export function buildCountryQuery(lat, lon) {
   return `[out:json][timeout:90];
 is_in(${lat},${lon})->.a;
-area.a["boundary"="administrative"];
+area.a["boundary"="administrative"]["admin_level"="2"];
 out tags;`;
 }
 
-// Turn the `is_in` areas into the board's division hierarchy, outermost first.
-//
-// Level 2 (country) and level 3 are dropped. Level 3 is load-bearing: it is a macro-region
-// rather than an administrative division — Brazil's "North Region", France's "Metropolitan
-// France", and in the Netherlands it is the country's own name repeated. Keeping it broke
-// the derivation in 9 of the original 42 samples.
-//
-// Several relations can share one level, so levels are de-duplicated; the first name seen at
-// a level wins. Callers show that name on the card, which is what keeps an ordinal honest
-// when it lands on a statistical rather than administrative region.
-export function deriveDivisionLevels(json) {
-  const seen = new Map();
-  for (const el of json?.elements || []) {
-    const level = Number(el?.tags?.admin_level);
-    if (!Number.isFinite(level) || level <= 3) continue;
-    if (!seen.has(level)) seen.set(level, el.tags["name:en"] || el.tags.name || null);
-  }
-  return [...seen.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([level, name], i) => ({ ordinal: i + 1, level, name }));
+export function countryNameFromQuery(json) {
+  const el = (json?.elements || [])[0];
+  return el?.tags?.["name:en"] || el?.tags?.name || null;
+}
+
+// The FIXED level for "the Nth division" in `country` (1 = 1st division, 2 = 2nd), or null
+// if `country` was not measured or has fewer than `ordinal` nationwide-consistent levels.
+// Null is not a failure to recover from — it is the honest answer for the UK's 2nd division
+// or the Philippines' 1st: no single level would be correct for every hider location.
+export function countryDivisionLevel(country, ordinal) {
+  return COUNTRY_DIVISION_LEVELS[country]?.[ordinal - 1] ?? null;
 }
 
 // 5 decimal places ≈ 1.1 m — well inside hand-tracing error, and it is most of what makes a

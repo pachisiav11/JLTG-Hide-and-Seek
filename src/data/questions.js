@@ -90,24 +90,33 @@ export function findMatching(id) {
 // is right everywhere — no per-city tuning, so no board gets an advantage:
 //   coastline    — natural=coastline is a single unambiguous tag worldwide.
 //   intl_border  — admin_level=2 is the international border by definition.
-//   admin1_border— `divisionOrdinal: 1`, NOT a fixed admin_level. Re-measured 2026-07-18 over
-//                  271 probes / 44 countries: level 4 is absent in 22 of them (Singapore's 1st
-//                  division is 5, Portugal's is 6, Ireland's is 5). Asking for 4 there is
-//                  silently wrong, not empty — a Singapore board returns Malaysia's "Johor".
+//   admin1_border— `divisionOrdinal: 1`, NOT a fixed admin_level in the code, but a FIXED
+//                  level per country in practice (overpass-lines.js: COUNTRY_DIVISION_LEVELS).
+//                  A per-board derivation was tried first and rejected: a Matching card asks
+//                  whether two players are in the SAME division, which is only well-posed if
+//                  both are comparing the same kind of boundary — including wherever a hider
+//                  could be standing. Measured 2026-07-19 by territorial COVERAGE (a 5×5 grid
+//                  per country, not city centres): level 4 has < 100% coverage in Singapore
+//                  (1st division is 5), Portugal (6), Ireland (5), and the Philippines has no
+//                  consistent 1st division at all (Zamboanga City sits outside any province).
 //   hs_train     — way[railway=rail][highspeed=yes] measured in 9/9 networks (LGV, AVE,
 //                  Shinkansen, ICE, China, Italy, KTX, THSR, HS1). See overpass-lines.js:
 //                  RELATION-level highspeed tagging is inconsistent (2/4), but this card
 //                  asks distance to the nearest high-speed line, not which one, so it never
 //                  needs the relations.
 //   admin2_border— `divisionOrdinal: 2`. This used to be hand-drawn because no fixed level
-//                  exists (5, 6, 7 and 8 all occur, and 17 of 44 countries disagree with
-//                  THEMSELVES — Japan's Sapporo is 5 where its other 46 prefectures are 7).
-//                  Deriving per board is what makes it sourceable: the ordinal is stable
-//                  even though the level under it is not.
+//                  looked safe (5, 6, 7 and 8 all occur). The coverage measurement resolves
+//                  it per country instead of per board: Japan's 2nd division is level 7
+//                  (municipality) EVERYWHERE, including Hokkaido — Shintoku, a Hokkaido town,
+//                  is level 7, the same tier as Tokyo's wards. Level 5 (subprefecture) only
+//                  covered 29% of the country — it is Hokkaido-only — so it is correctly
+//                  excluded even though it is the level Sapporo itself returns.
 //
-// Both border cards resolve to null rather than to a wrong border when the board has no such
-// division — a city-sized board sits inside one state, so its 1st-division border genuinely
-// does not exist, and the card falls back to hand-drawing HAVING SAID SO.
+// Both border cards resolve to null rather than to a wrong or inconsistent border when there
+// is no such division: a city-sized board sits inside one state, so its 1st-division border
+// genuinely does not exist on it; a country outside the measured 44, or an ordinal beyond
+// what that country has nationwide-consistent (the UK's 2nd division), has no table entry at
+// all. Either way the card falls back to hand-drawing, HAVING SAID SO.
 export const MEASURING = [
   { id: "airport", label: "Commercial Airport", ref: "points", type: "airport" },
   { id: "hs_train", label: "High Speed Train Line", ref: "line", lineKind: "highspeed" },

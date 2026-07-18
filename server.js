@@ -18,7 +18,7 @@ import express from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
-import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildDivisionsQuery, deriveDivisionLevels } from "./overpass-lines.js";
+import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -138,22 +138,25 @@ app.get("/overpass/lines", async (req, res) => {
   }
 });
 
-// The board's admin-division hierarchy, so a border card can ask for "the 1st division"
-// rather than for a hardcoded admin_level that does not exist everywhere (§5.6.1).
+// What country the board is in, so a border card can look up its FIXED "1st/2nd division"
+// admin_level (§5.6.1) — a nationwide constant, not something derived per board, because
+// both players must be comparing the same kind of boundary. `country` is null and `levels`
+// empty for a country outside the measured 44; the card is meant to fall back, not guess.
 app.get("/overpass/divisions", async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180) {
     return res.status(400).json({ error: "lat/lon must be numbers within ±90/±180." });
   }
   try {
-    const json = await runOverpass(buildDivisionsQuery(lat, lon));
-    res.json({ source: "overpass", levels: deriveDivisionLevels(json) });
+    const json = await runOverpass(buildCountryQuery(lat, lon));
+    const country = countryNameFromQuery(json);
+    res.json({ source: "overpass", country, levels: country ? (COUNTRY_DIVISION_LEVELS[country] || []) : [] });
   } catch (err) {
     if (err.fatal) {
-      console.error("Overpass rejected the divisions query (query bug, not an outage):", err.message);
+      console.error("Overpass rejected the country query (query bug, not an outage):", err.message);
       return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
     }
-    console.error(`Overpass divisions failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
+    console.error(`Overpass country lookup failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
     res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
   }
 });

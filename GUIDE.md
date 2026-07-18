@@ -284,73 +284,93 @@ than filtering by tag. Tag conventions vary by country, so a filter that looks c
 locally silently drops features elsewhere. Clipping is tag-independent, and an express
 line contributes only the segment inside the board — which is semantically right.
 
-#### 5.6.1 Admin division levels — derive, never hardcode
+#### 5.6.1 Admin division levels — a fixed level per country, never per board
 
 OSM tags boundaries `boundary=administrative` + `admin_level` (2–10). The mapping from
-level → "1st/2nd admin division" is **not fixed**, so the app derives it per play area.
+level → "1st/2nd admin division" is **not fixed worldwide** — but it must be fixed
+**per country**, because a Matching card asks "are you in the same 2nd division as me?",
+and that question is only well-posed if both players compare the same KIND of boundary.
 
-**Query** (verified — returns the areas *containing* a point; an `around:` query answers
-a different question and omits the enclosing country/state entirely):
+**First attempt, tried and reverted:** derive the ordinal per PLAY AREA — run `is_in` at
+the board centre, discard levels 2–3, rank what's left. This is wrong for Matching: a
+seeker's board ranks its own hierarchy correctly, but two boards in the same country can
+rank different levels into "the 2nd division" (a Tokyo board → level 7; a Sapporo board →
+level 5, because Hokkaido alone has a subprefecture tier). A hider could be anywhere in
+the country, so the level has to be defined — and the SAME — everywhere in it, including
+wherever a hider happens to be standing. The real game handles exactly this by fixing one
+level nationwide, even where it is rarely discriminating almost anywhere in the country.
 
-```
-[out:json][timeout:90];
-is_in(LAT,LON)->.a;
-area.a["boundary"="administrative"];
-out tags;
-```
+**Two-step design:**
 
-**Derivation:**
-1. Run the query at the play-area centre.
-2. **Discard level 2** (country) **and level 3.**
-3. Sort the remainder by `admin_level` ascending.
-4. Ordinal position ⇒ division: 1st = first entry, 2nd = second, and so on.
-5. **Show the returned name on the card** ("2nd Admin. Division: Cook County"), so the
-   seeker sees what they are actually being asked about.
-6. Several relations may share one level — handle duplicates, don't assume uniqueness.
+1. **Which country.** `is_in` filtered to `admin_level=2` at the board centre — cheap,
+   only the country name is needed:
+   ```
+   [out:json][timeout:90];
+   is_in(LAT,LON)->.a;
+   area.a["boundary"="administrative"]["admin_level"="2"];
+   out tags;
+   ```
+2. **Which level, for that country.** A lookup into a measured, per-country table
+   (`COUNTRY_DIVISION_LEVELS` in `overpass-lines.js`) — not a derivation, and not a guess.
 
-**Evidence** (re-measured 2026-07-18; 271 probes across 44 countries; raw data in spike
-cache):
+**How the table was measured (2026-07-19):** a 5×5 grid of points spread across each of 44
+countries' full territory (`scripts/spike-country-levels.js`, 1100 probes), not city
+centres — a city-only sample cannot see this, because e.g. Japanese cities (`市`) are not
+inside districts (`郡`), so a city point systematically misses tiers a rural point has. A
+level goes in the table only at **100% territorial coverage**: the fraction of in-country
+grid points that have a boundary at that level. Below 100%, the country is either omitted
+or capped at fewer than 2 divisions.
 
-- **Level 4 is not the 1st division everywhere — it is entirely ABSENT in 22 probes.**
-  Singapore's 1st division is level **5** (Regions), Portugal's is **6** (Districts),
-  Ireland's is **5** (Provinces: Leinster, Munster, Connacht), and the Philippines is
-  mixed 5/6. The prior claim "level 4 = 1st division in 14/14" was an artefact of which
-  14 countries were sampled, and is falsified.
-- **Asking for level 4 anyway does not fail loudly — it answers wrongly.** Dublin and
-  Lisbon return zero ways. A Singapore board returns **one way named "Johor"** — Malaysia's
-  state border — which the card would buffer and measure against as Singapore's 1st
-  division. Silence would have been the kinder failure.
-- **Step 2 (discard level 3) is load-bearing** and re-confirmed. Without it the derivation
-  breaks: Brazil's level 3 is a macro-region (*North Region*), France's is *Metropolitan
-  France*, and the Netherlands' level 3 is **"Netherlands" — the country repeated**.
-- **Only 27 of 44 countries are internally consistent; 17 contradict themselves.** Each
-  entry below is *dissenting cities* vs *that country's own majority 2nd-division level*:
-  Australia (Canberra 7 vs 6), Belgium (Brussels 7 vs 6), Canada (Vancouver/Calgary 6 vs
-  5), China (Shanghai/Beijing 6 vs 5), France (Lyon 5 vs 6), Germany (Berlin/Hamburg 9,
-  Bremen 6, vs 5), Israel (6 vs 5), Japan (Sapporo 5 vs 7), Malaysia (George Town/Kota
-  Kinabalu 5 vs 6), Mexico (Guadalajara 5 vs 6), Philippines (Cebu City 10, Davao 8, vs
-  6), Russia (Moscow/St Petersburg 5 vs 6), Switzerland (Zurich/Lausanne/Lugano 6, Bern
-  5), Taiwan (8 vs 7), UAE (Dubai 10, Abu Dhabi 5, Sharjah 8), UK (Glasgow/Cardiff/
-  Edinburgh 6, Belfast 7, vs 5), USA (New York 5, Washington DC 9, vs 6).
-- **Japan is the instructive case, because it is the one that looks tabulatable.** The
-  intuitive rule is "prefecture, then subprefecture". In fact 9 of the 10 Japanese cities
-  probed return **7** (Tokyo → Suginami, a special ward), and only Sapporo returns **5** —
-  because Hokkaido genuinely *has* a subprefecture tier (Ishikari) that the other 46
-  prefectures lack. The variation is real administrative geography, not bad tagging, which
-  is exactly why no per-country table can express it.
+**Findings:**
 
-> **A per-country lookup table cannot work.** 17 of 44 countries disagree with
-> *themselves*, and 4 have no level 4 at all. Derive from the hierarchy at the play area,
-> per game — `deriveDivisionLevels()` in `overpass-lines.js`, served by
-> `GET /overpass/divisions`. Cards name a `divisionOrdinal` ("the 1st division here"),
-> never an `admin_level`; only `intl_border` names a level, because level 2 is the
-> international border by definition.
+- **Japan resolves cleanly to `[4, 7]`, and it is the case that motivated this design.**
+  Level 7 (municipality) has 100% coverage — INCLUDING Hokkaido: Shintoku, a Hokkaido
+  town, is level 7, the same tier as a Tokyo ward. Level 5 (subprefecture) covers only 29%
+  of the grid — it exists *only* in Hokkaido — so it is correctly excluded from the table
+  even though it is the level a Sapporo-centred `is_in` query itself returns. "Prefecture,
+  then subprefecture" is not the rule; "prefecture, then municipality — which happens to
+  also be what a subprefecture ultimately contains" is.
+- **Two countries have a genuine, non-artifact gap, not a table entry.** The UK has no
+  single level that is a 2nd division everywhere (England/Scotland/Wales/Northern Ireland
+  diverge; the best measured was 59% coverage) — `COUNTRY_DIVISION_LEVELS["United Kingdom"]`
+  stops at `[4]`. The Philippines has no consistent 1st division AT ALL: Zamboanga City
+  sits outside any province, so even ordinal 1 fails — Philippines has no table entry.
+  Both fall back to hand-drawing, having said so, exactly like a board with no such
+  division at all.
+- **Table keys must be what `is_in` actually returns, not this game's shorthand.**
+  Verified live: London and Edinburgh both return `name:en` **"United Kingdom"**, never
+  "UK"; similarly "United States", "United Arab Emirates". A mismatched key is a silent
+  miss — the lookup returns null and the card quietly falls back to hand-drawing for that
+  entire country, forever. The table was first written with "UK"/"USA"/"UAE" and caught
+  exactly this bug on the first live check before it shipped.
+- **Hong Kong and Taiwan are absent, and deliberately so — not yet solved.** Neither ever
+  returned a clean country-level match in the grid: Hong Kong's OSM boundary nests under
+  China's level-2 polygon rather than having its own, and Taiwan's level-2 query returned
+  a `"Taiwan maritime boundary"` fragment rather than the country polygon. No entry in the
+  table, so both fall back to hand-drawing rather than getting a guess. Fixing this needs
+  a dedicated look at which level actually represents each territory in OSM — not
+  attempted here.
+- The `is_in` query itself, and discarding level 3 (a macro-region, not a division —
+  Brazil's level 3 is *North Region*, France's is *Metropolitan France*, the
+  Netherlands' is the country's own name repeated), carry over unchanged from the
+  original per-board spike; only the level-selection step changed.
+- **The card still names what it resolved to.** The fixed level is nationwide, but which
+  named area it matches on THIS board is worth showing (e.g. "2nd Admin. Division:
+  Suginami"), so the seeker sees what they're actually being asked and can check the
+  question is well-posed.
 
-Caveat, recorded honestly: ordinal derivation returns whatever OSM ranks next, which is
-occasionally a statistical rather than administrative region (Canada level 5 = *Golden
-Horseshoe*; Brazil level 5 = *Região Geográfica Intermediária*). The boundary is real and
-consistent for both players, so the question stays well-posed — step 5's visible name is
-what keeps it honest, and is not optional.
+> **A per-BOARD derivation cannot work — a per-COUNTRY table can, where it's measured.**
+> `countryDivisionLevel()` in `overpass-lines.js` looks up `COUNTRY_DIVISION_LEVELS`,
+> served by `GET /overpass/divisions`. Cards name a `divisionOrdinal` ("the 1st division,
+> nationwide"), never an `admin_level` directly; only `intl_border` names a level, because
+> level 2 is the international border by definition.
+
+Caveat, recorded honestly: even at 100% grid coverage, the level that satisfies "exists
+everywhere" occasionally lands on a statistical rather than administrative region
+(Canada's level 5 includes the *Golden Horseshoe*; Brazil's level 5 includes *Região
+Geográfica Intermediária*). The boundary is real and identical for both players either
+way, so the question stays well-posed — the card still names what it resolved to
+(§5.6.1's last bullet), and that is not optional.
 
 #### 5.6.2 Coastline
 
