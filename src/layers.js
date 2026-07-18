@@ -1744,7 +1744,9 @@ export class Layers {
       // map anyway (every point is farther than 0; "closer than 0" is a contradiction).
       const distance = readDistanceMeters(s, "m-dist", units); // metres, whatever was typed
       if (!Number.isFinite(distance)) return toast("Enter your distance as a number.");
-      if (distance <= 0) return toast("A distance of 0 can't divide the map — enter how far you actually are.");
+      // Covers 0 and negatives, so it must not claim the input was 0 — a player who typed -5
+      // and is told "a distance of 0" looks for a zero they never entered.
+      if (distance <= 0) return toast("Your distance has to be greater than zero — enter how far you actually are.");
       const side = s.qa('input[name="m-side"]').find((r) => r.checked)?.value || "in";
       this.addStep("measuring", { ...addInputs, distance }, { side });
       s.close();
