@@ -507,10 +507,17 @@ export class Layers {
   // A searchable radio list of candidate features. No cap on how many are shown
   // (long lists scroll); a filter box narrows by name when there are many. Values
   // are ORIGINAL indices so a selection maps back to features[] despite filtering.
+  //
+  // NOTHING starts checked. Pre-checking index 0 left the downstream "require an explicit
+  // pick" guards unreachable on the common path — open the sheet, scan the list, press Add
+  // without touching the filter, and candidate #1 was committed as an answer the seeker
+  // never gave. Only `repairRadioSelection` (filter typing) ever cleared it, so the guard
+  // bound in the one case the user HAD engaged with the list. This also makes the point
+  // picker agree with `_chooseTentacleLines`, which never had a default.
   _featureListHTML(name, feats) {
     const items = feats.map((f, i) =>
       `<label class="feat-item" data-name="${escapeHtml((f.name || "").toLowerCase())}">
-         <input type="radio" name="${name}" value="${i}" ${i === 0 ? "checked" : ""}/> ${i + 1}. ${escapeHtml(f.name)}
+         <input type="radio" name="${name}" value="${i}"/> ${i + 1}. ${escapeHtml(f.name)}
        </label>`).join("");
     const search = feats.length > 8
       ? `<input class="field feat-search" data-search="${name}" placeholder="Search ${feats.length} results…" />`
@@ -1606,15 +1613,48 @@ export class Layers {
   // advantage this removes.
   async _measureLine(card) {
     if (card.lineKind) {
-      const auto = await this._autoLine(card);
-      if (auto) return this._distanceSheet(card, auto);
-      // _autoLine has already said why; fall through to drawing it by hand.
+      // Drawing used to be reachable only when sourcing FAILED, which made "I want to draw
+      // this one" indistinguishable from "the lookup broke". Ask instead: sourced stays the
+      // default (that is the whole point of §G1), but a deliberate hand-drawn line is now a
+      // first-class answer rather than a fallback — a board on a river the seeker means
+      // rather than the coast, or a stretch of border they want to treat as one segment.
+      const how = await this._lineSourceSheet(card);
+      if (!how) return this.openPanel();
+      if (how === "auto") {
+        const auto = await this._autoLine(card);
+        if (auto) return this._distanceSheet(card, auto);
+        // _autoLine has already said why; fall through to drawing it by hand.
+      }
     }
-    const coords = await this._drawShape(2, `Draw the ${card.label} — tap along it`);
+    const coords = await this._drawShape(2, `Draw the ${card.label} — tap along it, point by point`);
     if (!coords) return this.openPanel();
     this._distanceSheet(card, {
       refType: "line", refLabel: card.label,
       refGeometry: { type: "LineString", coordinates: coords.map((c) => [c.lng, c.lat]) },
+    });
+  }
+
+  // "Use the real one, or draw it?" for a lineKind card. Resolves "auto" | "draw" | null.
+  _lineSourceSheet(card) {
+    const label = card.label.toLowerCase();
+    return new Promise((resolve) => {
+      let out = null;
+      const s = openSheet({
+        title: card.label,
+        bodyHTML: `
+          <p class="muted">This question needs a line, not a point.</p>
+          <div class="seg" role="radiogroup">
+            <label><input type="radio" name="ls-how" value="auto" checked/> Use the real ${label} — looked up automatically</label>
+            <label><input type="radio" name="ls-how" value="draw"/> Draw it myself — tap along it, point by point</label>
+          </div>
+          <div class="sheet-actions"><button id="ls-cancel" class="btn btn-ghost">Cancel</button><button id="ls-go" class="btn btn-primary">Continue</button></div>`,
+        onClose: () => resolve(out),
+      });
+      s.q("#ls-cancel").onclick = () => s.close();
+      s.q("#ls-go").onclick = () => {
+        out = s.qa('input[name="ls-how"]').find((r) => r.checked)?.value || "auto";
+        s.close();
+      };
     });
   }
 

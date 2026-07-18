@@ -787,8 +787,13 @@ export function describeStep(step) {
     const R = step.inputs.radius || 0;
     const rTxt = R >= 1000 ? `${R / 1000} km` : `${Math.round(R)} m`;
     if (step.answer?.none) return `Tentacles · ${cat} · none within ${rTxt}`;
-    const sel = (step.inputs.features || [])[step.answer?.featureIndex];
-    return `Tentacles · ${cat} · closest “${sel?.name || "?"}” (${rTxt})`;
+    // A line-mode step stores `inputs.lines` (labelled), a point-mode step `inputs.features`
+    // (named). Reading only `features` made every Metro Lines question read `closest "?"` —
+    // identical for every line the seeker could have picked, and the panel is how they decide
+    // which question to disable when the board looks wrong.
+    const items = step.inputs.lines || step.inputs.features || [];
+    const sel = items[step.answer?.featureIndex];
+    return `Tentacles · ${cat} · closest “${sel?.label || sel?.name || "?"}” (${rTxt})`;
   }
   if (step.tool === "measuring") {
     const ref = step.inputs.refLabel || "reference";
