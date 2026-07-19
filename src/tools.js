@@ -712,6 +712,57 @@ const _clipCache = new WeakMap();
 // purpose — see the note at its use.
 let _activeMemo = null;
 
+// Per-step elimination memo: step -> { gameArea, sig, eliminated }.
+//
+// The two caches above only cover `measuring`, because only it hands its work to
+// bufferGeometry/clipToArea. Every other tool built its elimination fresh on each call, so a
+// board containing a single radar handed `computeActiveArea` all-new geometry objects every
+// render and the fold memo below could never hit — which is nearly every real board. Measured on
+// an 8-question radar board: dragging the focus zone re-folded at 86.3 ms per frame, with the
+// questions and the game area both unchanged.
+//
+// WeakMap on the STEP, so a deleted question releases its geometry, and re-verified against
+// `gameArea` identity because an elimination is computed against the board it is cut from.
+const _elimCache = new WeakMap();
+
+let _sigSeq = 0;
+const _sigIds = new WeakMap();
+function sigId(o) {
+  let id = _sigIds.get(o);
+  if (!id) { id = `#${++_sigSeq}`; _sigIds.set(o, id); }
+  return id;
+}
+
+// A cheap, stable signature of everything that changes a step's elimination.
+//
+// Scalars are compared by value, because a drag rewrites `inputs.center` in place and the step
+// object itself never changes identity. Bulk payloads — sourced geometry, feature and line lists
+// — are represented by object IDENTITY instead: they are stored rather than referenced and never
+// mutated in place (the same invariant `_bufferCache` already rests on), and serialising a
+// 5,000-vertex coastline on every render would cost more than the fold this saves.
+function stepSignature(v, depth = 0) {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (depth > 3) return sigId(v);
+  if (typeof v.type === "string" && v.coordinates !== undefined) return sigId(v); // GeoJSON
+  if (Array.isArray(v)) {
+    if (v.length > 12) return sigId(v);
+    return `[${v.map((x) => stepSignature(x, depth + 1)).join(",")}]`;
+  }
+  const keys = Object.keys(v).sort(); // key order must not decide a cache miss
+  return `{${keys.map((k) => `${k}:${stepSignature(v[k], depth + 1)}`).join(",")}}`;
+}
+
+// The elimination only — `computeElimination` stays uncached so guide-rendering callers keep
+// getting fresh, freely-mutable guide objects.
+function eliminationFor(step, gameArea) {
+  const sig = `${step.tool}|${stepSignature(step.inputs)}|${stepSignature(step.answer)}`;
+  const hit = _elimCache.get(step);
+  if (hit && hit.gameArea === gameArea && hit.sig === sig) return hit.eliminated;
+  const { eliminated } = computeElimination(step, gameArea);
+  _elimCache.set(step, { gameArea, sig, eliminated });
+  return eliminated;
+}
+
 function bufferGeometry(geom, meters) {
   if (!geom || typeof geom !== "object") return null;
   let byDistance = _bufferCache.get(geom);
@@ -824,7 +875,7 @@ export function computeActiveArea(gameArea, steps, onFail) {
     // Contain a single malformed step (Phase 8): a bad geometry throwing here must
     // not blank the whole active area — skip that step's contribution and continue.
     let eliminated = null;
-    try { ({ eliminated } = computeElimination(s, gameArea)); }
+    try { eliminated = eliminationFor(s, gameArea); }
     catch (e) {
       console.error(`Step ${s.id} (${s.tool}) failed to compute; skipping it.`, e);
       onFail?.(s.id, "compute");
@@ -834,10 +885,14 @@ export function computeActiveArea(gameArea, steps, onFail) {
   }
   if (!elims.length) return gameArea;
 
-  // The per-step eliminations are memoised, so a render that changed nothing relevant hands us
-  // the SAME geometry objects as the last one — and the fold below, plus the final difference,
-  // was redone against them every time. `computeActiveArea` runs on every `emit`, and `emit`
-  // runs on every `store.update`, so this is once per drag event.
+  // The per-step eliminations are memoised (see `_elimCache`), so a render that changed nothing
+  // relevant hands us the SAME geometry objects as the last one — and the fold below, plus the
+  // final difference, was redone against them every time. `computeActiveArea` runs on every
+  // `emit`, and `emit` runs on every `store.update`, so this is once per drag event.
+  //
+  // This memo shipped one cycle before `_elimCache` did, and in between it was dead on any board
+  // holding a radar: only `measuring` fed it stable geometry, so the identity check below could
+  // never match. Both halves are needed — this one is worth nothing on its own.
   //
   // A single-entry memo, not a map: the caller is a render loop asking the same question
   // repeatedly, and the previous board is of no interest once it changes. Compared by identity
