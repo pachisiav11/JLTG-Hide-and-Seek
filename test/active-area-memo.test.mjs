@@ -11,6 +11,7 @@
 // it is the shaded map the seeker reads the answer off.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { turf, squareArea, radarStep } from "./helpers/turf-env.mjs";
 import { computeActiveArea, EMPTY_AREA } from "../src/tools.js";
 
@@ -92,4 +93,45 @@ test("an empty board and a fully-eliminated board stay distinguishable", () => {
 
 test("no game area is still null, memo or not", () => {
   assert.equal(computeActiveArea(null, [radar("s1", 5000, "in")]), null);
+});
+
+// ---- onFail must survive a cache hit -------------------------------------------
+//
+// This is the regression the memo introduced and that these tests exist to prevent. The caller
+// does NOT accumulate failures: layers.js:225 resets `this.failedSteps` at the top of every
+// render and relies entirely on `onFail` to repopulate it. A memoised render that stayed silent
+// would clear the set and never refill it, so a question that genuinely could not be folded into
+// the mask would be flagged on the first render and then silently lose its warning on every one
+// after — while still being missing from the mask.
+
+test("a step that cannot COMPUTE is reported on every call, hit or miss", () => {
+  // The per-step loop runs on every call, so this path was never at risk — pinned so a future
+  // optimisation that memoises the loop too cannot quietly break it.
+  const bad = { id: "bad", tool: "measuring", enabled: true, answer: { side: "in" },
+    inputs: { refType: "line", distance: 1000, refGeometry: { type: "MultiLineString", coordinates: "nonsense" } } };
+  const steps = [radar("s1", 5000, "in"), bad];
+  const first = []; computeActiveArea(AREA, steps, (id, why) => first.push({ id, why }));
+  const second = []; computeActiveArea(AREA, steps, (id, why) => second.push({ id, why }));
+  assert.deepEqual(first, [{ id: "bad", why: "compute" }]);
+  assert.deepEqual(second, first, "a repeated render must report the same failure");
+});
+
+test("the memo records failures so a hit reports what a miss reported", () => {
+  // Structural: the entry must carry them, and the hit must replay them.
+  const src = readFileSync(new URL("../src/tools.js", import.meta.url), "utf8");
+  assert.match(src, /failures\.push\(\{ id: elims\[i\]\.id, reason: "union" \}\)/,
+    "union failures must be recorded, not only reported");
+  assert.match(src, /_activeMemo = \{ gameArea, geoms:[^}]*failures \}/,
+    "the memo entry must carry them");
+  assert.match(src, /for \(const f of _activeMemo\.failures\) onFail\?\.\(f\.id, f\.reason\)/,
+    "a hit must replay them");
+});
+
+test("a hit is indistinguishable from a miss to the caller", () => {
+  // The contract that makes the memo safe to sit under a render loop: same result, same reports.
+  const steps = [radar("s1", 9000, "in"), radar("s2", 4000, "out")];
+  const a = []; const ra = computeActiveArea(AREA, steps, (id, why) => a.push({ id, why }));
+  const b = []; const rb = computeActiveArea(AREA, steps, (id, why) => b.push({ id, why }));
+  assert.equal(km2(ra).toFixed(6), km2(rb).toFixed(6), "same answer");
+  assert.deepEqual(b, a, "same reports");
 });

@@ -843,17 +843,28 @@ export function computeActiveArea(gameArea, steps, onFail) {
   // repeatedly, and the previous board is of no interest once it changes. Compared by identity
   // in order — a reordered or toggled step is a different fold and must miss.
   //
-  // `onFail` is deliberately NOT replayed on a hit. It reports failures discovered while folding,
-  // and on a hit no folding happened; the caller already surfaced them on the miss that
-  // populated this entry, and re-reporting would re-flag steps the user has already been told
-  // about on every subsequent frame.
+  // `onFail` IS replayed on a hit, and getting this wrong was a real regression for one commit.
+  //
+  // The per-step loop above runs on every call, so "compute" failures report themselves anyway.
+  // Union failures do not: they are discovered while FOLDING, which a hit skips. And the caller
+  // does not accumulate them — `layers.js:225` resets `this.failedSteps` at the top of every
+  // render and depends entirely on `onFail` to repopulate it. So a memoised render would clear
+  // the failure set and never refill it: a question that genuinely could not be folded into the
+  // mask would be flagged on the first render and then silently lose its warning on every one
+  // after, while still being missing from the mask.
+  //
+  // Replaying costs nothing (the failures are recorded, not recomputed) and keeps a hit
+  // indistinguishable from a miss to the caller, which is the only safe contract for a cache
+  // sitting under a render loop.
   if (_activeMemo
     && _activeMemo.gameArea === gameArea
     && _activeMemo.geoms.length === elims.length
     && _activeMemo.geoms.every((g, i) => g === elims[i].geom)) {
+    for (const f of _activeMemo.failures) onFail?.(f.id, f.reason);
     return _activeMemo.result;
   }
 
+  const failures = []; // recorded so a memo hit can replay them — see above
   let removed = elims[0].geom;
   for (let i = 1; i < elims.length; i++) {
     const merged = safeUnion(removed, elims[i].geom);
@@ -864,6 +875,7 @@ export function computeActiveArea(gameArea, steps, onFail) {
       // nothing thrown and no banner. Keep going (dropping one step beats blanking the
       // board), but make the loss visible.
       console.error(`Step ${elims[i].id}: union failed; its elimination is missing from the mask.`);
+      failures.push({ id: elims[i].id, reason: "union" });
       onFail?.(elims[i].id, "union");
       continue;
     }
@@ -872,7 +884,7 @@ export function computeActiveArea(gameArea, steps, onFail) {
   // EMPTY_AREA (not null) when the eliminations cover everything, so the caller can
   // shade the whole board instead of falling back to it and showing a fresh game.
   const result = diffActive(gameArea, removed);
-  _activeMemo = { gameArea, geoms: elims.map((e) => e.geom), result };
+  _activeMemo = { gameArea, geoms: elims.map((e) => e.geom), result, failures };
   return result;
 }
 
