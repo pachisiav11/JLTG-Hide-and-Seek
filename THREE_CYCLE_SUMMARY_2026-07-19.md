@@ -236,3 +236,34 @@ border level 2       null                            no border crosses Mumbai �
 - **The first version of that probe proved nothing** — the repo fixture is 281 vertices, below
   the 500 threshold, so `simplify` never executed. Worth remembering: a test of a threshold-gated
   path has to clear the threshold.
+
+---
+
+## Postscript — games 7 and 8, after these cycles closed
+
+Two further game tests were run on request. They found one high-severity defect, and it is the
+most instructive one in the whole set: see [CYCLE4_FINDINGS_2026-07-19.md](CYCLE4_FINDINGS_2026-07-19.md).
+
+**The C3-1 fold memo could not hit on nearly any real board.** It compares eliminations by object
+identity, and only `measuring` produced stable geometry. Radar, thermometer, matching and
+tentacles rebuilt theirs on every call, so a single radar anywhere on the board defeated the
+entire fold. Fixed by memoising every tool's elimination (`_elimCache`): a repeat render on an
+8-question board went 77.2 ms → 0.1 ms, and a focus-zone drag 86.3 → 31.2 ms per frame, of which
+the active area is now 0.
+
+**Why three cycles missed it.** Games 1–6 were all built around sourced geometry — coastlines,
+admin divisions, rail — because that is where the expensive work lives. Those are also, purely by
+accident, the only boards where the memo worked. Every measurement of it was taken on the one
+configuration where it was fine. The lesson is not "measure more", which these cycles already did;
+it is that **choosing the hardest case to measure can systematically hide a defect in the easy
+one**, and the cheap case deserved a board of its own from the start.
+
+**And it cost two tests.** Fixing it broke two union-failure tests that had been passing only
+because the memo was dead — they shared one board across the file, so with a working cache the
+second call was served the earlier healthy answer and never entered the fold. For one commit those
+two tests would have passed whether or not the code under them worked.
+
+The emit-coalescing item is still deliberately not done, and the new measurement supports leaving
+it: the 24.7 ms that remains in a drag frame is `store.update` plus the app render, real but
+modest, on the same path where C3-5 broke silently. The recommendation stands unchanged — say the
+word and I will do it, but I would want a frame-timing harness first, not just the existing suite.

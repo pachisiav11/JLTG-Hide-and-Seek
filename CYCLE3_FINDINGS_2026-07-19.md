@@ -7,7 +7,7 @@ player reads their answer off.
 
 | | finding | cost | where | severity | status |
 |---|---|---|---|---|---|
-| **C3-1** | `computeActiveArea` refolded identical eliminations every render | 148.7 ms → 72.4 ms | `tools.js:computeActiveArea` | medium | **fixed** `9220fc1` |
+| **C3-1** | `computeActiveArea` refolded identical eliminations every render | 148.7 ms → 72.4 ms | `tools.js:computeActiveArea` | medium | **fixed** `9220fc1`, but see C4-1 |
 | **C3-2** | Cache tests can pass for the wrong reason | false confidence | test authoring | — | **recorded** |
 | **C3-3** | A comment asserted a mutation hazard the code did not guard against | misleading | `tools.js:724` | low | **fixed** |
 | **C3-4** | `validateGame` took a zone's polygon *elements* on trust | broken board loads | `model.js:validateGame` | high | **fixed** `2db9835` |
@@ -20,6 +20,12 @@ player reads their answer off.
 Once the per-step eliminations were memoised (C1-4, C2-1), a render that changed nothing relevant
 received the **same geometry objects** as the previous one — and the union fold plus the final
 difference were redone against them anyway.
+
+> **Later correction (C4-1).** This fix was real but only half of one. The identity comparison it
+> relies on could only ever match for `measuring` steps, so on any board holding a radar — nearly
+> every real board — the memo never hit at all. The 148.7 → 72.4 ms below is genuine for the
+> coastline board it was measured on, and misleading as a general claim. See
+> [CYCLE4_FINDINGS_2026-07-19.md](CYCLE4_FINDINGS_2026-07-19.md).
 
 Single-entry memo, not a map: the caller is a render loop asking the same question repeatedly,
 and the previous board is of no interest once it changes. Compared by identity **in order**, and
