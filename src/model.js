@@ -97,6 +97,28 @@ export function validateGame(obj) {
     const z = obj.zones[i];
     if (!z || typeof z !== "object") return `zone ${i} is not an object`;
     if (!Array.isArray(z.polygon)) return `zone ${i} has no polygon array`;
+    // ...and the polygon's ELEMENTS must be [lat, lng] pairs, which this used to take on trust.
+    //
+    // `ringToTurf` destructures every vertex (`geo.js:40`), so a ring of `{lat,lng}` objects
+    // throws there instead. That throw escaped `addZone`'s store.update mutator, the `pop()`
+    // that undoes a refused zone never ran, and the rejected zone stayed on the board with no
+    // gameArea rebuilt — the opposite of that guard's purpose. `_fold` now converts the throw
+    // (see zones.js), but converting a failure is a worse outcome than never loading the broken
+    // board: the player gets a zone list they cannot use and no explanation.
+    //
+    // This is the shape a game FILE can legally carry today — nothing in the app produces it,
+    // but an import is whatever someone hands you.
+    for (let v = 0; v < z.polygon.length; v++) {
+      const pt = z.polygon[v];
+      if (!Array.isArray(pt) || pt.length < 2) return `zone ${i} vertex ${v} is not a [lat, lng] pair`;
+      const [lat, lng] = pt;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return `zone ${i} vertex ${v} is not a pair of numbers`;
+      if (lat < -90 || lat > 90) return `zone ${i} vertex ${v} has latitude ${lat}, which is off the globe`;
+      if (lng < -180 || lng > 180) return `zone ${i} vertex ${v} has longitude ${lng}, which is off the globe`;
+    }
+    // Deliberately NOT rejecting short or empty rings. `Zones._fold` tolerates them — it skips
+    // them and folds the rest — and a test pins that toleration, so refusing them here would
+    // reject boards that work today.
   }
   // History steps must be objects naming a known tool (computeElimination switches
   // on step.tool; a bad tool would silently no-op, a non-object would throw).
@@ -104,6 +126,12 @@ export function validateGame(obj) {
     const s = obj.history[i];
     if (!s || typeof s !== "object") return `history step ${i} is not an object`;
     if (!TOOLS.includes(s.tool)) return `history step ${i} has unknown tool "${s.tool}"`;
+    // A step's ANSWER is deliberately not validated here, and that is a decision rather than an
+    // omission. An unreadable answer now degrades gracefully — `readSide` eliminates nothing and
+    // `describeStep` labels the step "unanswered" — so the board still loads and every other
+    // question still works. Rejecting the whole file over one bad answer would throw away a game
+    // that is mostly fine, which is the worse trade. A malformed RING has no such graceful
+    // reading, which is why that one is refused above.
   }
   if (obj.gameArea != null && typeof obj.gameArea !== "object") return "gameArea must be a polygon object";
   return null; // ok
