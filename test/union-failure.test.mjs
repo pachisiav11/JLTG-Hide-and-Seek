@@ -10,16 +10,26 @@ import assert from "node:assert/strict";
 import { turf, squareArea, radarStep } from "./helpers/turf-env.mjs";
 import { computeActiveArea, EMPTY_AREA } from "../src/tools.js";
 
-const AREA = squareArea([72.8777, 19.076], 0.2);
-const board = turf.area(turf.feature(AREA));
 const areaOf = (g) => (g && g !== EMPTY_AREA ? turf.area(turf.feature(g)) : 0);
 
-// Two separate radar circles, each removing its own interior. Their union is what the
-// mask needs; if that union fails, one of them vanishes from the board.
-const stepA = radarStep({ center: [72.82, 19.03], radiusM: 3000, side: "out", id: "A" });
-const stepB = radarStep({ center: [72.94, 19.12], radiusM: 3000, side: "out", id: "B" });
+// FRESH fixtures per test, deliberately — these tests stub `turf.union` to make a fold fail,
+// and a stubbed global is invisible to the caches. Sharing one board and one pair of step
+// objects meant the second call in a test (and the first call of the next test) hit the
+// elimination and fold memos and returned the earlier HEALTHY answer without ever entering the
+// fold — so the test passed or failed on cache state rather than on the behaviour it names.
+// A new board is enough on its own: the fold memo compares `gameArea` by identity.
+//
+// Two separate radar circles, each removing its own interior. Their union is what the mask
+// needs; if that union fails, one of them vanishes from the board.
+const fixture = () => ({
+  AREA: squareArea([72.8777, 19.076], 0.2),
+  stepA: radarStep({ center: [72.82, 19.03], radiusM: 3000, side: "out", id: "A" }),
+  stepB: radarStep({ center: [72.94, 19.12], radiusM: 3000, side: "out", id: "B" }),
+});
 
 test("both eliminations are reflected in the active area when the union succeeds", () => {
+  const { AREA, stepA, stepB } = fixture();
+  const board = turf.area(turf.feature(AREA));
   const active = computeActiveArea(AREA, [stepA, stepB]);
   const removed = board - areaOf(active);
   // Two disjoint 3 km circles remove a real, measurable share.
@@ -27,6 +37,7 @@ test("both eliminations are reflected in the active area when the union succeeds
 });
 
 test("a failed union reports the step instead of silently dropping it", () => {
+  const { AREA, stepA, stepB } = fixture();
   const realUnion = window.turf.union;
   window.turf.union = () => { throw new Error("simulated union failure"); };
   const failures = [];
@@ -45,6 +56,7 @@ test("a failed union reports the step instead of silently dropping it", () => {
 test("without the callback the old silent behaviour is still contained, not thrown", () => {
   // computeActiveArea is called from _render outside a try/catch, so it must never throw
   // on a union failure — it reports instead.
+  const { AREA, stepA, stepB } = fixture();
   const realUnion = window.turf.union;
   window.turf.union = () => { throw new Error("simulated union failure"); };
   try {
@@ -56,12 +68,16 @@ test("without the callback the old silent behaviour is still contained, not thro
 
 test("the dropped elimination is genuinely missing — the harm being reported is real", () => {
   const realUnion = window.turf.union;
-  const healthy = areaOf(computeActiveArea(AREA, [stepA, stepB]));
+  const good = fixture();
+  const healthy = areaOf(computeActiveArea(good.AREA, [good.stepA, good.stepB]));
 
+  // A second, identically-shaped board so the broken run genuinely enters the fold instead of
+  // being served the healthy answer above. Same coordinates, so the two areas are comparable.
+  const bad = fixture();
   window.turf.union = () => { throw new Error("simulated union failure"); };
   let broken;
   try {
-    broken = areaOf(computeActiveArea(AREA, [stepA, stepB], () => {}));
+    broken = areaOf(computeActiveArea(bad.AREA, [bad.stepA, bad.stepB], () => {}));
   } finally {
     window.turf.union = realUnion;
   }
@@ -75,6 +91,7 @@ test("the dropped elimination is genuinely missing — the harm being reported i
 test("a compute failure is reported separately from a union failure", () => {
   // The two have different consequences and different messages, so they must be
   // distinguishable by the caller.
+  const { AREA, stepA } = fixture();
   const bad = { id: "bad", tool: "matching", enabled: true, inputs: { mode: "nearest", features: null }, answer: {} };
   const failures = [];
   computeActiveArea(AREA, [stepA, bad], (id, reason) => failures.push({ id, reason }));
