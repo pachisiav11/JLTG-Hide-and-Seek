@@ -143,15 +143,35 @@ Recorded because a review that only lists hits hides how much of it was guesswor
 
 ---
 
+## Added after the cycles closed
+
+Two commits, on a direct follow-up question about what was left:
+
+- **`2db9835` — C3-4.** The import-validation gap named below as the highest-value follow-up is
+  now closed: a malformed ring is refused at the door rather than loading and breaking the board
+  later. Unreadable *answers* are still accepted on purpose, because since C1-7 they degrade
+  gracefully and discarding a whole game over one bad answer is the worse trade.
+- **`d21eeee` — C3-5, a regression I introduced in C3-1 and did not catch there.** The
+  `computeActiveArea` memo skipped `onFail` on a hit; I had reasoned the caller was already
+  informed. It is not — `layers.js:225` resets `failedSteps` every render and depends on `onFail`
+  to refill it, so a question that could not be folded into the mask lost its warning on every
+  render after the first, while still being missing from the mask. Failures are now recorded and
+  replayed. **Found by checking whether the last deferred item was safe, not by a test** — which
+  is the honest lesson: 379 passing tests did not catch it.
+
+Tests 379 → 391. That second one also settles the open question below.
+
 ## What I did not do
 
-- **`emit` is still synchronous per `store.update`.** Coalescing it to one call per animation
-  frame is the remaining lever on drag cost. Not attempted: it changes render semantics on the
-  hottest path, against a number that no longer reads as a stall.
-- **`validateGame` still does not check answer or ring *shape*** — only that a tool name is known
-  and a polygon is an array. Three separate bugs this session (C1-3, C1-7, and the family C1-5
-  sits in) were all reachable through malformed imported data. A schema pass on import is the
-  single highest-value follow-up I can name.
+- **`emit` is still synchronous per `store.update`, and I now recommend leaving it that way.**
+  Coalescing it to one call per animation frame is the last lever on drag cost. When I went to
+  check whether it was safe, the very first thing I found was C3-5: a far smaller change to the
+  same path had already introduced a silent regression that 379 tests did not catch, because
+  render timing is load-bearing in non-obvious ways (`failedSteps` is rebuilt from `onFail` on
+  every render). Against a cost that no longer stalls — 112 ms on a 3-question board, 260 ms on
+  a 5-question one including a coastline — that is a bad trade. **Say the word and I will do it,
+  but I would want a frame-timing harness first, not just the existing suite.**
+- **Ring shape is now validated on import (C3-4); answer shape deliberately is not.** See above.
 - **The union of per-step eliminations is not memoised** (133.7 ms on a 3-question board).
   Diminishing returns against another change to the same hot path.
 - **Cold cost is untouched, deliberately.** A fresh board still pays ~7.4 s for its first

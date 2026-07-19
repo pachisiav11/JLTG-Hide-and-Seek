@@ -10,6 +10,8 @@ player reads their answer off.
 | **C3-1** | `computeActiveArea` refolded identical eliminations every render | 148.7 ms → 72.4 ms | `tools.js:computeActiveArea` | medium | **fixed** `9220fc1` |
 | **C3-2** | Cache tests can pass for the wrong reason | false confidence | test authoring | — | **recorded** |
 | **C3-3** | A comment asserted a mutation hazard the code did not guard against | misleading | `tools.js:724` | low | **fixed** |
+| **C3-4** | `validateGame` took a zone's polygon *elements* on trust | broken board loads | `model.js:validateGame` | high | **fixed** `2db9835` |
+| **C3-5** | The C3-1 memo dropped `onFail`, so a failing question lost its warning | silent wrong mask | `tools.js:computeActiveArea` | high | **fixed** `d21eeee` |
 
 ---
 
@@ -130,6 +132,46 @@ after buffering byte-identical to before
 `turf.simplify` defaults to `mutate: false` and clones internally. The comment is now corrected to
 say what is true and why it matters, and the invariant is pinned by a test rather than left as a
 claim in prose.
+
+## C3-4. A malformed ring is now refused at import
+
+The follow-up named as highest-value when the cycles closed. `validateGame` checked
+`Array.isArray(z.polygon)` and took the **elements** on trust, so a board file whose rings are
+`[{lat,lng}]` instead of `[[lat,lng]]` passed validation, loaded, and threw inside `ringToTurf`
+on the next zone edit — the entry point for C1-3.
+
+Two deliberate asymmetries, both pinned by tests so neither reads as an oversight:
+
+- **Short and empty rings stay accepted.** `Zones._fold` tolerates them and a test pins that
+  toleration; validation must not be stricter than the engine it protects.
+- **An unreadable step answer stays accepted.** Since C1-7 it degrades gracefully — eliminates
+  nothing, labelled "unanswered" — so the board still loads and every other question works.
+  Discarding a mostly-fine game over one bad answer is the worse trade. A malformed ring has no
+  such graceful reading, which is why only that is refused.
+
+Verified live: the good board imports, the bad one is refused with *"zone 0 vertex 0 is not a
+[lat, lng] pair"*, and the current board is untouched.
+
+## C3-5. The memo dropped `onFail` — a failing question lost its warning
+
+**A regression I introduced in C3-1 and did not catch there.** Found afterwards, while checking
+whether the last deferred item was safe.
+
+The memo skipped the fold on a hit, and I documented `onFail` as "deliberately not replayed" on
+the reasoning that the caller had already been told. That reasoning was wrong: `layers.js:225`
+**resets** `this.failedSteps` at the top of every render and depends entirely on `onFail` to
+repopulate it. So a question whose elimination could not be folded into the mask was flagged on
+the first render and then silently lost its warning on every render after — while still being
+missing from the mask. That is exactly the failure `onFail` was added to prevent.
+
+Narrower than it first looks: the per-step loop runs on every call, so `"compute"` failures were
+never affected; only `"union"` failures are found during the fold a hit skips. Union failures are
+now recorded in the entry and replayed, restoring the only safe contract for a cache under a
+render loop — **a hit must be indistinguishable from a miss to the caller.**
+
+*Honest limit:* the live check exercises the `"compute"` path, which was never broken. A genuine
+union failure cannot be provoked in the running app (turf will not fail on demand), so the union
+replay is covered structurally rather than by a live failure.
 
 ---
 
