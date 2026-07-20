@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = {
   questionTimer: 0,              // Phase 11: soft countdown seconds per question (0 = off)
   geofenceMetres: 0,             // Phase 3 (A1): warn the hider when this close to the zone edge (0 = off)
   geofenceAlertStyle: "vibrate-tone", // Phase 8 (§C3): "silent" | "vibrate" | "vibrate-tone" (silent = notification only, no vibrate/tone)
+  approachThresholdM: 2000,      // Phase 12 (§C5): fire seeker-close alert when a live-shared seeker gets within this many m of the hiding zone (0 = pin only, no alert)
 };
 
 function uid(prefix) {

@@ -38,16 +38,24 @@ test("dropping a store came with a DB_VERSION bump", () => {
   assert.ok(v >= 5, `DB_VERSION is ${v}; deleteObjectStore only runs inside onupgradeneeded`);
 });
 
-test("the Socket.IO relay and its dependency are gone", () => {
-  // Check for the CODE, not the word: the file keeps a comment explaining why the relay was
-  // removed, and that comment naturally names socket.io. A test that cannot tell an import
-  // from an explanation would force the explanation out, which is the opposite of the point.
+test("the Socket.IO relay is back, but scoped to §C5's one-way seeker→hider location", () => {
+  // This test was originally "the relay is gone" (deleted 2026-07-18 with the removed
+  // Phase 13 full-multiplayer flow). Phase 12 (§C5, 2026-07-21) reintroduces a
+  // narrow one-way relay for the seeker→hider location share, per the user's
+  // explicit rollback of that part of the "no multiplayer" non-goal in
+  // PLAYTEST_IDEAS.md. The pin now asserts the scope: relay present, connection
+  // handler present, but no game-state sync (share-location + location only).
   const server = read("server.js").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
-  assert.ok(!/from ["']socket\.io["']/.test(server), "server.js should not import socket.io");
-  assert.ok(!/new\s+SocketIOServer/.test(server), "server.js should not construct a relay");
-  assert.ok(!/io\.on\(["']connection["']\)/.test(server), "no connection handler should remain");
+  assert.ok(/from ["']socket\.io["']/.test(server), "server.js should import socket.io for §C5");
+  assert.ok(/new\s+SocketIOServer/.test(server), "the relay must be constructed");
+  assert.ok(/io\.on\(["']connection["']/.test(server), "a connection handler is required");
+  // Guard against scope creep: the only relayed events are the two §C5 defines.
+  // Any new topic here should be a conscious phase, not a quiet addition.
+  const relayEvents = [...server.matchAll(/\.on\(["']([a-z-]+)["']/g)].map((m) => m[1]).filter((e) => !["connection"].includes(e));
+  const allowed = new Set(["join-session", "share-location"]);
+  for (const e of relayEvents) assert.ok(allowed.has(e), `unexpected relay event "${e}" — add a phase or remove it`);
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.dependencies["socket.io"], undefined, "socket.io should be off the dependency list");
+  assert.ok(pkg.dependencies["socket.io"], "socket.io should be on the dependency list for §C5");
 });
 
 test("only the Maps libraries the app uses are requested up front", () => {

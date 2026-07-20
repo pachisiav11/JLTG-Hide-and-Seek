@@ -5,16 +5,18 @@ import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange } from "./stations.js";
 import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
+import { LiveShare, generateSessionCode } from "./live-share.js";
 import * as places from "./places.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
     this.library = library; // reusable custom categories + pins (Phase 9)
     this.map = map; // used for Places-sourced stations (Places needs a map ref)
     this.lines = lines; // rail line data — needed for A4 "eliminate this line's stations"
+    this.liveShare = liveShare; // §C5 live seeker↔hider location channel
   }
 
   // ---- Top menu ----
@@ -32,6 +34,7 @@ export class Games {
           <button id="mn-stations" class="btn">🚉 Stations</button>
           <button id="mn-seeker" class="btn">📍 Seeker location (paste)</button>
           <button id="mn-copyloc" class="btn">📋 Copy MY location (for WhatsApp)</button>
+          <button id="mn-liveshare" class="btn">📡 Live location share (session)</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
@@ -47,6 +50,7 @@ export class Games {
     s.q("#mn-stations").onclick = () => { s.close(); this.openStations(); };
     s.q("#mn-seeker").onclick = () => { s.close(); this.openSeekerLocation(); };
     s.q("#mn-copyloc").onclick = () => { s.close(); this.copyMyLocation(); };
+    s.q("#mn-liveshare").onclick = () => { s.close(); this.openLiveShare(); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
@@ -491,6 +495,89 @@ export class Games {
       this._stationsSheet(store.getCurrent());
     };
     s.q("#r-back").onclick = () => { s.close(); this._stationsSheet(store.getCurrent()); };
+  }
+
+  // ---- Live seeker→hider location share (§C5) ----
+  //
+  // Two devices, one session code exchanged out-of-band (WhatsApp / verbal).
+  // Seeker publishes GPS every ~60 s to the room; hider subscribes and gets a
+  // notification when the seeker crosses the approach threshold near the
+  // hiding zone. Transport is created lazily by loading the backend's
+  // socket.io-client shim from `${OVERPASS_PROXY_URL}/socket.io/socket.io.js`
+  // (same trick Phase 13 used). If the proxy is unset, the panel says so and
+  // does nothing else — inert rather than a silent no-op.
+  async openLiveShare() {
+    const st = { ...DEFAULT_SETTINGS, ...(store.getCurrent()?.settings || {}) };
+    const proxy = window.JLTG_CONFIG?.MULTIPLAYER_URL || window.JLTG_CONFIG?.OVERPASS_PROXY_URL || "";
+    const shareState = this.liveShare;
+    const s = openSheet({
+      title: "Live location share",
+      bodyHTML: `
+        <p class="muted">A narrow one-way channel: the SEEKER's device streams its GPS to the HIDER's device (no game state). Exchange the session code out of band.</p>
+        ${!proxy ? `<p class="warn-note">No relay URL is configured (OVERPASS_PROXY_URL / MULTIPLAYER_URL). The share won't reach the other device — set it in config.js or in the deployment env vars.</p>` : ""}
+        <label class="fieldlbl">Session code</label>
+        <div class="row">
+          <input id="ls-code" class="field" type="text" spellcheck="false" autocomplete="off" value="${escapeHtml(shareState?.code || localStorage.getItem("jltg.liveShareCode") || "")}" placeholder="e.g. m5x7pq"/>
+          <button id="ls-gen" class="btn">Generate</button>
+        </div>
+        <label class="fieldlbl">Approach threshold (hider only) — alert when seeker within</label>
+        <div class="seg">
+          <label><input type="radio" name="ls-th" value="0" ${st.approachThresholdM === 0 ? "checked" : ""}/> Off (pin only)</label>
+          <label><input type="radio" name="ls-th" value="500" ${st.approachThresholdM === 500 ? "checked" : ""}/> 500 m</label>
+          <label><input type="radio" name="ls-th" value="1000" ${st.approachThresholdM === 1000 ? "checked" : ""}/> 1 km</label>
+          <label><input type="radio" name="ls-th" value="2000" ${!st.approachThresholdM || st.approachThresholdM === 2000 ? "checked" : ""}/> 2 km</label>
+          <label><input type="radio" name="ls-th" value="5000" ${st.approachThresholdM === 5000 ? "checked" : ""}/> 5 km</label>
+        </div>
+        <p class="muted">Status: <strong>${shareState?.role ? `${shareState.role} in "${escapeHtml(shareState.code || "")}"` : "not connected"}</strong></p>
+        <div class="row">
+          <button id="ls-seeker" class="btn">📡 Share as SEEKER</button>
+          <button id="ls-hider" class="btn">🎯 Receive as HIDER</button>
+        </div>
+        <div class="sheet-actions">
+          <button id="ls-stop" class="btn btn-ghost">Stop / disconnect</button>
+          <button id="ls-close" class="btn">Close</button>
+        </div>`,
+    });
+    s.q("#ls-gen").onclick = () => { s.q("#ls-code").value = generateSessionCode(); };
+    const saveThreshold = () => {
+      const v = parseInt(s.qa('input[name="ls-th"]').find((r) => r.checked)?.value || "2000", 10);
+      store.update((gg) => (gg.settings = { ...gg.settings, approachThresholdM: v }));
+    };
+    const connect = async (role) => {
+      const code = s.q("#ls-code").value.trim().toLowerCase();
+      if (!/^[a-z0-9-]{3,32}$/.test(code)) return toast("Enter a 3-32 char session code (letters, digits, hyphens).");
+      localStorage.setItem("jltg.liveShareCode", code);
+      saveThreshold();
+      if (!proxy) return toast("No relay URL configured — cannot connect.");
+      if (!shareState) return toast("Live-share isn't initialised in this session.");
+      // Lazy-load the transport now, once per app session. Reuses the pattern
+      // Phase 13 documented in MULTIPLAYER_DESIGN.md: load the client shim
+      // from the backend so we don't ship a socket.io-client dep in the SW.
+      if (!shareState.transport) {
+        try {
+          await new Promise((resolve, reject) => {
+            if (window.io) return resolve();
+            const script = document.createElement("script");
+            script.src = proxy.replace(/\/+$/, "") + "/socket.io/socket.io.js";
+            script.onload = resolve;
+            script.onerror = () => reject(new Error("failed to load socket.io client shim"));
+            document.head.appendChild(script);
+          });
+          const sock = window.io(proxy);
+          shareState.transport = sock; // Socket.IO client IS the EventEmitter API LiveShare expects
+        } catch (e) {
+          console.warn("live-share transport init failed", e);
+          return toast(`Couldn't connect to relay — ${e.message}`);
+        }
+      }
+      if (role === "seeker") shareState.startAsSeeker(code); else shareState.startAsHider(code);
+      toast(`Live share: ${role} in "${code}"`);
+      s.close();
+    };
+    s.q("#ls-seeker").onclick = () => connect("seeker");
+    s.q("#ls-hider").onclick = () => connect("hider");
+    s.q("#ls-stop").onclick = () => { shareState?.stop?.(); toast("Live share stopped."); s.close(); };
+    s.q("#ls-close").onclick = () => { saveThreshold(); s.close(); };
   }
 
   // ---- Copy MY location (§C2) — the mirror of A2's paste intake ----

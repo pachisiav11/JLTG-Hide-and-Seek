@@ -8,6 +8,7 @@ import { Focus } from "./focus.js";
 import { Geofence } from "./geofence.js";
 import { StationsLayer } from "./stations-layer.js";
 import { Notes } from "./notes.js";
+import { LiveShare } from "./live-share.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -184,7 +185,7 @@ async function main() {
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
-    const games = new Games(zones, { boundaries, features, library, map, lines });
+    const games = new Games(zones, { boundaries, features, library, map, lines, liveShare });
     layers.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
@@ -203,6 +204,11 @@ async function main() {
     // state instead of losing them in a WhatsApp thread.
     const notes = new Notes(map);
     notes.init();
+    // Phase 12 (§C5): live seeker→hider location share. Transport is a lazy
+    // Socket.IO client loaded from the backend when the user actually opens
+    // the panel — otherwise a fresh boot pays for zero of the sharing infra
+    // if it's never used. See games.js openLiveShare for the wire-up.
+    const liveShare = new LiveShare({ transport: null });
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
@@ -262,7 +268,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, notes, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

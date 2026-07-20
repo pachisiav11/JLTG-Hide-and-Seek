@@ -12,6 +12,8 @@
 // is only a backstop for the category point sets used by Matching/Measuring/Tentacles.
 
 import express from "express";
+import { createServer } from "node:http";
+import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
@@ -217,10 +219,45 @@ function normalize(json) {
   return out;
 }
 
-// Phase 13's Socket.IO multiplayer relay lived here and was removed 2026-07-18. It had no
-// client: nothing in src/, index.html or the service worker ever opened a socket, and the
-// `outbox` IndexedDB store meant to queue its events offline was never read or written either.
-// It was a listening surface and a dependency carried for a feature that was never finished.
-// Deleted rather than left dormant -- the git history has it if multiplayer is picked back up,
-// and a relay nobody connects to is one more thing that can be wrong without anyone noticing.
-app.listen(PORT, () => console.log(`JLTG backend listening on :${PORT} (Overpass proxy /overpass)`));
+// Phase 12 (§C5): a NARROW one-way relay for the seeker→hider live-location
+// share. Not the Phase-13 full-multiplayer relay that was deleted 2026-07-18 —
+// this carries ONE topic (a coordinate ping) in ONE direction (seeker → hider),
+// no game state, no CRDT. The "no multiplayer" non-goal in PLAYTEST_IDEAS is
+// partially rolled back for exactly this narrow slice (§C5 in the doc).
+//
+// Rooms are keyed by the session code the two devices exchange out of band
+// (WhatsApp, verbal). A seeker joins with role=seeker and publishes GPS via
+// `share-location`; a hider joins with role=hider and receives those pings on
+// `location`. The server never stores locations — the last-seen point lives
+// only in the hider's client memory. Broadcasts skip the publisher's own
+// socket (`socket.to(room).emit`) so a device sharing to a room it also joined
+// as a hider doesn't loop its own ping back.
+const httpServer = createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: ALLOW_ORIGIN, methods: ["GET", "POST"] },
+});
+io.on("connection", (socket) => {
+  socket.data.room = null;
+  socket.data.role = null;
+  socket.on("join-session", ({ code, role } = {}) => {
+    const room = typeof code === "string" ? code.trim().toLowerCase() : "";
+    if (!room || !/^[a-z0-9-]{3,32}$/.test(room)) return socket.emit("session-error", "Invalid session code.");
+    if (role !== "seeker" && role !== "hider") return socket.emit("session-error", "Role must be seeker or hider.");
+    if (socket.data.room) socket.leave(socket.data.room);
+    socket.data.room = room;
+    socket.data.role = role;
+    socket.join(room);
+    socket.emit("session-joined", { room, role });
+  });
+  socket.on("share-location", (payload) => {
+    // Only accept publish from a joined seeker; ignore anything else silently
+    // so a bad client can't spoof pings into someone else's session.
+    if (socket.data.role !== "seeker" || !socket.data.room) return;
+    if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
+    socket.to(socket.data.room).emit("location", {
+      lat: payload.lat, lng: payload.lng, at: Date.now(),
+    });
+  });
+});
+
+httpServer.listen(PORT, () => console.log(`JLTG backend listening on :${PORT} (Overpass proxy /overpass, Socket.IO relay /socket.io)`));
