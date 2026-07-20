@@ -53,6 +53,11 @@ export function createGame(overrides = {}) {
     // from "seeker just shared where they are" to "commit a question centred on
     // that spot" the flow currently supports.
     seekerLocation: overrides.seekerLocation || null,
+    // Phase 10 (§C1): free-form note pins the seeker drops via long-press on the
+    // map. Off-app clues (playtest 1 Q4 "photo of a building", ambient "heard a
+    // train at 3:12") became map state instead of getting lost in a WhatsApp
+    // thread. Each entry: {id, point:{lat,lng}, text, at}.
+    notes: overrides.notes || [],
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     // Step ids undone and awaiting redo, most recent last. Lives on the GAME, not on the
     // Layers instance: as instance state it died on reload, so undoing a question and

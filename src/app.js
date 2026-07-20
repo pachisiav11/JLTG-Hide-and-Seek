@@ -7,6 +7,7 @@ import { Layers } from "./layers.js";
 import { Focus } from "./focus.js";
 import { Geofence } from "./geofence.js";
 import { StationsLayer } from "./stations-layer.js";
+import { Notes } from "./notes.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -197,6 +198,11 @@ async function main() {
     // flag + eliminatedBy tag (Phase 4).
     const stationsLayer = new StationsLayer(map);
     stationsLayer.init();
+    // Phase 10 (§C1): long-press map → note pin. Captures off-app clues
+    // (playtest 1 Q4 photo case, ambient observations) into per-game map
+    // state instead of losing them in a WhatsApp thread.
+    const notes = new Notes(map);
+    notes.init();
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
@@ -256,7 +262,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, notes, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
