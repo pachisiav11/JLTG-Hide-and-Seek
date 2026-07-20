@@ -6,6 +6,7 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
+import { countStationsInEliminated } from "./stations.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
@@ -354,11 +355,67 @@ export class Layers {
     }));
   }
 
+  // A live geometry preview shown DURING setup (B1). Renders the elimination the
+  // step would produce right now, plus a live readout of size and "would eliminate X
+  // of Y stations" when the game has a confirmed station set. Committing promotes
+  // this into a real fold step; cancelling discards the preview entirely.
+  //
+  // Design decision: uses `computeElimination` on a virtual step (same code that
+  // renders a committed step), so the preview and the committed result are always
+  // pixel-identical — the whole "guess and see if it eliminated anything you meant"
+  // failure mode B1 exists to remove is that a committed step showed different area
+  // than a mental estimate. Anything short of running the real math re-opens that gap.
+  //
+  // Overlays live in `state.overlays`, cleared on every `render()` and on `remove()`.
+  _draftPreview({ readoutEl } = {}) {
+    const state = { overlays: [], lastStep: null };
+    const pal = getPalette();
+    const PREVIEW_FILL = { strokeColor: pal.mask.fillColor || "#020a0c", strokeOpacity: 0.75, strokeWeight: 1.5, fillColor: pal.mask.fillColor || "#020a0c", fillOpacity: 0.28, clickable: false, zIndex: 6 };
+    const clear = () => { state.overlays.forEach((o) => o.setMap(null)); state.overlays = []; };
+    const countStationsInside = (geom) => {
+      const g = store.getCurrent();
+      return countStationsInEliminated(geom, g?.stations?.list || []);
+    };
+    const writeReadout = (size, count) => {
+      if (!readoutEl) return;
+      const g = store.getCurrent();
+      const stations = g?.stations?.list || [];
+      const confirmed = g?.stations?.confirmedAt;
+      const stationText = !stations.length
+        ? `<span class="muted">No station set — see Stations in the ☰ menu for a live counter.</span>`
+        : !confirmed
+        ? `<span class="muted">Station set is a draft (see Stations ▸ Lock in for a stable counter).</span>`
+        : count === null
+        ? `<span class="muted">Station count unavailable.</span>`
+        : `<strong>${count.inside}</strong> of ${count.total} active station${count.total === 1 ? "" : "s"} would be eliminated`;
+      readoutEl.innerHTML = `${size} · ${stationText}`;
+    };
+    const render = (step, { sizeLabel }) => {
+      clear();
+      const g = store.getCurrent();
+      if (!g?.gameArea) { writeReadout(sizeLabel || "", null); return; }
+      let eliminated = null;
+      try {
+        const out = computeElimination(step, g.gameArea);
+        eliminated = out?.eliminated || null;
+      } catch (e) { console.warn("draft preview failed", e); }
+      if (eliminated) {
+        for (const group of geojsonToPathGroups(eliminated)) {
+          state.overlays.push(new google.maps.Polygon({ ...PREVIEW_FILL, paths: group, map: this.map }));
+        }
+      }
+      state.lastStep = step;
+      writeReadout(sizeLabel || "", countStationsInside(eliminated));
+    };
+    const remove = () => { clear(); state.lastStep = null; };
+    return { render, remove };
+  }
+
   // A DRAGGABLE preview anchor shown while a question is being set up, so the seeker
   // can fine-tune the point before committing. Drags outside the play area are
   // rejected and snapped back. Caller reads getPos() at commit and calls remove() on
   // every exit path (cancel / close / add). After commit the point is locked.
-  _setupAnchor(position, label) {
+  _setupAnchor(position, label, { onMove = null } = {}) {
     const state = { pos: { ...position } };
     const marker = new google.maps.Marker({
       position, map: this.map, draggable: true, zIndex: 8,
@@ -374,6 +431,9 @@ export class Layers {
         return;
       }
       state.pos = p;
+      // Notify B1's preview so the eliminated shape and the readout follow the drag.
+      // Only fires on a VALID move (an out-of-area drag was already rejected above).
+      try { onMove?.(p); } catch (e) { console.warn("anchor onMove failed", e); }
     });
     return { getPos: () => ({ ...state.pos }), remove: () => marker.setMap(null) };
   }
@@ -900,10 +960,13 @@ export class Layers {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
     if (!pts) return this.openPanel();
-    // Draggable preview: the centre can be nudged until the question is committed
-    // (map stays pannable via mapInteractive), then it's locked.
-    const anchor = this._setupAnchor(pts[0], "◎");
     const units = store.getCurrent()?.settings?.units || "metric";
+    // Live preview (B1): the eliminated shape and a "would eliminate X of Y" readout
+    // update as the seeker drags the centre, edits the radius, or flips the side —
+    // so the size is a visible decision rather than a guess that only reveals its
+    // impact after commit.
+    let preview = null; // rebound once the sheet renders and the readout element exists
+    const anchor = this._setupAnchor(pts[0], "◎", { onMove: () => refresh() });
     const s = openSheet({
       title: "Radar",
       mapInteractive: true,
@@ -915,12 +978,33 @@ export class Layers {
           <label><input type="radio" name="r-side" value="in" checked /> Yes — inside</label>
           <label><input type="radio" name="r-side" value="out" /> No — outside</label>
         </div>
+        <p id="r-readout" class="draft-readout muted"></p>
         <div class="sheet-actions">
           <button id="r-cancel" class="btn btn-ghost">Cancel</button>
           <button id="r-add" class="btn btn-primary">Add question</button>
         </div>`,
-      onClose: () => anchor.remove(), // covers cancel, the ✕, and add (all call close)
+      onClose: () => { anchor.remove(); preview?.remove(); }, // cancel, ✕, add all call close
     });
+    preview = this._draftPreview({ readoutEl: s.q("#r-readout") });
+    const refresh = () => {
+      if (!preview) return;
+      const radius = readDistanceMeters(s, "r-radius", units);
+      const side = s.qa('input[name="r-side"]').find((r) => r.checked)?.value || "in";
+      if (!Number.isFinite(radius) || radius <= 0) {
+        // Keep the readout visible with a status message; drop only the polygon.
+        preview.render({ id: "draft", tool: "radar", enabled: true, inputs: { center: anchor.getPos(), radius: 0 }, answer: { side } }, { sizeLabel: "Enter a radius…" });
+        return;
+      }
+      const step = { id: "draft", tool: "radar", enabled: true, inputs: { center: anchor.getPos(), radius }, answer: { side } };
+      const sizeLabel = units === "imperial"
+        ? `${(radius / 1609.344).toFixed(radius >= 1609 ? 2 : 3)} mi`
+        : radius >= 1000 ? `${(radius / 1000).toFixed(2)} km` : `${Math.round(radius)} m`;
+      preview.render(step, { sizeLabel });
+    };
+    // Draw the initial preview immediately so the "1000 m" default has visible impact.
+    refresh();
+    s.q("#r-radius").addEventListener("input", refresh);
+    for (const el of s.qa('input[name="r-side"]')) el.addEventListener("change", refresh);
     s.q("#r-cancel").onclick = () => s.close();
     s.q("#r-add").onclick = () => {
       // Validate, never clamp. `Math.max(10, parseFloat(...) || 0)` turned "0", "-500" and
@@ -941,9 +1025,13 @@ export class Layers {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
     const pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
     if (!pts || pts.length < 2) return this.openPanel();
-    // Draggable A/B previews: adjustable until the question is committed, then locked.
-    const anchorA = this._setupAnchor(pts[0], "A");
-    const anchorB = this._setupAnchor(pts[1], "B");
+    const units = store.getCurrent()?.settings?.units || "metric";
+    // Live preview (B1): the eliminated half and station count update as A/B drag or
+    // the side flips. Unlike radar the thermometer has no radius field — its only
+    // knobs are the endpoints and the answer, so both drive `refresh`.
+    let preview = null;
+    const anchorA = this._setupAnchor(pts[0], "A", { onMove: () => refresh() });
+    const anchorB = this._setupAnchor(pts[1], "B", { onMove: () => refresh() });
     const s = openSheet({
       title: "Thermometer",
       mapInteractive: true,
@@ -953,12 +1041,34 @@ export class Layers {
           <label><input type="radio" name="th-side" value="hotter" checked /> Hotter (closer to B)</label>
           <label><input type="radio" name="th-side" value="colder" /> Colder (closer to A)</label>
         </div>
+        <p id="th-readout" class="draft-readout muted"></p>
         <div class="sheet-actions">
           <button id="th-cancel" class="btn btn-ghost">Cancel</button>
           <button id="th-add" class="btn btn-primary">Add question</button>
         </div>`,
-      onClose: () => { anchorA.remove(); anchorB.remove(); },
+      onClose: () => { anchorA.remove(); anchorB.remove(); preview?.remove(); },
     });
+    preview = this._draftPreview({ readoutEl: s.q("#th-readout") });
+    const refresh = () => {
+      if (!preview) return;
+      const side = s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter";
+      const a = anchorA.getPos(), b = anchorB.getPos();
+      const step = { id: "draft", tool: "thermometer", enabled: true, inputs: { a, b }, answer: { side } };
+      // Straight-line A→B distance as the "size" — the question's scale, and what a
+      // seeker adjusts by dragging.
+      let sizeLabel = "";
+      if (window.turf) {
+        try {
+          const km = window.turf.distance(window.turf.point([a.lng, a.lat]), window.turf.point([b.lng, b.lat]), { units: "kilometers" });
+          sizeLabel = units === "imperial"
+            ? `A→B ${(km * 0.621371).toFixed(km * 0.621371 >= 1 ? 2 : 3)} mi`
+            : km >= 1 ? `A→B ${km.toFixed(2)} km` : `A→B ${Math.round(km * 1000)} m`;
+        } catch (_) { sizeLabel = ""; }
+      }
+      preview.render(step, { sizeLabel });
+    };
+    refresh();
+    for (const el of s.qa('input[name="th-side"]')) el.addEventListener("change", refresh);
     s.q("#th-cancel").onclick = () => s.close();
     s.q("#th-add").onclick = () => {
       const side = s.qa('input[name="th-side"]').find((r) => r.checked)?.value || "hotter";

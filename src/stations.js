@@ -108,6 +108,32 @@ export async function loadStationsFromPlaces(bbox, { placesImpl } = {}) {
   return { stations, counts: { raw: (raw || []).length, kept: stations.length }, from: "network" };
 }
 
+// The count the B1 draft-mode preview shows: "N of Y active stations would be
+// eliminated by this pending step". Pure — takes an already-computed eliminated
+// geometry rather than recomputing, so a caller that has run `computeElimination`
+// once (the layers.js preview does exactly this) does not run it twice.
+//
+// Stations already flagged `eliminated: true` are OUT of the denominator: they are
+// no longer part of the answer domain, and counting them would tell the seeker the
+// pending question narrows a set of size Y when the set they care about is smaller.
+export function countStationsInEliminated(eliminated, stations) {
+  if (!eliminated || !Array.isArray(stations) || !stations.length) return null;
+  if (typeof window === "undefined" || !window.turf) return null;
+  const turf = window.turf;
+  let shape;
+  try { shape = eliminated.type === "Feature" ? eliminated : turf.feature(eliminated); }
+  catch (_) { return null; }
+  let inside = 0, total = 0;
+  for (const s of stations) {
+    if (s.eliminated) continue;
+    total++;
+    try {
+      if (turf.booleanPointInPolygon(turf.point([s.lng, s.lat]), shape)) inside++;
+    } catch (_) { /* skip a station whose containment can't be computed */ }
+  }
+  return { inside, total };
+}
+
 // Turn a game + a source pick into the station list the game should lock in. Board
 // bbox is derived from the game's own area, so the returned set covers exactly the
 // ground the game is played on — a station 30 km beyond the board is not a candidate

@@ -350,6 +350,20 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
+/* B1 draft preview readout — the live "size · N of Y stations would be eliminated" line
+   shown inside the radar/thermometer setup sheets. Same colour as .muted but with a subtle
+   card treatment so it reads as feedback about the pending decision, not documentation. */
+.draft-readout {
+  margin: 0.6rem 0;
+  padding: 0.45rem 0.55rem;
+  background: rgba(148, 163, 184, 0.08);
+  border-left: 2px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.draft-readout strong { color: var(--text, inherit); }
+
 /* Stations panel — one row per locked-in station, ticking eliminates it (crossed out). */
 .station-list { max-height: 40vh; overflow-y: auto; margin: 0.5rem 0; }
 .station-row {
