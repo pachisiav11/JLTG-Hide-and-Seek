@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS = {
   distanceMode: "straight-line", // "straight-line" | "transit" | "walking"
   units: "metric",               // "metric" | "imperial"
   questionTimer: 0,              // Phase 11: soft countdown seconds per question (0 = off)
+  geofenceMetres: 0,             // Phase 3 (A1): warn the hider when this close to the zone edge (0 = off)
 };
 
 function uid(prefix) {

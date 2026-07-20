@@ -383,6 +383,15 @@ export class Games {
           ${radio("questionTimer", "120", String(st.questionTimer || 0), "2 minutes")}
           ${radio("questionTimer", "300", String(st.questionTimer || 0), "5 minutes")}
         </div>
+        <h3 class="sub">Hider geofence</h3>
+        <p class="muted">While hiding, warn me when I'm this close to the edge of the Hider zone (or if I cross it). Requires notification permission; works while the app is open. Set to Off to disable.</p>
+        <div class="seg">
+          ${radio("geofenceMetres", "0", String(st.geofenceMetres || 0), "Off")}
+          ${radio("geofenceMetres", "50", String(st.geofenceMetres || 0), "50 m")}
+          ${radio("geofenceMetres", "100", String(st.geofenceMetres || 0), "100 m")}
+          ${radio("geofenceMetres", "200", String(st.geofenceMetres || 0), "200 m")}
+        </div>
+
         <h3 class="sub">Region boundaries (advanced)</h3>
         <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
         <input id="st-mapid" class="field" type="text" autocomplete="off" spellcheck="false" placeholder="Map ID (optional)" value="${escapeHtml(localStorage.getItem("jltg.mapId") || "")}" />
@@ -407,7 +416,8 @@ export class Games {
       const distanceMode = s.qa('input[name="distanceMode"]').find((r) => r.checked)?.value || "straight-line";
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
       const questionTimer = parseInt(s.qa('input[name="questionTimer"]').find((r) => r.checked)?.value || "0", 10);
-      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer }));
+      const geofenceMetres = parseInt(s.qa('input[name="geofenceMetres"]').find((r) => r.checked)?.value || "0", 10);
+      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, geofenceMetres }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Persist the device-level map style (already applied live via the event).

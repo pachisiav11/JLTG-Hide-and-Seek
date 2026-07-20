@@ -350,6 +350,31 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
+/* Phase 3 (A1): live hider geofence pill — a small foreground indicator showing the
+   hider's distance to the zone edge, updated on every GPS tick. Persistent while the
+   feature is enabled (Settings ▸ Hider geofence) and a Hider zone exists. */
+.geofence-pill {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9998;
+  padding: 0.35rem 0.6rem;
+  background: rgba(31, 41, 55, 0.85);
+  color: #f8fafc;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  max-width: 60vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.geofence-pill.geofence-warn {
+  background: rgba(220, 38, 38, 0.9);
+}
+
 /* B1 draft preview readout — the live "size · N of Y stations would be eliminated" line
    shown inside the radar/thermometer setup sheets. Same colour as .muted but with a subtle
    card treatment so it reads as feedback about the pending decision, not documentation. */

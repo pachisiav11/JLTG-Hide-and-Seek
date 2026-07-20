@@ -5,6 +5,7 @@ import { Zones } from "./zones.js";
 import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Focus } from "./focus.js";
+import { Geofence } from "./geofence.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -184,6 +185,11 @@ async function main() {
     const games = new Games(zones, { boundaries, features, library, map });
     layers.init();
     focus.init();
+    // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
+    // notifications when the hider drifts near or across it. Inert until the seeker
+    // sets a geofence threshold in Settings AND a focus zone exists.
+    const geofence = new Geofence();
+    geofence.init();
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
@@ -243,7 +249,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
