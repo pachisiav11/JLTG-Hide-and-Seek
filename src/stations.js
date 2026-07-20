@@ -189,6 +189,20 @@ export function restoreStationsOnLine(stationsList, lineKey) {
   return { changed };
 }
 
+// Phase 6 (A3): toggle a single station's `eliminated` flag by id, applying the
+// same convention as the Stations panel (`eliminatedBy = "manual"` when the user
+// flips it themselves). Returns the new state so a caller can toast an accurate
+// "eliminated" / "restored" message. Pure — no store touch — so it lives here
+// with the other station mutators rather than in the layer-rendering class.
+export function toggleStationElimination(list, id) {
+  const entry = Array.isArray(list) ? list.find((s) => s.id === id) : null;
+  if (!entry) return null;
+  const wasEliminated = !!entry.eliminated;
+  entry.eliminated = !wasEliminated;
+  entry.eliminatedBy = entry.eliminated ? "manual" : null;
+  return { id, eliminated: entry.eliminated, wasEliminated };
+}
+
 // The count the B1 draft-mode preview shows: "N of Y active stations would be
 // eliminated by this pending step". Pure — takes an already-computed eliminated
 // geometry rather than recomputing, so a caller that has run `computeElimination`

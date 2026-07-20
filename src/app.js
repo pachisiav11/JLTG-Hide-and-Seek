@@ -6,6 +6,7 @@ import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Focus } from "./focus.js";
 import { Geofence } from "./geofence.js";
+import { StationsLayer } from "./stations-layer.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -190,6 +191,12 @@ async function main() {
     // sets a geofence threshold in Settings AND a focus zone exists.
     const geofence = new Geofence();
     geofence.init();
+    // Phase 6 (A3): render the locked station set as tappable markers so
+    // manually eliminating a station is a one-tap map interaction, not a
+    // panel scroll. Reuses game.stations.list (Phase 1) and the eliminated
+    // flag + eliminatedBy tag (Phase 4).
+    const stationsLayer = new StationsLayer(map);
+    stationsLayer.init();
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
@@ -249,7 +256,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
