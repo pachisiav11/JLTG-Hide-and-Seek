@@ -18,6 +18,15 @@
 // clear "couldn't read those coordinates" message instead of silently accepting
 // zero. This is a pure function so it stays testable and doesn't reach into the DOM.
 
+// Phase 11 (§C2): format a coordinate pair for the clipboard, so a seeker who
+// copies their own GPS gets the SAME shape A2's parseSeekerLocation happily
+// accepts on the other end. 5dp = ~1.1 m — precise enough for a Hide & Seek
+// question, tight enough that the pasted number doesn't look like noise.
+export function formatLocationForClipboard(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
 const LAT_RE = "(-?\\d{1,2}(?:\\.\\d+)?)";
 const LNG_RE = "(-?\\d{1,3}(?:\\.\\d+)?)";
 // Two forms of the maps URL fragment:

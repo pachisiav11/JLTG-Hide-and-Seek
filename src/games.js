@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange } from "./stations.js";
-import { parseSeekerLocation } from "./ingest.js";
+import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
 import * as places from "./places.js";
 
 export class Games {
@@ -31,6 +31,7 @@ export class Games {
           <button id="mn-library" class="btn">📌 Custom library</button>
           <button id="mn-stations" class="btn">🚉 Stations</button>
           <button id="mn-seeker" class="btn">📍 Seeker location (paste)</button>
+          <button id="mn-copyloc" class="btn">📋 Copy MY location (for WhatsApp)</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
@@ -45,6 +46,7 @@ export class Games {
     s.q("#mn-library").onclick = () => { s.close(); this.library ? this.library.openManager() : toast("Library unavailable."); };
     s.q("#mn-stations").onclick = () => { s.close(); this.openStations(); };
     s.q("#mn-seeker").onclick = () => { s.close(); this.openSeekerLocation(); };
+    s.q("#mn-copyloc").onclick = () => { s.close(); this.copyMyLocation(); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
@@ -489,6 +491,36 @@ export class Games {
       this._stationsSheet(store.getCurrent());
     };
     s.q("#r-back").onclick = () => { s.close(); this._stationsSheet(store.getCurrent()); };
+  }
+
+  // ---- Copy MY location (§C2) — the mirror of A2's paste intake ----
+  //
+  // The seeker has to type or paste their own coordinates into WhatsApp so the
+  // hider can then paste them into the app. That reverse leg is the same
+  // friction as A2, one direction earlier. One tap on this button reads the
+  // seeker's GPS, formats it in the exact shape A2 accepts (§ src/ingest.js),
+  // and puts it on the clipboard.
+  async copyMyLocation() {
+    if (!navigator.geolocation) return toast("Geolocation not available.");
+    const cur = await new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve(p),
+        (err) => { toast(`Location unavailable — ${err.message || "allow access"}.`); resolve(null); },
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    });
+    if (!cur) return;
+    const text = formatLocationForClipboard(cur.coords.latitude, cur.coords.longitude);
+    if (!text) return toast("Couldn't format the coordinates.");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`Copied: ${text}`);
+    } catch (e) {
+      // A user who blocked clipboard access still sees the number in the toast
+      // so they can retype it — the failure surface at least gives them the
+      // information the button was for.
+      toast(`Copy blocked — coordinates: ${text}`);
+    }
   }
 
   // ---- Seeker location paste (A2 — WhatsApp intake) ----
