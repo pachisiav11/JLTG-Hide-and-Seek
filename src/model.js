@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   units: "metric",               // "metric" | "imperial"
   questionTimer: 0,              // Phase 11: soft countdown seconds per question (0 = off)
   geofenceMetres: 0,             // Phase 3 (A1): warn the hider when this close to the zone edge (0 = off)
+  geofenceAlertStyle: "vibrate-tone", // Phase 8 (§C3): "silent" | "vibrate" | "vibrate-tone" (silent = notification only, no vibrate/tone)
 };
 
 function uid(prefix) {

@@ -589,6 +589,12 @@ export class Games {
           ${radio("geofenceMetres", "100", String(st.geofenceMetres || 0), "100 m")}
           ${radio("geofenceMetres", "200", String(st.geofenceMetres || 0), "200 m")}
         </div>
+        <p class="muted">Alert style (§C3): vibrate + tone reaches a phone in a pocket.</p>
+        <div class="seg">
+          ${radio("geofenceAlertStyle", "silent", st.geofenceAlertStyle || "vibrate-tone", "Silent (notification only)")}
+          ${radio("geofenceAlertStyle", "vibrate", st.geofenceAlertStyle || "vibrate-tone", "Vibrate")}
+          ${radio("geofenceAlertStyle", "vibrate-tone", st.geofenceAlertStyle || "vibrate-tone", "Vibrate + tone")}
+        </div>
 
         <h3 class="sub">Region boundaries (advanced)</h3>
         <p class="muted">Optional vector <strong>Map ID</strong> with Data-driven styling enabled, for exact official Google boundaries (🌍 Region boundary). Leave blank to use approximate extents.</p>
@@ -615,7 +621,8 @@ export class Games {
       const units = s.qa('input[name="units"]').find((r) => r.checked)?.value || "metric";
       const questionTimer = parseInt(s.qa('input[name="questionTimer"]').find((r) => r.checked)?.value || "0", 10);
       const geofenceMetres = parseInt(s.qa('input[name="geofenceMetres"]').find((r) => r.checked)?.value || "0", 10);
-      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, geofenceMetres }));
+      const geofenceAlertStyle = s.qa('input[name="geofenceAlertStyle"]').find((r) => r.checked)?.value || "vibrate-tone";
+      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, geofenceMetres, geofenceAlertStyle }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Persist the device-level map style (already applied live via the event).

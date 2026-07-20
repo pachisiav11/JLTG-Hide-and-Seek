@@ -164,9 +164,57 @@ export class Geofence {
   }
 
   _fireNotification({ title, body }) {
+    // Phase 8 (§C3): even without notification permission, buzz + beep still fire.
+    // A hider whose phone is in a pocket may miss the visual notification but
+    // will feel the vibration and hear the tone; making these gated on
+    // Notifications.permission would defeat the whole point.
+    this._buzzAndBeep();
     if (!this.N || this.N.permission !== "granted") return;
     try { new this.N(title, { body, tag: "jltg-geofence", renotify: true, silent: false }); }
     catch (e) { console.warn("geofence: notification failed", e); }
+  }
+
+  _alertStyle() {
+    const style = store.getCurrent()?.settings?.geofenceAlertStyle;
+    return style || "vibrate-tone";
+  }
+
+  // 200 ms buzz + 220 ms tone at 880 Hz — audible without being alarming, and
+  // no external asset (no SW cache growth). navigator.vibrate is Android-only
+  // in practice; iOS refuses silently. AudioContext requires a prior user
+  // gesture on most browsers, so the tone works from a click flow (opening a
+  // sheet / hitting a button) and no-ops from a pure GPS-tick fire. That's an
+  // honest limitation — vibration works either way, which is the more
+  // important channel for a pocketed phone.
+  _buzzAndBeep() {
+    const style = this._alertStyle();
+    if (style === "silent") return;
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      try { navigator.vibrate([200, 100, 200]); } catch (_) { /* iOS / permissions */ }
+    }
+    if (style !== "vibrate-tone") return;
+    this._tone();
+  }
+  _tone() {
+    const Ctx = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+    if (!Ctx) return;
+    try {
+      const ctx = this._audioCtx || (this._audioCtx = new Ctx());
+      if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) { /* pre-gesture */ } }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      // Envelope: attack + short sustain + release so it doesn't click on/off.
+      const t0 = ctx.currentTime;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.15, t0 + 0.02);
+      gain.gain.setValueAtTime(0.15, t0 + 0.18);
+      gain.gain.linearRampToValueAtTime(0, t0 + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.24);
+    } catch (e) { console.warn("geofence: tone failed", e); }
   }
 
   _ensurePill() {
