@@ -182,7 +182,7 @@ async function main() {
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
-    const games = new Games(zones, { boundaries, features, library, map });
+    const games = new Games(zones, { boundaries, features, library, map, lines });
     layers.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires

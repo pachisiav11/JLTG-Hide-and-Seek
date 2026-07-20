@@ -401,6 +401,16 @@ textarea.field { resize: vertical; }
 }
 .station-row .station-keep { display: flex; align-items: center; gap: 0.4em; }
 .station-row .station-out { text-decoration: line-through; opacity: 0.5; }
+/* A4 — one row per known rail line, with count + eliminate/restore actions. */
+.station-line-list { margin: 0.35rem 0 0.6rem 0; }
+.station-line-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
 
 /* Rail filter: one block per transport mode, its lines indented under it. The mode head is a
    checkbox for the whole mode; the indented rows are individual lines. */

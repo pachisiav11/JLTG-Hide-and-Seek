@@ -3,16 +3,17 @@ import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
-import { sourceStationsForGame } from "./stations.js";
+import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine } from "./stations.js";
 import * as places from "./places.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null, map = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
     this.library = library; // reusable custom categories + pins (Phase 9)
     this.map = map; // used for Places-sourced stations (Places needs a map ref)
+    this.lines = lines; // rail line data — needed for A4 "eliminate this line's stations"
   }
 
   // ---- Top menu ----
@@ -238,6 +239,33 @@ export class Games {
       : st.source
       ? `<p class="muted">Sourced from ${st.source}, not yet confirmed — ${st.list.length} station${st.list.length === 1 ? "" : "s"} in draft.</p>`
       : `<p class="muted">No station set for this game yet. Pick a source to materialise one.</p>`;
+
+    // A4: bulk-eliminate all stations on a chosen rail line. Only shown once BOTH
+    // a station set exists AND rail lines have been loaded (Rail panel opened), so
+    // we don't offer an action that can only fail. Each line row shows the count
+    // of currently-eliminated stations tagged with THIS line's key so the "Restore"
+    // button surface honestly reflects what it will do.
+    const lineGroups = (this.lines?.lineGroups?.() || []).filter((l) => l.paths?.length);
+    const lineTagCount = (key) => st.list.filter((s) => s.eliminatedBy === `line:${key}`).length;
+    const lineBlock = actions && st.list.length && lineGroups.length ? `
+      <h3 class="sub">Eliminate by line</h3>
+      <p class="muted">Playtest Q1: "not the blue line". Marks every station within 100 m of the line as eliminated; Restore undoes only that line's marks (manual eliminations stay).</p>
+      <ul class="list station-line-list">
+        ${lineGroups.map((l) => {
+          const marked = lineTagCount(l.key);
+          return `<li class="station-line-row">
+            <span>${escapeHtml(l.label)}</span>
+            <span class="muted">${marked ? `${marked} marked` : "—"}</span>
+            <button class="btn btn-ghost btn-sm sl-elim" data-key="${escapeHtml(l.key)}">Eliminate</button>
+            <button class="btn btn-ghost btn-sm sl-restore" data-key="${escapeHtml(l.key)}" ${marked ? "" : "disabled"}>Restore</button>
+          </li>`;
+        }).join("")}
+      </ul>
+    ` : "";
+    const lineHint = actions && st.list.length && !lineGroups.length
+      ? `<p class="muted"><em>Open the 🚄 Rail panel first to enable per-line elimination.</em></p>`
+      : "";
+
     const s = openSheet({
       title: "Stations",
       bodyHTML: `
@@ -250,6 +278,8 @@ export class Games {
           <button id="st-places" class="btn">🅶 Source from Google Places</button>
         </div>
         <ul class="list station-list">${rows}</ul>
+        ${lineBlock}
+        ${lineHint}
         <div class="sheet-actions">
           <button id="st-confirm" class="btn btn-primary" ${st.list.length && !st.confirmedAt ? "" : "disabled"}>Lock in this set</button>
           <button id="st-clear" class="btn btn-ghost" ${st.list.length ? "" : "disabled"}>Clear set</button>
@@ -326,6 +356,37 @@ export class Games {
         refresh();
       };
     }
+    for (const el of s.qa(".sl-elim")) {
+      el.onclick = () => {
+        const key = el.dataset.key;
+        const line = lineGroups.find((l) => l.key === key);
+        if (!line) return;
+        let hits = 0;
+        store.update((gg) => {
+          if (!gg.stations?.list) return false;
+          const { hitIds } = eliminateStationsOnLine(gg.stations.list, key, line.paths);
+          hits = hitIds.length;
+        });
+        store.saveNow();
+        toast(hits ? `${hits} station${hits === 1 ? "" : "s"} on ${line.label} marked eliminated.` : `No stations near ${line.label} on this board.`);
+        refresh();
+      };
+    }
+    for (const el of s.qa(".sl-restore")) {
+      el.onclick = () => {
+        const key = el.dataset.key;
+        const line = lineGroups.find((l) => l.key === key);
+        let restored = 0;
+        store.update((gg) => {
+          if (!gg.stations?.list) return false;
+          const { changed } = restoreStationsOnLine(gg.stations.list, key);
+          restored = changed.length;
+        });
+        store.saveNow();
+        toast(restored ? `${restored} station${restored === 1 ? "" : "s"} on ${line?.label || key} restored.` : `No line-tagged eliminations to restore.`);
+        refresh();
+      };
+    }
     for (const el of s.qa(".st-elim")) {
       el.onchange = () => {
         const id = el.dataset.id;
@@ -333,6 +394,10 @@ export class Games {
           const entry = gg.stations?.list?.find((s) => s.id === id);
           if (!entry) return false;
           entry.eliminated = el.checked;
+          // Manual toggle wins over any line tag. Otherwise a station eliminated via
+          // "Eliminate this line" then unchecked here would be silently re-eliminated
+          // by a later "Restore this line", because the tag still matched.
+          entry.eliminatedBy = el.checked ? "manual" : null;
         });
         // Toggling elimination doesn't invalidate the lock; only structural changes do.
       };

@@ -108,6 +108,87 @@ export async function loadStationsFromPlaces(bbox, { placesImpl } = {}) {
   return { stations, counts: { raw: (raw || []).length, kept: stations.length }, from: "network" };
 }
 
+// Which stations belong to a given rail line, computed as the ids of any station
+// within `toleranceM` metres of any way in the line. Client-side heuristic so this
+// works without a server round trip — the OSM route relations that would give an
+// authoritative membership are a bigger payload to fetch and would block A4 on the
+// (currently broken) backend redeploy.
+//
+// A rail line's `paths` is a list of polylines in [lat, lng] order (the shape lines.js
+// produces via `groupIntoLines`). A station is "on" the line if it lies within the
+// tolerance of any single one of them — a real station a hider names is typically at
+// the edge of the track (platforms sit 5-25 m off centre) and OSM's `railway=station`
+// node is usually a few metres off the way, so 100 m is a comfortable default with
+// room for OSM tagging noise.
+//
+// Returns a Set of station ids so callers can test membership in O(1) and build the
+// bulk actions the Stations panel needs. Nothing here mutates the stations.
+const DEFAULT_LINE_TOLERANCE_M = 100;
+
+export function stationsWithinLine(stations, wayPaths, { toleranceM = DEFAULT_LINE_TOLERANCE_M } = {}) {
+  const hits = new Set();
+  if (!Array.isArray(stations) || !stations.length) return hits;
+  if (!Array.isArray(wayPaths) || !wayPaths.length) return hits;
+  if (typeof window === "undefined" || !window.turf) return hits;
+  const turf = window.turf;
+  // Precompute LineStrings once — a Mumbai-scale line can be 30+ ways, and one
+  // turf.lineString per station-per-way is otherwise the hot path.
+  const lines = [];
+  for (const p of wayPaths) {
+    if (!Array.isArray(p) || p.length < 2) continue;
+    try { lines.push(turf.lineString(p.map(([lat, lng]) => [lng, lat]))); }
+    catch (_) { /* a malformed way must not veto the rest */ }
+  }
+  if (!lines.length) return hits;
+  const tolKm = toleranceM / 1000;
+  for (const s of stations) {
+    if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) continue;
+    const pt = turf.point([s.lng, s.lat]);
+    for (const ls of lines) {
+      let d;
+      try { d = turf.pointToLineDistance(pt, ls, { units: "kilometers" }); }
+      catch (_) { continue; }
+      if (d <= tolKm) { hits.add(s.id); break; }
+    }
+  }
+  return hits;
+}
+
+// A4 bulk action: mark every station on the given line as eliminated, tagged with
+// `line:<key>` so a later "restore this line" un-eliminates exactly those and not
+// the ones the seeker had already marked out for other reasons.
+//
+// Returns the mutation as a list of {id, wasEliminated, wasBy} so a caller can
+// build a fold-style undo (Phase 4 does not create a real fold step — the station
+// list is not a fold input — but the undo shape is worth preserving anyway).
+export function eliminateStationsOnLine(stationsList, lineKey, wayPaths, opts = {}) {
+  const hits = stationsWithinLine(stationsList, wayPaths, opts);
+  const changed = [];
+  for (const s of stationsList) {
+    if (!hits.has(s.id)) continue;
+    changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
+    s.eliminated = true;
+    s.eliminatedBy = `line:${lineKey}`;
+  }
+  return { changed, hitIds: [...hits] };
+}
+
+// Inverse of the above. Restores only the stations this line eliminated — a station
+// the seeker marked out MANUALLY (or via a different line) keeps its state. That is
+// the whole reason `eliminatedBy` exists: a bulk restore must not undo unrelated
+// work.
+export function restoreStationsOnLine(stationsList, lineKey) {
+  const tag = `line:${lineKey}`;
+  const changed = [];
+  for (const s of stationsList) {
+    if (s.eliminatedBy !== tag) continue;
+    changed.push({ id: s.id });
+    s.eliminated = false;
+    s.eliminatedBy = null;
+  }
+  return { changed };
+}
+
 // The count the B1 draft-mode preview shows: "N of Y active stations would be
 // eliminated by this pending step". Pure — takes an already-computed eliminated
 // geometry rather than recomputing, so a caller that has run `computeElimination`
