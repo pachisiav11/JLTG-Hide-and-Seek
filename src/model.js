@@ -45,6 +45,13 @@ export function createGame(overrides = {}) {
     // station the seeker eliminated stays eliminated when the set is re-materialised.
     // `source` records how the list was populated; null on a fresh game.
     stations: overrides.stations || { source: null, bbox: null, confirmedAt: null, list: [] },
+    // Phase 5 (A2): the last-known seeker location, ingested from a WhatsApp paste
+    // (or a Google Maps URL). One active at a time; a new paste replaces it. The
+    // radar and thermometer setup sheets offer "Use seeker location" as a shortcut
+    // to snap the anchor to this point (see layers.js), which is the fastest path
+    // from "seeker just shared where they are" to "commit a question centred on
+    // that spot" the flow currently supports.
+    seekerLocation: overrides.seekerLocation || null,
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     // Step ids undone and awaiting redo, most recent last. Lives on the GAME, not on the
     // Layers instance: as instance state it died on reload, so undoing a question and
