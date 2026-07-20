@@ -249,18 +249,148 @@ re-describing it inside every item:
 
 ---
 
+## C. Live-play speed and awareness — added 2026-07-20, post-Phase-1-3
+
+Additions surfaced after the first three phases landed. All confirmed with the
+user via yes/no; the last one is a **partial revision of the "no multiplayer"
+non-goal** and is called out as such.
+
+### C1. Long-press map → note pin *(small)*
+
+- **Pain:** Off-app clues (playtest 1 Q4 "photo of a building"; ambient
+  observations like "heard a train at 3:12" or "saw a bus on Route 25") don't
+  end up in the app's map state. They live in someone's head or a WhatsApp
+  message and are lost between sessions.
+- **Change:** Long-press anywhere on the map → drop a small pin with a short
+  free-text note (default label is a timestamp). Pins persist per game,
+  render on the map with the note as a tooltip / on-tap popover, and can be
+  removed individually.
+- **Implementation notes:**
+  - New per-game field `game.notes = [{id, point, text, at}]`.
+  - Long-press = `mousedown/touchstart` + timer + no-move guard, same shape as
+    every other pin-drop tool in the codebase.
+  - Not a fold step (doesn't eliminate anything), just a visible marker — so
+    it can be added and removed freely without touching the elimination engine.
+- **Nice-to-haves (deferred):** photo attachment, colour-code by category.
+
+### C2. Copy-my-location button *(small)*
+
+- **Pain:** Seekers already paste their location into WhatsApp so the hiders'
+  device can be pointed at it (see A2). The reverse — a seeker holding their
+  own phone, needing to type "19.15, 72.85" into WhatsApp themselves — is the
+  same friction one direction earlier. A one-tap button is symmetric with A2's
+  intake.
+- **Change:** ☰ menu (or a small toolbar button) → "📋 Copy my location". Uses
+  `navigator.geolocation.getCurrentPosition` + `navigator.clipboard.writeText`,
+  writes `lat, lng` in the same format A2 accepts. Toast confirms.
+- **Implementation notes:** trivial. Guard for the geolocation-denied case with
+  the same "Location unavailable — allow location access" toast focus.js
+  already uses.
+
+### C3. Vibrate + tone on geofence alerts *(small)*
+
+- **Pain:** Phase 3's text alert is easy to miss with the phone in a pocket
+  during a hide — the hider only sees the notification when they take the
+  phone out, which is exactly the "check on demand" pattern A1 exists to
+  replace.
+- **Change:** On any geofence alert (crossed-out / near-edge / still-out /
+  back-in), also fire `navigator.vibrate([200, 100, 200])` and play a short
+  tone via `AudioContext` (no audio asset — a generated beep, so the SW
+  precache doesn't grow). Toggle in Settings alongside the metres threshold
+  ("Off / silent / vibrate / vibrate + tone").
+- **Implementation notes:**
+  - Vibration API is Android-only in practice (iOS refuses); document that.
+  - Tone via `OscillatorNode` — no asset, no external dependency. Two 200 ms
+    beeps at 880 Hz is enough to be audible without being alarming.
+
+### C4. Upgrade Phase 3's alerts to system notifications *(medium)*
+
+- **Pain:** Phase 3 uses `new Notification(...)` from the page context. That
+  works ONLY while the tab is foregrounded on Android; backgrounded, it does
+  nothing and the whole feature silently degrades to just the on-screen pill.
+  A hider whose phone is asleep in a pocket sees no alert at all — the exact
+  failure mode A1 was written to close.
+- **Change:** Route notifications through the service worker's
+  `registration.showNotification(...)` instead. That is what Android treats as
+  a first-class system notification: it goes to the notification tray, wakes
+  the phone, honours the user's notification-priority settings, and survives a
+  backgrounded tab.
+- **Implementation notes:**
+  - `postMessage` from the page to the SW with the notification payload; the
+    SW calls `showNotification()`. (Keeps the decision logic in
+    `evaluateGeofence()` — the SW is only the display arm.)
+  - Requires the SW to be in scope and registered (already true; Phase 12
+    infra).
+  - Needs a `notificationclick` handler in the SW that focuses the existing
+    tab / opens a new one if none is open.
+  - Icon: existing `icons/icon-192.png`.
+- **What this does NOT fix:** true background GPS. Even with SW notifications
+  the geofence check itself needs a live position, and mobile browsers
+  throttle backgrounded geolocation. This upgrade covers "phone asleep, tab
+  still ticking" but not "tab evicted an hour ago". True background is still
+  a TWA/native concern.
+
+### C5. Live seeker-location share → auto-alert when close to hiding zone *(large — revises a non-goal)*
+
+- **Non-goal revision (2026-07-20):** the "No online multiplayer / relay
+  session" line at the top of this doc is **partially rolled back**. This item
+  adds a narrow one-way channel: **seeker → hider**, streaming only
+  coordinates, not game state. Full state sync (Phase 13 style) stays out of
+  scope; anything else that crosses between devices still goes through
+  WhatsApp. The reason for the reversal is that the seeker-position pain
+  playtest 1 recorded (systemic pain 2) survives even after A2's manual
+  paste is built: paste-driven ingest is a snapshot, and this is meant to be
+  a live, autonomous check the hider does not have to remember to run.
+- **Pain:** During a hide, the hider has no automatic notion of where the
+  seekers are. WhatsApp share is manual and lossy. Even with A2 landed, a
+  hider who has not pasted in the last 5 minutes has no idea if the seekers
+  are closing in.
+- **Change:** Two new panels, one channel.
+  - **On the seeker's device:** a "Share my live location" toggle. When on,
+    the seeker's phone publishes its GPS to a relay every ~60 s, tagged with
+    a session code.
+  - **On the hider's device:** a "Receive seeker location" panel. Enter the
+    same session code, subscribe. The seeker's last-known point is visible
+    on the map (as an S pin, timestamped), and every ~60 s (i.e. on every
+    update) the hider's device compares that point to the hiding zone centre
+    and fires a **system notification** (see C4) when the distance drops
+    below a user-configurable threshold (default: 2 km). One notification
+    per crossing.
+- **Implementation notes:**
+  - Requires the Socket.IO relay to come back, on the same backend service
+    the Overpass proxy is deployed to. The Phase 13 code was deleted (commit
+    `3f2ce4b`) but MULTIPLAYER_DESIGN.md still documents the shape. The
+    reduced scope here (one topic, one direction, no game state) is much
+    smaller than Phase 13's full CRDT.
+  - Only publishes lat/lng + a timestamp. No game state, no history, no
+    presence beyond "seen a ping in the last minute".
+  - Session code entry mirrors the removed Phase 13 flow: 6-char code,
+    generated on the seeker's device, typed into the hider's device.
+  - Alert threshold configurable in Settings (default 2 km, "0" disables the
+    alert but keeps the pin visible).
+  - The seeker's device can also show its own "you are being shared" pill,
+    so a seeker cannot forget the toggle is on.
+- **What this does NOT do:**
+  - No hider → seeker channel (per the non-goal reason — that would defeat
+    the game).
+  - No stale-data handling per user 2026-07-20: the live channel is trusted
+    as fresh. If the seeker's phone loses signal, the pin goes stale
+    silently; a follow-up phase could add a "no ping in N minutes" warning
+    if this bites in real play.
+  - No game-state sync of any kind. Elimination, zones, questions, station
+    lists all stay per-device.
+
+---
+
 ## Rough order to think about
 
 Not a build order — just how these stack up if we had to pick one at a time.
 Numbers in parentheses are cross-references, not dependencies unless
 explicitly noted.
 
-1. **Locked station set** — the shared prerequisite for A3, A4, A5, B1.
-   Nothing user-visible on its own but unlocks the rest.
-2. **B1** — draft-mode preview. Highest per-play impact; touches the
-   tools every game uses.
-3. **A1** — hider geofence notification. Removes the "we don't know if
-   we're still in zone" pain that ran through the whole hiding period.
+1. **Locked station set** — *DONE 2026-07-20* ([de56074](https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/de56074)).
+2. **B1** — draft-mode preview. *DONE 2026-07-20* ([78152cc](https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/78152cc)).
+3. **A1** — hider geofence notification. *DONE 2026-07-20* ([4c77464](https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/4c77464)).
 4. **A4** — whole-line elimination. Playtest Q1 alone justifies it;
    small once A3's station set is in place.
 5. **A2** — WhatsApp location ingest. Start with `lat, lng` paste and
@@ -268,7 +398,21 @@ explicitly noted.
    friction is still felt.
 6. **A3** — manual station elimination as a real user action.
 7. **A5** — range elimination on a line.
-8. **A6** — POI-category measurement.
+
+Then the §C additions (added post-Phase-3):
+
+8. **C3** — vibrate + tone on geofence alerts. Small, immediately makes
+   Phase 3 useful with the phone in a pocket.
+9. **C4** — upgrade geofence alerts to system notifications via the SW.
+   Closes the "backgrounded tab does nothing" gap in Phase 3.
+10. **C1** — long-press map → note pin. Small, self-contained,
+    playtest-clue capture.
+11. **C2** — copy-my-location button. Trivial; symmetric with A2.
+12. **C5** — live seeker-location share to hider. Largest of the §C set;
+    revives a narrow slice of multiplayer for a real playtest pain.
+
+13. **A6** — POI-category measurement. Deferred; do after A3 lands the
+    manual fallback for uncovered categories.
 
 ---
 
@@ -279,9 +423,10 @@ explicitly noted.
   layer.
 - The Google Maps rendering engine and the elimination math stay as-is;
   everything above is UI/intake, not compute.
-- Multiplayer / relay session flow — not being invested in further (see
-  non-goals at top). The two devices remain fully disconnected; every
-  cross-device flow above routes through WhatsApp or equivalent
-  out-of-band channels.
+- Multiplayer / relay session flow — the non-goal at the top is
+  **partially rolled back 2026-07-20** by §C5 (one-way seeker→hider
+  location, no game state). Any BROADER multiplayer — game state sync,
+  hider→seeker channel, presence beyond a location ping — remains out
+  of scope. Two-way sync stays a no.
 - WhatsApp Live Location ingest — infeasible without server infra we've
   ruled out (see A2.4).
