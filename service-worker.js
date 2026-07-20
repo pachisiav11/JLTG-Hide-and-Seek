@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v75";
+const CACHE_VERSION = "jltg-shell-v76";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -48,7 +48,41 @@ self.addEventListener("install", (event) => {
 
 // The page posts this when the user clicks "Reload" on the update banner.
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "SKIP_WAITING") return self.skipWaiting();
+  // Phase 9 (§C4): a page-side geofence alert asks the SW to render the
+  // notification, so the user sees it in the system tray (and the phone can
+  // wake it) instead of a foreground-only `new Notification(...)` that
+  // Android throws away when the tab is backgrounded.
+  if (event.data?.type === "GEOFENCE_NOTIFY") {
+    const { title, body, tag } = event.data;
+    if (!title) return;
+    try {
+      self.registration.showNotification(title, {
+        body: body || "",
+        tag: tag || "jltg-geofence",
+        renotify: true,
+        icon: "./icons/icon-192.png",
+        badge: "./icons/icon-192.png",
+        // vibration pattern here is the fallback for when the page-side
+        // navigator.vibrate call in Phase 8 couldn't run (backgrounded tab):
+        // system notifications honour this pattern on Android.
+        vibrate: [200, 100, 200],
+      });
+    } catch (e) { console.warn("SW showNotification failed", e); }
+  }
+});
+
+// Clicking the notification: focus an already-open tab if any, else open one.
+// Without this handler the notification is a dead end on some Android launchers
+// (the tap does nothing at all).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) if (c.url && "focus" in c) return c.focus();
+      if (self.clients.openWindow) return self.clients.openWindow("./");
+    })
+  );
 });
 
 self.addEventListener("activate", (event) => {

@@ -170,6 +170,26 @@ export class Geofence {
     // Notifications.permission would defeat the whole point.
     this._buzzAndBeep();
     if (!this.N || this.N.permission !== "granted") return;
+    // Phase 9 (§C4): prefer the service worker's showNotification so the
+    // alert reaches the system tray and survives a backgrounded tab. Falling
+    // back to page-side `new Notification()` is fine when the SW isn't
+    // registered (dev preview, first paint), just less reliable for a hider
+    // whose phone has slept.
+    const payload = { type: "GEOFENCE_NOTIFY", title, body: body || "", tag: "jltg-geofence" };
+    let sent = false;
+    try {
+      const sw = typeof navigator !== "undefined" && navigator.serviceWorker;
+      const controller = sw?.controller;
+      if (controller) { controller.postMessage(payload); sent = true; }
+      else if (sw?.ready?.then) {
+        // If we're not controlled yet (first load post-install), wait for the
+        // registration to be ready. Best-effort; the buzz/beep in Phase 8 has
+        // already fired so the hider isn't left with silence.
+        sw.ready.then((reg) => { try { reg.active?.postMessage(payload); } catch (_) { /* SW gone */ } });
+        sent = true;
+      }
+    } catch (_) { /* fall through to page notification */ }
+    if (sent) return;
     try { new this.N(title, { body, tag: "jltg-geofence", renotify: true, silent: false }); }
     catch (e) { console.warn("geofence: notification failed", e); }
   }
