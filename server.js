@@ -14,6 +14,7 @@
 import express from "express";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
+import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -137,6 +138,30 @@ app.get("/overpass/lines", async (req, res) => {
       return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
     }
     console.error(`Overpass lines (${kind}) failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
+    res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
+  }
+});
+
+// GET /overpass/stations?bbox=S,W,N,E
+//
+// The station counterpart to /overpass/lines. Named stations only — an unnamed node is
+// a question no player can answer, and deduping near-by same-name nodes collapses OSM's
+// several taggings of one physical station down to one entry (see overpass-stations.js).
+app.get("/overpass/stations", async (req, res) => {
+  const bbox = String(req.query.bbox || "");
+  if (!bboxIsValid(bbox)) {
+    return res.status(400).json({ error: "bbox must be S,W,N,E with S<N, W<E and within ±90/±180." });
+  }
+  try {
+    const json = await runOverpass(buildStationsQuery(bbox));
+    const out = normalizeStations(json);
+    res.json({ source: "overpass", ...out });
+  } catch (err) {
+    if (err.fatal) {
+      console.error("Overpass rejected the stations query (query bug, not an outage):", err.message);
+      return res.status(400).json({ error: "Overpass rejected the query.", detail: err.message });
+    }
+    console.error(`Overpass stations failed after ${OVERPASS_PASSES} passes over ${OVERPASS_ENDPOINTS.length} endpoints:`, err.message);
     res.status(502).json({ error: "All Overpass endpoints failed (they were busy).", detail: err.message });
   }
 });

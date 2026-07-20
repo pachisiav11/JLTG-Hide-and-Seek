@@ -350,6 +350,19 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
+/* Stations panel — one row per locked-in station, ticking eliminates it (crossed out). */
+.station-list { max-height: 40vh; overflow-y: auto; margin: 0.5rem 0; }
+.station-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+.station-row .station-keep { display: flex; align-items: center; gap: 0.4em; }
+.station-row .station-out { text-decoration: line-through; opacity: 0.5; }
+
 /* Rail filter: one block per transport mode, its lines indented under it. The mode head is a
    checkbox for the whole mode; the indented rows are individual lines. */
 .mode-block {

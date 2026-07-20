@@ -3,13 +3,16 @@ import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
+import { sourceStationsForGame } from "./stations.js";
+import * as places from "./places.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null, map = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
     this.library = library; // reusable custom categories + pins (Phase 9)
+    this.map = map; // used for Places-sourced stations (Places needs a map ref)
   }
 
   // ---- Top menu ----
@@ -24,6 +27,7 @@ export class Games {
           <button id="mn-clear" class="btn">🧹 Clear board</button>
           <button id="mn-history" class="btn">🗂 Game history</button>
           <button id="mn-library" class="btn">📌 Custom library</button>
+          <button id="mn-stations" class="btn">🚉 Stations</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
@@ -36,6 +40,7 @@ export class Games {
     s.q("#mn-clear").onclick = () => { s.close(); this.clearBoard(); };
     s.q("#mn-history").onclick = () => { s.close(); this.openHistory(); };
     s.q("#mn-library").onclick = () => { s.close(); this.library ? this.library.openManager() : toast("Library unavailable."); };
+    s.q("#mn-stations").onclick = () => { s.close(); this.openStations(); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
     s.q("#mn-dup").onclick = async () => { s.close(); await this.duplicate(); };
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
@@ -193,6 +198,146 @@ export class Games {
     };
     s.q("#im-cancel").onclick = () => s.close();
     s.q("#im-go").onclick = () => doImport(s.q("#im-text").value);
+  }
+
+  // ---- Stations (locked station set — PLAYTEST_IDEAS §0) ----
+  //
+  // A game-owned collection of the stations on this board. Sourced from OSM or Google
+  // Places at the user's choice — the two return overlapping but not identical sets and
+  // the picker exposes both rather than silently fusing them. Once confirmed, the list
+  // is the authoritative station domain for the rest of the game.
+  async openStations() {
+    const g = store.getCurrent();
+    if (!g) return;
+    const bbox = g.gameArea;
+    const st = g.stations || { list: [], source: null, confirmedAt: null };
+    if (!bbox) {
+      return this._stationsSheet(g, {
+        info: "Draw a game area first — stations are sourced for the board.",
+        actions: false,
+      });
+    }
+    this._stationsSheet(g);
+  }
+
+  _stationsSheet(g, { info = null, actions = true } = {}) {
+    const st = g.stations || { list: [], source: null, confirmedAt: null };
+    const rows = st.list.length
+      ? st.list.map((s) => `
+          <li class="station-row" data-id="${escapeHtml(s.id)}">
+            <label class="station-keep">
+              <input type="checkbox" class="st-elim" data-id="${escapeHtml(s.id)}" ${s.eliminated ? "checked" : ""}/>
+              <span class="${s.eliminated ? "station-out" : ""}">${escapeHtml(s.name)}</span>
+            </label>
+            <span class="muted">${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</span>
+            <button class="btn btn-ghost btn-sm st-drop" data-id="${escapeHtml(s.id)}" title="Remove from set">🗑</button>
+          </li>`).join("")
+      : `<li class="muted">No stations yet — pick a source below and materialise the list.</li>`;
+    const meta = st.confirmedAt
+      ? `<p class="muted">Locked in from <strong>${st.source === "osm" ? "OpenStreetMap" : st.source === "places" ? "Google Places" : "unknown"}</strong> on ${new Date(st.confirmedAt).toLocaleString()} — ${st.list.length} station${st.list.length === 1 ? "" : "s"}.</p>`
+      : st.source
+      ? `<p class="muted">Sourced from ${st.source}, not yet confirmed — ${st.list.length} station${st.list.length === 1 ? "" : "s"} in draft.</p>`
+      : `<p class="muted">No station set for this game yet. Pick a source to materialise one.</p>`;
+    const s = openSheet({
+      title: "Stations",
+      bodyHTML: `
+        <p class="muted">The stations on this board. Locked in once — the rest of the game (line elimination, range elimination, "N of Y" counters) refers to this set.</p>
+        ${info ? `<p class="warn-note">${escapeHtml(info)}</p>` : ""}
+        ${meta}
+        ${actions ? `
+        <div class="row">
+          <button id="st-osm" class="btn">🌍 Source from OSM</button>
+          <button id="st-places" class="btn">🅶 Source from Google Places</button>
+        </div>
+        <ul class="list station-list">${rows}</ul>
+        <div class="sheet-actions">
+          <button id="st-confirm" class="btn btn-primary" ${st.list.length && !st.confirmedAt ? "" : "disabled"}>Lock in this set</button>
+          <button id="st-clear" class="btn btn-ghost" ${st.list.length ? "" : "disabled"}>Clear set</button>
+        </div>` : ""}
+      `,
+    });
+    if (!actions) return s;
+
+    const refresh = () => { s.close(); this._stationsSheet(store.getCurrent()); };
+
+    const materialise = async (source) => {
+      const btn = s.q(source === "osm" ? "#st-osm" : "#st-places");
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      try {
+        const cur = store.getCurrent();
+        const out = await sourceStationsForGame(cur, {
+          source,
+          placesImpl: source === "places" ? { searchCategory: (opts) => places.searchCategory(this.map, opts) } : null,
+        });
+        // Preserve prior per-station edits (eliminated flag, notes) by id: refetching
+        // OSM shouldn't undo a manual elimination the seeker already recorded.
+        const priorById = new Map((cur.stations?.list || []).map((s) => [s.id, s]));
+        const list = out.stations.map((s) => {
+          const prior = priorById.get(s.id);
+          return prior ? { ...s, eliminated: prior.eliminated || false, note: prior.note || null } : s;
+        });
+        store.update((gg) => {
+          gg.stations = {
+            source,
+            bbox: out.bbox,
+            confirmedAt: null, // materialising resets the confirmation — user must re-lock
+            list,
+          };
+        });
+        store.saveNow();
+        toast(`${list.length} station${list.length === 1 ? "" : "s"} from ${source === "osm" ? "OSM" : "Google Places"}.`);
+      } catch (e) {
+        console.warn("station source failed", e);
+        toast(`Couldn't load stations — ${e.message}`);
+        btn.disabled = false;
+        btn.textContent = source === "osm" ? "🌍 Source from OSM" : "🅶 Source from Google Places";
+        return;
+      }
+      refresh();
+    };
+
+    s.q("#st-osm").onclick = () => materialise("osm");
+    s.q("#st-places").onclick = () => materialise("places");
+    s.q("#st-confirm").onclick = () => {
+      store.update((gg) => {
+        if (!gg.stations) return false;
+        gg.stations.confirmedAt = Date.now();
+      });
+      store.saveNow();
+      toast("Station set locked in.");
+      refresh();
+    };
+    s.q("#st-clear").onclick = () => {
+      store.update((gg) => { gg.stations = { source: null, bbox: null, confirmedAt: null, list: [] }; });
+      store.saveNow();
+      toast("Station set cleared.");
+      refresh();
+    };
+    for (const el of s.qa(".st-drop")) {
+      el.onclick = () => {
+        const id = el.dataset.id;
+        store.update((gg) => {
+          if (!gg.stations?.list) return false;
+          gg.stations.list = gg.stations.list.filter((s) => s.id !== id);
+          gg.stations.confirmedAt = null;
+        });
+        store.saveNow();
+        refresh();
+      };
+    }
+    for (const el of s.qa(".st-elim")) {
+      el.onchange = () => {
+        const id = el.dataset.id;
+        store.update((gg) => {
+          const entry = gg.stations?.list?.find((s) => s.id === id);
+          if (!entry) return false;
+          entry.eliminated = el.checked;
+        });
+        // Toggling elimination doesn't invalidate the lock; only structural changes do.
+      };
+    }
+    return s;
   }
 
   // ---- Settings ----

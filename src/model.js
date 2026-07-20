@@ -33,6 +33,17 @@ export function createGame(overrides = {}) {
     zones: overrides.zones || [],          // Zone[]
     gameArea: overrides.gameArea || null,  // GeoJSON polygon (turf.union of zones)
     focusZone: overrides.focusZone || { point: null, radius: null }, // solo target zone (point + radius)
+    // Locked station set (PLAYTEST_IDEAS §0, cross-cutting). Materialised once at game
+    // set-up from OSM (via the Overpass proxy) or from Google Places, then used as the
+    // authoritative station domain for the rest of the game — every "eliminate this
+    // station", "eliminate this line's stations", and "would eliminate X of Y stations"
+    // counter references entries here by id.
+    //
+    // `list` entries: {id, name, lat, lng, kind, eliminated?, note?}. `id` is stable
+    // across refetches (`osm:node/<id>` for OSM, `places:<place_id>` for Places), so a
+    // station the seeker eliminated stays eliminated when the set is re-materialised.
+    // `source` records how the list was populated; null on a fresh game.
+    stations: overrides.stations || { source: null, bbox: null, confirmedAt: null, list: [] },
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     // Step ids undone and awaiting redo, most recent last. Lives on the GAME, not on the
     // Layers instance: as instance state it died on reload, so undoing a question and

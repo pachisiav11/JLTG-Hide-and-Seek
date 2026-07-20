@@ -181,7 +181,7 @@ async function main() {
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
-    const games = new Games(zones, { boundaries, features, library });
+    const games = new Games(zones, { boundaries, features, library, map });
     layers.init();
     focus.init();
 
