@@ -3,7 +3,7 @@ import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
-import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine } from "./stations.js";
+import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange } from "./stations.js";
 import { parseSeekerLocation } from "./ingest.js";
 import * as places from "./places.js";
 
@@ -260,6 +260,7 @@ export class Games {
             <span>${escapeHtml(l.label)}</span>
             <span class="muted">${marked ? `${marked} marked` : "—"}</span>
             <button class="btn btn-ghost btn-sm sl-elim" data-key="${escapeHtml(l.key)}">Eliminate</button>
+            <button class="btn btn-ghost btn-sm sl-range" data-key="${escapeHtml(l.key)}">Range…</button>
             <button class="btn btn-ghost btn-sm sl-restore" data-key="${escapeHtml(l.key)}" ${marked ? "" : "disabled"}>Restore</button>
           </li>`;
         }).join("")}
@@ -375,6 +376,15 @@ export class Games {
         refresh();
       };
     }
+    for (const el of s.qa(".sl-range")) {
+      el.onclick = () => {
+        const key = el.dataset.key;
+        const line = lineGroups.find((l) => l.key === key);
+        if (!line) return;
+        s.close();
+        this._openRangeSheet(line);
+      };
+    }
     for (const el of s.qa(".sl-restore")) {
       el.onclick = () => {
         const key = el.dataset.key;
@@ -406,6 +416,79 @@ export class Games {
       };
     }
     return s;
+  }
+
+  // ---- Range elimination on a line (A5 — playtest Q0 "not past Dahisar") ----
+  //
+  // A subsheet driven by orderStationsAlongLine. Two dropdowns pick From and To;
+  // the seeker chooses whether to eliminate the range inclusively (a mid-line
+  // block) or the OUTSIDE of it (the "past X" case — hider is between the two,
+  // everything else is out). Restore un-flips only what this range tagged.
+  _openRangeSheet(line) {
+    const g = store.getCurrent();
+    const list = g?.stations?.list || [];
+    const ordered = orderStationsAlongLine(list, line.paths);
+    if (!ordered.length) {
+      toast(`No stations found on ${line.label}.`);
+      return this._stationsSheet(g);
+    }
+    const rangeTag = `line:${line.key}:range`;
+    const marked = list.filter((s) => s.eliminatedBy === rangeTag).length;
+    const opts = ordered.map((s, i) => `<option value="${escapeHtml(s.id)}">${i + 1}. ${escapeHtml(s.name)}</option>`).join("");
+    const s = openSheet({
+      title: `Range on ${line.label}`,
+      bodyHTML: `
+        <p class="muted">Playtest Q0: <em>"not past Dahisar"</em>. Order along the line is approximated from the longest way — pick two endpoints, then eliminate the inside or the outside of that range.</p>
+        <label class="fieldlbl">From</label>
+        <select id="r-from" class="field">${opts}</select>
+        <label class="fieldlbl">To</label>
+        <select id="r-to" class="field">${opts}</select>
+        <div class="row">
+          <button id="r-inside" class="btn">Eliminate range (inclusive)</button>
+          <button id="r-outside" class="btn btn-primary">Eliminate <em>outside</em> range</button>
+        </div>
+        <div class="row">
+          <button id="r-restore" class="btn btn-ghost" ${marked ? "" : "disabled"}>Restore range (${marked} marked)</button>
+          <button id="r-back" class="btn btn-ghost">Back to stations</button>
+        </div>
+      `,
+    });
+    // Preselect first + last so the "outside" default is the natural playtest
+    // Q0 shape — "keep only stations 1..last, eliminate everything not between."
+    s.q("#r-to").value = ordered[ordered.length - 1].id;
+
+    const apply = (mode) => {
+      const fromId = s.q("#r-from").value;
+      const toId = s.q("#r-to").value;
+      let n = 0;
+      store.update((gg) => {
+        const cur = gg?.stations?.list;
+        if (!cur) return false;
+        const curOrdered = orderStationsAlongLine(cur, line.paths);
+        const { changed } = eliminateStationsInRange(curOrdered, fromId, toId, line.key, { mode });
+        n = changed.length;
+      });
+      store.saveNow();
+      toast(n ? `${n} station${n === 1 ? "" : "s"} on ${line.label} marked eliminated.` : `Nothing to eliminate for that range.`);
+      s.close();
+      this._stationsSheet(store.getCurrent());
+    };
+    s.q("#r-inside").onclick = () => apply("range");
+    s.q("#r-outside").onclick = () => apply("outside");
+    s.q("#r-restore").onclick = () => {
+      let n = 0;
+      store.update((gg) => {
+        const cur = gg?.stations?.list;
+        if (!cur) return false;
+        const { changed } = restoreStationsInRange(cur, line.key);
+        n = changed.length;
+      });
+      store.saveNow();
+      toast(n ? `${n} station${n === 1 ? "" : "s"} restored.` : "Nothing to restore.");
+      s.close();
+      this._stationsSheet(store.getCurrent());
+    };
+    s.q("#r-back").onclick = () => { s.close(); this._stationsSheet(store.getCurrent()); };
   }
 
   // ---- Seeker location paste (A2 — WhatsApp intake) ----

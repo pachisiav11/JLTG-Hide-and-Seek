@@ -189,6 +189,91 @@ export function restoreStationsOnLine(stationsList, lineKey) {
   return { changed };
 }
 
+// Phase 7 (A5): order stations along a line, so a range action ("everything past
+// Dahisar", playtest Q0) has something meaningful to iterate over.
+//
+// A rail line's `paths` is many ways, not a single polyline, and OSM does not
+// guarantee they connect head-to-tail. The full correct ordering would need to
+// stitch ways in the right order at the right endpoints, which is a real graph
+// problem — and one this feature doesn't need. What it DOES need is a stable
+// ordering that reads as "north end to south end" (or "airport to city centre")
+// on a typical metro line.
+//
+// The chosen approximation: project every on-line station onto the LONGEST way
+// in the line — the spine — and sort by distance along it. On a real metro line
+// the longest way is almost always the trunk and the shorter ways are branches;
+// stations on branches still project cleanly onto the trunk and end up in
+// roughly the right place. Where this is wrong (a line whose ways are all
+// branches with no dominant trunk) the range picker still offers all stations
+// on the line — just possibly not in walking order.
+export function orderStationsAlongLine(stations, wayPaths, { toleranceM } = {}) {
+  const hits = stationsWithinLine(stations, wayPaths, toleranceM ? { toleranceM } : undefined);
+  const onLine = stations.filter((s) => hits.has(s.id));
+  if (!onLine.length || typeof window === "undefined" || !window.turf) return onLine;
+  const turf = window.turf;
+  // Pick the longest way (by point count as a proxy for length) as the spine.
+  let spine = null;
+  for (const p of wayPaths) if (Array.isArray(p) && (!spine || p.length > spine.length)) spine = p;
+  if (!spine || spine.length < 2) return onLine;
+  let line;
+  try { line = turf.lineString(spine.map(([lat, lng]) => [lng, lat])); }
+  catch (_) { return onLine; }
+  const withKey = [];
+  for (const s of onLine) {
+    let key = 0;
+    try {
+      const np = turf.nearestPointOnLine(line, turf.point([s.lng, s.lat]));
+      key = np?.properties?.location ?? 0;
+    } catch (_) { /* keep key=0 — station sorts to the start rather than dropping */ }
+    withKey.push({ s, key });
+  }
+  withKey.sort((a, b) => a.key - b.key);
+  return withKey.map((x) => x.s);
+}
+
+// Phase 7: eliminate a CONTIGUOUS range of stations on an already-ordered list.
+// `fromId` and `toId` name the endpoints (inclusive); the mutator flips the
+// range's `eliminated` flag and tags each with `line:<key>:range` so a later
+// "restore this range" undoes exactly what this call did without touching manual
+// eliminations or other range actions.
+//
+// `mode`: "range" eliminates from → to inclusive; "outside" eliminates
+// everything NOT in the range (the natural shape of playtest Q0 — "hider is
+// SOUTH of Dahisar, so eliminate everything from Dahisar northward").
+export function eliminateStationsInRange(orderedList, fromId, toId, lineKey, { mode = "range" } = {}) {
+  const fromIdx = orderedList.findIndex((s) => s.id === fromId);
+  const toIdx = orderedList.findIndex((s) => s.id === toId);
+  if (fromIdx < 0 || toIdx < 0) return { changed: [] };
+  const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+  const inRange = (i) => i >= lo && i <= hi;
+  const tag = `line:${lineKey}:range`;
+  const changed = [];
+  for (let i = 0; i < orderedList.length; i++) {
+    const s = orderedList[i];
+    const shouldEliminate = mode === "outside" ? !inRange(i) : inRange(i);
+    if (!shouldEliminate) continue;
+    changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
+    s.eliminated = true;
+    s.eliminatedBy = tag;
+  }
+  return { changed, lineKey };
+}
+
+// The counterpart to eliminateStationsInRange: restore only the stations THIS
+// range action tagged. Mirrors restoreStationsOnLine — a manual elimination or
+// a whole-line rule stays intact.
+export function restoreStationsInRange(list, lineKey) {
+  const tag = `line:${lineKey}:range`;
+  const changed = [];
+  for (const s of list) {
+    if (s.eliminatedBy !== tag) continue;
+    changed.push({ id: s.id });
+    s.eliminated = false;
+    s.eliminatedBy = null;
+  }
+  return { changed };
+}
+
 // Phase 6 (A3): toggle a single station's `eliminated` flag by id, applying the
 // same convention as the Stations panel (`eliminatedBy = "manual"` when the user
 // flips it themselves). Returns the new state so a caller can toast an accurate
