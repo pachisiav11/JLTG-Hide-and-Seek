@@ -21,13 +21,23 @@ import { getPalette } from "./palette.js";
 // last-inside status so we only fire on the "outside → inside" transition —
 // once per crossing, not every 60 s while the seeker parks nearby (per user
 // 2026-07-20).
+//
+// Two guard layers on the way in, kept separate on purpose. A missing point
+// (`!seekerPoint || !zoneCentre`) is genuine "no signal" and returns a null-ish
+// state — the caller has nothing to render. But a `thresholdM <= 0` picks the
+// user-visible "Off (pin only)" mode from the live-share settings sheet: they
+// still want the distance in the pill, just no crossing alert. Bundling those
+// two guards used to null out the state either way, and `_onSeekerPing` then
+// dereferenced `out.state.distance` on the first pin-only ping and threw.
 export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, now = Date.now() }) {
-  if (!seekerPoint || !zoneCentre || !(thresholdM > 0)) return { state: prior || null, notify: null };
+  if (!seekerPoint || !zoneCentre) return { state: prior || null, notify: null };
   const R = 6371000;
   const lat0 = ((seekerPoint.lat + zoneCentre.lat) / 2) * Math.PI / 180;
   const dLat = ((zoneCentre.lat - seekerPoint.lat) * Math.PI) / 180;
   const dLng = ((zoneCentre.lng - seekerPoint.lng) * Math.PI / 180) * Math.cos(lat0);
   const d = R * Math.hypot(dLat, dLng);
+  // Pin-only mode: return distance for the pill but never signal a crossing.
+  if (!(thresholdM > 0)) return { state: { inside: false, distance: d, at: now }, notify: null };
   const inside = d < thresholdM;
   const wasInside = !!prior?.inside;
   const state = { inside, distance: d, at: now };
