@@ -122,11 +122,16 @@ per socket. Drop excess silently.
 
 ## Nice-to-fix (cleanup)
 
-### 8. Dead import in `live-share.js`
+### 8. Dead import in `live-share.js` — CLEARED by Phase 15
 **Where:** `src/live-share.js:17`
 
 `import { getPalette } from "./palette.js";` — not referenced anywhere in
 the file. Delete.
+
+**Status (2026-07-21):** already gone. Phase 15 (commit `3270fbd`) dropped
+this import incidentally while wiring the session-error listener. Grep
+confirms no reference remains anywhere in the file. No further code
+change needed.
 
 ### 9. Haversine-lite duplicated between geofence and live-share
 **Where:** `src/live-share.js:27` vs `src/geofence.js:41-47`
