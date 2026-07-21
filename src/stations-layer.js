@@ -16,9 +16,10 @@
 // → panel row shows crossed-out).
 
 import * as store from "./store.js";
-import { toast } from "./ui.js";
+import { toast, contextMenu, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
 import { toggleStationElimination } from "./stations.js";
+import { addNote } from "./notes.js";
 
 // Marker sizing: small enough that a Mumbai-scale board with 40 stations doesn't
 // look like a rash, but large enough to be a comfortable tap target on mobile.
@@ -26,6 +27,23 @@ import { toggleStationElimination } from "./stations.js";
 // glance as ruled-out (like a struck-through row in the panel).
 const ACTIVE_ICON_SCALE = 5;
 const ELIM_ICON_SCALE = 3.5;
+
+// Phase 30 (req #2): long-press (touch) / right-click (desktop) opens the
+// action chooser, mirroring the note-pin interaction in notes.js. A plain tap
+// no longer does anything — it was too easy to eliminate a station by accident
+// while just poking at the map.
+const LONG_PRESS_MS = 500;
+
+// Pure: the two actions a station's chooser offers. The toggle label reflects
+// the station's current state so one sheet covers eliminate AND restore.
+// Exported so the menu contents are unit-tested without a Google Maps instance.
+export function stationLongPressActions(station) {
+  const eliminated = !!station?.eliminated;
+  return [
+    { id: "note", label: "📝 Add note here" },
+    { id: "toggle", label: eliminated ? "♻️ Restore station" : "❌ Eliminate station" },
+  ];
+}
 
 export class StationsLayer {
   constructor(map) {
@@ -37,13 +55,22 @@ export class StationsLayer {
     // every marker. Rendering is cheap on 8 stations and expensive on 400.
     this._lastListRef = null;
     this._lastFlagsSig = null;
+    this._pressState = null;   // {timer, domEvent} while a long-press is pending
+    this._dragHandle = null;   // map dragstart cancels a pending press (it's a pan)
   }
 
   init() {
     this._unsub = store.subscribe(() => this.render());
+    // A pan mid-press is not a long-press — cancel, exactly as notes.js does.
+    if (this.map?.addListener) {
+      this._dragHandle = this.map.addListener("dragstart", () => this._cancelPress());
+    }
   }
   destroy() {
     if (this._unsub) { this._unsub(); this._unsub = null; }
+    this._dragHandle?.remove?.();
+    this._dragHandle = null;
+    this._cancelPress();
     this._clear();
   }
 
@@ -79,7 +106,7 @@ export class StationsLayer {
       const marker = new google.maps.Marker({
         position: { lat: st.lat, lng: st.lng },
         map: this.map,
-        title: eliminated ? `${st.name} — eliminated (tap to restore)` : `${st.name} — tap to eliminate`,
+        title: eliminated ? `${st.name} — eliminated (long-press for options)` : `${st.name} — long-press for options`,
         zIndex: eliminated ? 3 : 5,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
@@ -90,9 +117,60 @@ export class StationsLayer {
           strokeWeight: eliminated ? 1 : 1.5,
         },
       });
-      marker.addListener("click", () => this._toggle(st.id, st.name));
+      // Phase 30: no plain-tap handler — a single tap deliberately does
+      // nothing. Long-press (touch) and right-click (desktop) both open the
+      // action chooser; a pan or a short tap cancels the pending press.
+      marker.addListener("mousedown", (e) => this._onDown(st, e));
+      marker.addListener("mouseup", () => this._cancelPress());
+      marker.addListener("rightclick", (e) => { this._cancelPress(); this._openChooser(st, e); });
       this.markers.push(marker);
     }
+  }
+
+  _onDown(st, e) {
+    this._cancelPress();
+    const domEvent = e?.domEvent || null;
+    this._pressState = {
+      domEvent,
+      timer: setTimeout(() => {
+        this._pressState = null;
+        this._openChooser(st, e);
+      }, LONG_PRESS_MS),
+    };
+  }
+  _cancelPress() {
+    if (this._pressState?.timer) clearTimeout(this._pressState.timer);
+    this._pressState = null;
+  }
+
+  // Open the 2-option action sheet at the press location. Reuses the shared
+  // contextMenu primitive so it matches the map's other right-click menus.
+  _openChooser(st, e) {
+    const dom = e?.domEvent || null;
+    const x = Number.isFinite(dom?.clientX) ? dom.clientX : Math.round((typeof window !== "undefined" ? window.innerWidth : 320) / 2);
+    const y = Number.isFinite(dom?.clientY) ? dom.clientY : Math.round((typeof window !== "undefined" ? window.innerHeight : 480) / 2);
+    const actions = stationLongPressActions(st);
+    contextMenu(x, y, actions.map((a) => ({
+      label: a.label,
+      onClick: () => (a.id === "note" ? this._addNoteAt(st) : this._toggle(st.id, st.name)),
+    })));
+  }
+
+  async _addNoteAt(st) {
+    const point = { lat: st.lat, lng: st.lng };
+    const text = await promptText({
+      title: "Note pin",
+      label: `Drop a note at ${st.name} (${point.lat.toFixed(5)}, ${point.lng.toFixed(5)})`,
+      placeholder: "e.g. photo rules this out / hider slipped a hint",
+      cta: "Drop pin",
+    });
+    if (text === null) return;
+    store.update((g) => {
+      if (!Array.isArray(g.notes)) g.notes = [];
+      addNote(g.notes, point, text);
+    });
+    store.saveNow();
+    toast("Note pin added.");
   }
 
   _toggle(id, name) {
