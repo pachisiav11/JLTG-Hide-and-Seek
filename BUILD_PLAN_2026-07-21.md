@@ -244,7 +244,7 @@ implement the same state machine).
 
 # Stage 4 — In-app guide (new this session)
 
-### Phase 38 — Guide / Help in the options tab
+### Phase 38 — [DONE] Guide / Help in the options tab
 - **Goal:** The tool has grown complex; add a **Guide** section (Settings/options
   tab) explaining the question tools, stations, live-share, and the alerts. Built
   as a scaffold now; Phase 45 fills in the **Android permissions setup wizard**

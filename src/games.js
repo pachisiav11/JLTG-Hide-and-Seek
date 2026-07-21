@@ -7,6 +7,7 @@ import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, 
 import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
+import { guideBodyHTML } from "./guide.js";
 
 export class Games {
   constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null, layers = null } = {}) {
@@ -770,6 +771,7 @@ export class Games {
         <h3 class="sub">Help</h3>
         <div class="row">
           <button id="st-help" class="btn">📖 Instructions</button>
+          <button id="st-guide" class="btn">📘 Guide</button>
         </div>
         <div class="sheet-actions">
           <button id="st-cancel" class="btn btn-ghost">Cancel</button>
@@ -777,6 +779,7 @@ export class Games {
         </div>`,
     });
     s.q("#st-help").onclick = () => { s.close(); this.openInstructions(); };
+    s.q("#st-guide").onclick = () => { s.close(); this.openGuide(); };
     // Palette applies live on selection (no re-fetch); Cancel restores the prior one.
     s.qa('input[name="palette"]').forEach((r) => (r.onchange = () => setPalette(r.value)));
     // Map style also applies live via the jltg:mapstyle event.
@@ -807,6 +810,13 @@ export class Games {
       s.close();
       toast(reload ? "Saved — reload to apply the Map ID." : "Settings saved.");
     };
+  }
+
+  // ---- Guide (Phase 38): feature reference for stations, live-share, alerts,
+  // and the Android background track. Content lives in src/guide.js. ----
+  openGuide() {
+    const s = openSheet({ title: "Guide", bodyHTML: guideBodyHTML() });
+    s.q("#guide-close").onclick = () => s.close();
   }
 
   // ---- Instructions / user guide ----
