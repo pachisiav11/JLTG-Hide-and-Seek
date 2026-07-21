@@ -30,6 +30,7 @@
 import * as store from "./store.js";
 import { notifyViaSwOrPage } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
+import { createPill } from "./pill-stack.js";
 
 // Two thresholds are used from the settings value N (metres):
 //   - Fire NEAR-EDGE alert when distance to edge < N and inside the zone.
@@ -223,13 +224,10 @@ export class Geofence {
 
   _ensurePill() {
     if (this.pillEl) return;
-    if (typeof document === "undefined") return;
-    const el = document.createElement("div");
-    el.id = "geofence-pill";
-    el.className = "geofence-pill";
-    el.textContent = "Locating…";
-    document.body.appendChild(el);
-    this.pillEl = el;
+    // Dismiss hides the pill only — the watch (this.watchId) keeps running, so
+    // the once-per-crossing notifications still fire even with the pill hidden.
+    this.pillEl = createPill({ id: "geofence-pill", variant: "geofence" });
+    this.pillEl?.setText("Locating…");
   }
   _removePill() {
     this.pillEl?.remove();
@@ -237,7 +235,7 @@ export class Geofence {
   }
   _writePill(text) {
     if (!this.pillEl) return;
-    this.pillEl.textContent = text;
-    this.pillEl.classList.toggle("geofence-warn", /^OUT|Still|Near|left|edge/.test(text));
+    this.pillEl.setText(text);
+    this.pillEl.setWarn(/^OUT|Still|Near|left|edge/.test(text));
   }
 }

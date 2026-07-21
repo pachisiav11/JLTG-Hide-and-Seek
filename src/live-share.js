@@ -16,6 +16,7 @@
 import * as store from "./store.js";
 import { notifyViaSwOrPage } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
+import { createPill } from "./pill-stack.js";
 
 // Phase 24 (fix #12): compact distance formatter for the live-share pill.
 //
@@ -237,14 +238,10 @@ export class LiveShare {
 
   _ensurePill() {
     if (this._pill) return;
-    if (typeof document === "undefined" || typeof document.createElement !== "function" || typeof document.body?.appendChild !== "function") return;
-    const el = document.createElement("div");
-    el.id = "live-share-pill";
-    el.className = "live-share-pill";
-    el.textContent = "";
-    document.body.appendChild(el);
-    this._pill = el;
+    // Dismiss hides the pill only; the seeker's watch / hider's socket listener
+    // keep running, so the close-approach alert still fires with the pill hidden.
+    this._pill = createPill({ id: "live-share-pill", variant: "live-share" });
   }
   _removePill() { this._pill?.remove(); this._pill = null; }
-  _writePill(text) { if (this._pill) this._pill.textContent = text; }
+  _writePill(text) { this._pill?.setText(text); }
 }

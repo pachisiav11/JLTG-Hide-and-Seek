@@ -353,51 +353,62 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
-/* Phase 3 (A1): live hider geofence pill — a small foreground indicator showing the
-   hider's distance to the zone edge, updated on every GPS tick. Persistent while the
-   feature is enabled (Settings ▸ Hider geofence) and a Hider zone exists. */
-.geofence-pill {
+/* Phase 29 (req #11): shared foreground pill stack.
+   One fixed container lifted clear of the bottom-centre floating toolbar. Pills
+   (geofence, live-share, …) are flex-column children so any number of them
+   stack with a gap and never overlap — no more hand-tuned per-pill `bottom`
+   values that collided. The container is click-through (pointer-events: none)
+   so it doesn't block map pans; each pill re-enables pointer events for its
+   dismiss control. */
+.pill-stack {
   position: fixed;
   right: 12px;
-  bottom: 12px;
+  bottom: calc(84px + var(--safe-bottom, 0px)); /* above the #toolbar (bottom: 14px, ~56px tall) */
   z-index: 9998;
-  padding: 0.35rem 0.6rem;
-  background: rgba(31, 41, 55, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 70vw;
+  pointer-events: none;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0.35rem 0.5rem 0.35rem 0.6rem;
+  background: rgba(31, 41, 55, 0.9);
   color: #f8fafc;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
-  max-width: 60vw;
-  white-space: nowrap;
+  pointer-events: auto; /* so the dismiss control is tappable */
+}
+.pill-text {
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
-.geofence-pill.geofence-warn {
-  background: rgba(220, 38, 38, 0.9);
-}
-/* §C5 live-share pill — separate from the geofence pill so both can coexist
-   (a hider running both features sees "In zone · 240 m from edge" AND
-   "Seeker 1.2 km from zone"). Stacks above the geofence pill. */
-.live-share-pill {
-  position: fixed;
-  right: 12px;
-  bottom: 46px;
-  z-index: 9997;
-  padding: 0.35rem 0.6rem;
-  background: rgba(59, 130, 246, 0.85);
-  color: #f8fafc;
+/* Dismiss hides the DOM pill only; the underlying GPS watch keeps running. */
+.pill-dismiss {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
-  max-width: 60vw;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: rgba(255, 255, 255, 0.18);
+  color: #f8fafc;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
 }
+.pill-dismiss:hover { background: rgba(255, 255, 255, 0.32); }
+.pill-hidden { display: none; }
+.pill-live-share { background: rgba(59, 130, 246, 0.9); }
+.pill-warn { background: rgba(220, 38, 38, 0.92); }
 
 /* B1 draft preview readout — the live "size · N of Y stations would be eliminated" line
    shown inside the radar/thermometer setup sheets. Same colour as .muted but with a subtle
