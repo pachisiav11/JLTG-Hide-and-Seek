@@ -193,7 +193,7 @@ async function main() {
     // isn't invisible if the user was looking at the map instead of the pill.
     // Declared before Games so it can be handed in without hitting the TDZ.
     const liveShare = new LiveShare({ transport: null, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
-    const games = new Games(zones, { boundaries, features, library, map, lines, liveShare });
+    const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
     layers.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
@@ -207,6 +207,9 @@ async function main() {
     // flag + eliminatedBy tag (Phase 4).
     const stationsLayer = new StationsLayer(map);
     stationsLayer.init();
+    // Phase 31 (req #1): the Stations panel's "Select on map" hands the tapped
+    // point to the layer's chooser; wire the reference now that both exist.
+    games.stationsLayer = stationsLayer;
     // Phase 10 (§C1): long-press map → note pin. Captures off-app clues
     // (playtest 1 Q4 photo case, ambient observations) into per-game map
     // state instead of losing them in a WhatsApp thread.

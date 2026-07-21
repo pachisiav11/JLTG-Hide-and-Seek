@@ -14,6 +14,7 @@
 
 import * as db from "./db.js";
 import { boardBbox } from "./lines.js";
+import { metresBetween } from "./geo.js";
 
 // Rail geometry TTL is 30 days; stations move even less often, but the same reasoning
 // applies — a month-old station list beats an empty list outdoors on a phone with no
@@ -333,6 +334,28 @@ export function countStationsInEliminated(eliminated, stations) {
   }
   if (total === 0) return null;
   return { inside, total };
+}
+
+// Phase 31 (req #1): the station nearest a map point. Backs "Select on map" —
+// a tap near the tiny station dot snaps to the actual station, so a player
+// doesn't have to hit a 5-pixel target. Pure and Maps-free (haversine via
+// metresBetween), so the snapping is unit-tested directly.
+//
+// Stations with non-finite coordinates are skipped rather than sorted to the
+// front by a NaN comparison. Returns null for an empty/garbage list or point so
+// the caller can no-op instead of opening a chooser for nothing.
+export function nearestStation(list, point) {
+  if (!Array.isArray(list) || !list.length) return null;
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+  let best = null;
+  let bestD = Infinity;
+  for (const s of list) {
+    if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) continue;
+    const d = metresBetween(point, { lat: s.lat, lng: s.lng });
+    if (!Number.isFinite(d)) continue;
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
 }
 
 // Turn a game + a source pick into the station list the game should lock in. Board

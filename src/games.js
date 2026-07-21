@@ -3,13 +3,13 @@ import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
-import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange } from "./stations.js";
+import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange, nearestStation } from "./stations.js";
 import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null, layers = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
@@ -17,6 +17,8 @@ export class Games {
     this.map = map; // used for Places-sourced stations (Places needs a map ref)
     this.lines = lines; // rail line data — needed for A4 "eliminate this line's stations"
     this.liveShare = liveShare; // §C5 live seeker↔hider location channel
+    this.layers = layers; // map-tap point picking (Phase 31 "Select on map")
+    this.stationsLayer = null; // set by app.js after both exist — Phase 31 chooser
   }
 
   // ---- Top menu ----
@@ -287,6 +289,8 @@ export class Games {
           <button id="st-osm" class="btn">🌍 Source from OSM</button>
           <button id="st-places" class="btn">🅶 Source from Google Places</button>
         </div>
+        ${st.list.length ? `<div class="row"><button id="st-pick" class="btn">🎯 Select on map</button></div>
+        <p class="muted">Tap the map near a station and it snaps to the closest one — easier than hitting the tiny dot.</p>` : ""}
         <ul class="list station-list">${rows}</ul>
         ${lineBlock}
         ${lineHint}
@@ -339,6 +343,19 @@ export class Games {
 
     s.q("#st-osm").onclick = () => materialise("osm");
     s.q("#st-places").onclick = () => materialise("places");
+    // Phase 31 (req #1): "Select on map" — arm a one-shot map pick, snap the tap
+    // to the nearest station, and open the Phase 30 chooser for it.
+    const pickBtn = s.q("#st-pick");
+    if (pickBtn) pickBtn.onclick = async () => {
+      if (!this.layers?.pick || !this.stationsLayer) return toast("Map isn’t ready.");
+      s.close(); // pick() closes any sheet anyway; do it explicitly so the map is clear
+      const pts = await this.layers.pick(1, "Tap the map near a station to select it.");
+      if (!pts) return; // cancelled
+      const list = store.getCurrent()?.stations?.list || [];
+      const nearest = nearestStation(list, pts[0]);
+      if (!nearest) return toast("No stations to select.");
+      this.stationsLayer.openChooserForStation(nearest);
+    };
     s.q("#st-confirm").onclick = () => {
       store.update((gg) => {
         if (!gg.stations) return false;

@@ -143,6 +143,13 @@ export class StationsLayer {
     this._pressState = null;
   }
 
+  // Public entry for Phase 31's "Select on map": open the chooser for a station
+  // picked via map-tap → nearestStation, with no originating pointer event, so
+  // the menu falls back to screen-centre positioning.
+  openChooserForStation(st) {
+    if (st) this._openChooser(st, null);
+  }
+
   // Open the 2-option action sheet at the press location. Reuses the shared
   // contextMenu primitive so it matches the map's other right-click menus.
   _openChooser(st, e) {
