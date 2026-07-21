@@ -5,7 +5,7 @@ import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange } from "./stations.js";
 import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
-import { LiveShare, generateSessionCode } from "./live-share.js";
+import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
 
 export class Games {
@@ -508,6 +508,16 @@ export class Games {
   // does nothing else — inert rather than a silent no-op.
   async openLiveShare() {
     const st = { ...DEFAULT_SETTINGS, ...(store.getCurrent()?.settings || {}) };
+    // Phase 28 (req #4): decide which threshold control reflects the stored
+    // value. The four presets + "Off" are exact metre matches; anything else
+    // positive is a Custom km value the hider typed, so pre-select Custom and
+    // seed the km input from it. Exactly one control is checked (the old
+    // `!approachThresholdM` fallback double-checked both Off and 2 km at 0).
+    const thm = Number(st.approachThresholdM);
+    const PRESETS = [0, 500, 1000, 2000, 5000];
+    const isCustom = Number.isFinite(thm) && thm > 0 && !PRESETS.includes(thm);
+    const isPreset = (v) => Number.isFinite(thm) && !isCustom && thm === v;
+    const customKm = isCustom ? String(parseFloat((thm / 1000).toFixed(3))) : "";
     const proxy = window.JLTG_CONFIG?.MULTIPLAYER_URL || window.JLTG_CONFIG?.OVERPASS_PROXY_URL || "";
     const shareState = this.liveShare;
     const s = openSheet({
@@ -522,11 +532,13 @@ export class Games {
         </div>
         <label class="fieldlbl">Approach threshold (hider only) — alert when seeker within</label>
         <div class="seg">
-          <label><input type="radio" name="ls-th" value="0" ${st.approachThresholdM === 0 ? "checked" : ""}/> Off (pin only)</label>
-          <label><input type="radio" name="ls-th" value="500" ${st.approachThresholdM === 500 ? "checked" : ""}/> 500 m</label>
-          <label><input type="radio" name="ls-th" value="1000" ${st.approachThresholdM === 1000 ? "checked" : ""}/> 1 km</label>
-          <label><input type="radio" name="ls-th" value="2000" ${!st.approachThresholdM || st.approachThresholdM === 2000 ? "checked" : ""}/> 2 km</label>
-          <label><input type="radio" name="ls-th" value="5000" ${st.approachThresholdM === 5000 ? "checked" : ""}/> 5 km</label>
+          <label><input type="radio" name="ls-th" value="0" ${isPreset(0) ? "checked" : ""}/> Off (pin only)</label>
+          <label><input type="radio" name="ls-th" value="500" ${isPreset(500) ? "checked" : ""}/> 500 m</label>
+          <label><input type="radio" name="ls-th" value="1000" ${isPreset(1000) ? "checked" : ""}/> 1 km</label>
+          <label><input type="radio" name="ls-th" value="2000" ${isPreset(2000) ? "checked" : ""}/> 2 km</label>
+          <label><input type="radio" name="ls-th" value="5000" ${isPreset(5000) ? "checked" : ""}/> 5 km</label>
+          <label><input type="radio" name="ls-th" value="custom" ${isCustom ? "checked" : ""}/> Custom
+            <input id="ls-th-km" class="field field-inline" type="number" step="0.1" min="0" max="${MAX_APPROACH_KM}" value="${escapeHtml(customKm)}" placeholder="km"/> km</label>
         </div>
         <p class="muted">Status: <strong>${shareState?.role ? `${shareState.role} in "${escapeHtml(shareState.code || "")}"` : "not connected"}</strong></p>
         <div class="row">
@@ -539,15 +551,32 @@ export class Games {
         </div>`,
     });
     s.q("#ls-gen").onclick = () => { s.q("#ls-code").value = generateSessionCode(); };
+    // Typing in the km box implies the Custom option — auto-select its radio so
+    // the value can't be silently ignored because a preset was still checked.
+    const kmInput = s.q("#ls-th-km");
+    if (kmInput) kmInput.oninput = () => {
+      const custom = s.qa('input[name="ls-th"]').find((r) => r.value === "custom");
+      if (custom) custom.checked = true;
+    };
     const saveThreshold = () => {
-      const v = parseInt(s.qa('input[name="ls-th"]').find((r) => r.checked)?.value || "2000", 10);
+      const raw = s.qa('input[name="ls-th"]').find((r) => r.checked)?.value || "2000";
+      let v;
+      if (raw === "custom") {
+        // Reject junk/≤0/over-max; fall back to the current stored value rather
+        // than a bogus threshold so a mistyped Custom doesn't disarm the alert.
+        v = parseApproachKm(kmInput?.value);
+        if (v == null) { toast(`Enter a custom distance between 0 and ${MAX_APPROACH_KM} km.`); return false; }
+      } else {
+        v = parseInt(raw, 10);
+      }
       store.update((gg) => (gg.settings = { ...gg.settings, approachThresholdM: v }));
+      return true;
     };
     const connect = async (role) => {
       const code = s.q("#ls-code").value.trim().toLowerCase();
       if (!/^[a-z0-9-]{3,32}$/.test(code)) return toast("Enter a 3-32 char session code (letters, digits, hyphens).");
       localStorage.setItem("jltg.liveShareCode", code);
-      saveThreshold();
+      if (!saveThreshold()) return;
       if (!proxy) return toast("No relay URL configured — cannot connect.");
       if (!shareState) return toast("Live-share isn't initialised in this session.");
       // Lazy-load the transport now, once per app session. Reuses the pattern
@@ -577,7 +606,7 @@ export class Games {
     s.q("#ls-seeker").onclick = () => connect("seeker");
     s.q("#ls-hider").onclick = () => connect("hider");
     s.q("#ls-stop").onclick = () => { shareState?.stop?.(); toast("Live share stopped."); s.close(); };
-    s.q("#ls-close").onclick = () => { saveThreshold(); s.close(); };
+    s.q("#ls-close").onclick = () => { if (saveThreshold()) s.close(); };
   }
 
   // ---- Copy MY location (§C2) — the mirror of A2's paste intake ----

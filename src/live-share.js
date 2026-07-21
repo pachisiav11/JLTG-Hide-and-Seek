@@ -32,6 +32,24 @@ export function formatDistance(m) {
   return `${parseFloat((m / 1000).toFixed(2))} km`;
 }
 
+// Phase 28 (req #4): parse a user-typed "Custom" approach threshold in
+// kilometres into metres for storage in `settings.approachThresholdM`.
+//
+// The presets (500 m / 1 / 2 / 5 km) cover the common cases; this lets a hider
+// dial in an arbitrary distance for a larger or oddly-sized board. Kept pure so
+// the reject/clamp rules are unit-tested without any DOM. Returns null for junk
+// (empty, non-numeric, NaN, ≤ 0, ±Infinity) so the caller can fall back to a
+// preset rather than silently storing a bogus 0/negative threshold; a valid
+// value is rounded to whole metres and clamped to MAX_APPROACH_KM (50 km) so a
+// fat-fingered "500" (km) can't set an alert that never fires.
+export const MAX_APPROACH_KM = 50;
+export function parseApproachKm(str) {
+  const km = typeof str === "number" ? str : parseFloat(String(str ?? "").trim());
+  if (!Number.isFinite(km) || km <= 0) return null;
+  const clamped = Math.min(km, MAX_APPROACH_KM);
+  return Math.round(clamped * 1000);
+}
+
 // Pure decision function: given a seeker point + a hider's zone centre +
 // threshold, decide whether a close-approach alert is due. Prior state carries
 // last-inside status so we only fire on the "outside → inside" transition —
