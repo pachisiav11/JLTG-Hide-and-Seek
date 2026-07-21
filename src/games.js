@@ -754,8 +754,9 @@ export class Games {
           ${radio("geofenceMetres", "100", String(st.geofenceMetres || 0), "100 m")}
           ${radio("geofenceMetres", "200", String(st.geofenceMetres || 0), "200 m")}
         </div>
-        <p class="muted">Alert style (§C3): vibrate + tone reaches a phone in a pocket.</p>
+        <p class="muted">Alert style (§C3) — applies to both the geofence-edge and the live-share seeker-close alerts. Vibrate + tone reaches a phone in a pocket; <strong>Off</strong> shows no notification and no buzz/tone (the on-screen pill still updates).</p>
         <div class="seg">
+          ${radio("geofenceAlertStyle", "off", st.geofenceAlertStyle || "vibrate-tone", "Off (no notification)")}
           ${radio("geofenceAlertStyle", "silent", st.geofenceAlertStyle || "vibrate-tone", "Silent (notification only)")}
           ${radio("geofenceAlertStyle", "vibrate", st.geofenceAlertStyle || "vibrate-tone", "Vibrate")}
           ${radio("geofenceAlertStyle", "vibrate-tone", st.geofenceAlertStyle || "vibrate-tone", "Vibrate + tone")}

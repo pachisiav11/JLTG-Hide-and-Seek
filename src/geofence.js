@@ -185,6 +185,11 @@ export class Geofence {
   }
 
   _fireNotification({ title, body }) {
+    // Phase 33 (req #10): a real "Off" — no system notification AND no buzz/tone.
+    // Distinct from "silent" (which still posts a tray notification). The pill
+    // still updates (that happens in _onPosition, before this), so a hider who
+    // glances at the app still sees their distance; they just aren't alerted.
+    if (this._alertStyle() === "off") return;
     // Phase 8 (§C3): even without notification permission, buzz + beep still fire.
     // A hider whose phone is in a pocket may miss the visual notification but
     // will feel the vibration and hear the tone; making these gated on
@@ -219,7 +224,7 @@ export class Geofence {
   // important channel for a pocketed phone.
   _buzzAndBeep() {
     const style = this._alertStyle();
-    if (style === "silent") return;
+    if (style === "off" || style === "silent") return;
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
       try { navigator.vibrate([200, 100, 200]); } catch (_) { /* iOS / permissions */ }
     }

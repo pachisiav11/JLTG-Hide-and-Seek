@@ -214,6 +214,10 @@ export class LiveShare {
   }
 
   _fireNotification({ title, body }) {
+    // Phase 33 (req #10): the shared "Off" also silences the seeker-close alert —
+    // no system notification (seeker-close has no buzz/tone of its own). The pill
+    // still updates in _onSeekerPing, so the hider can still see the distance.
+    if (store.getCurrent()?.settings?.geofenceAlertStyle === "off") return;
     if (!this.N || this.N.permission !== "granted") return;
     // Phase 17 (fix #5): SW-first with ack-or-page-fallback, same helper the
     // geofence uses. Guards against a stale SW during the upgrade window

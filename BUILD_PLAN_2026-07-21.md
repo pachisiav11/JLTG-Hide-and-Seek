@@ -176,7 +176,7 @@ implement the same state machine).
   a re-entry then re-exit re-alerts each time.
 - **Build:** SW bump.
 
-### Phase 33 — A real "notifications Off" (req #10)
+### Phase 33 — [DONE] A real "notifications Off" (req #10)
 - **Goal:** An **Off** that suppresses the system notification **and** buzz/tone
   — distinct from today's `silent` (which still posts a tray notification).
   Applies to **both** geofence and seeker-close; the pill still updates visually.
