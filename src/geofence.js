@@ -36,14 +36,29 @@ import { createPill } from "./pill-stack.js";
 // stale alert is dismissed the moment the watch stops (Phase 31.5 bug).
 const GEOFENCE_TAG = "jltg-geofence";
 
-// Two thresholds are used from the settings value N (metres):
-//   - Fire NEAR-EDGE alert when distance to edge < N and inside the zone.
-//   - Fire OUTSIDE alert when the hider has crossed the boundary.
-// A single crossing must fire at most one notification per side (a hider standing on
-// the line would otherwise get spammed). `state.lastEdgeFire` tracks time; a
-// crossing-side change also resets the debounce so an out-then-back-in sequence
-// re-alerts properly.
-const MIN_RE_ALERT_MS = 60_000;
+// Phase 32 (req #6): edge-triggered re-alert semantics.
+//
+// The hider's position maps to one of three BANDS, from the settings value N
+// (metres) and the zone radius:
+//   - safe: comfortably inside — at least N metres from the edge.
+//   - near: inside but within N metres of the edge (approaching).
+//   - out:  outside the radius (left the zone).
+//
+// We notify ONLY when the band CHANGES. Sitting in a band across many GPS ticks
+// is silent — this is what kills the old every-minute "still outside" nudge
+// (the previous MIN_RE_ALERT_MS time-debounce + still-out branch, now gone). A
+// re-approach re-arms only after the hider has left the near-band, and a re-entry
+// then re-exit alerts on each crossing because each is a genuine band change.
+//
+// This is the canonical state machine the native OS geofence regions (Phase 41)
+// will implement with two concentric radii (radius−N = "approaching", radius =
+// "left"); keeping it here as one pure function means both layers share one
+// definition of "when do we alert".
+const BAND_NOTIFY = {
+  out: { kind: "crossed-out", title: "You've left the hiding zone", body: (m) => `${m} m past the edge — return to the zone.` },
+  near: { kind: "approaching", title: "Near the hiding zone edge", body: (m) => `${m} m from the edge — turn back.` },
+  "back-in": { kind: "back-in", title: "Back inside the hiding zone", body: (m) => `Safe — ${m} m from the edge.` },
+};
 
 // Given the hider's position and the focus zone, decide whether to fire and (if the
 // caller keeps a persistent pill) what to write in it. Pure — takes state in, returns
@@ -51,46 +66,40 @@ const MIN_RE_ALERT_MS = 60_000;
 //
 // Returned `notify` is null (nothing to say) or `{kind, title, body}`. The caller
 // composes that into a Notification and/or a foreground pill; this module does not
-// touch the DOM so it can be tested in Node.
+// touch the DOM so it can be tested in Node. `now` is accepted for signature
+// stability with the callers/tests but is no longer used — the machine is
+// edge-triggered on the band, not time-debounced.
 export function evaluateGeofence({ position, zone, thresholdMetres, prior, now = Date.now() }) {
   const out = { state: prior, notify: null, pill: null };
   if (!zone?.point || !zone.radius || !(thresholdMetres > 0) || !position) return out;
   const dCentre = metresBetween(position, zone.point);
   const dEdge = Math.abs(dCentre - zone.radius); // distance to the nearest point on the edge
   const inside = dCentre <= zone.radius;
-  const nextState = { ...(prior || {}), inside, lastEdge: dEdge, lastCentre: dCentre };
+  const band = !inside ? "out" : (dEdge < thresholdMetres ? "near" : "safe");
 
   // Pill text: always available while the feature is enabled.
   out.pill = inside
     ? `In zone · ${Math.round(dEdge)} m from edge`
     : `OUT of zone · ${Math.round(dEdge)} m over the edge`;
 
-  // A crossing from inside → outside always wins over an approaching alert on the
-  // same tick, because "you left" is what a hider hears first once they've stepped
-  // across. Debounce keys are separate so a re-entry then re-exit alerts each time.
-  const crossedOut = prior?.inside === true && !inside;
-  const crossedIn = prior?.inside === false && inside;
+  const priorBand = prior?.band ?? null;
+  out.state = { band, inside, lastEdge: dEdge, lastCentre: dCentre };
 
-  const dueBySide = prior?.notify?.side !== (inside ? "in" : "out")
-    || !prior?.notify?.at
-    || (now - prior.notify.at) > MIN_RE_ALERT_MS;
+  // First fix (no prior band) establishes the baseline silently — there is no
+  // transition to announce, and alerting on the boot tick would be noise for a
+  // hider who just placed the zone around themselves.
+  if (priorBand === null || band === priorBand) return out;
 
-  if (crossedOut) {
-    out.notify = { kind: "crossed-out", title: "You've left the hiding zone", body: `${Math.round(dEdge)} m past the edge — return to the zone.` };
-    nextState.notify = { side: "out", at: now, reason: "crossed" };
-  } else if (!inside && dueBySide) {
-    // Still outside, and we haven't recently said so — nudge again after the debounce.
-    out.notify = { kind: "still-out", title: "Still outside the hiding zone", body: `${Math.round(dEdge)} m past the edge.` };
-    nextState.notify = { side: "out", at: now, reason: "still" };
-  } else if (crossedIn) {
-    out.notify = { kind: "back-in", title: "Back inside the hiding zone", body: `Safe — ${Math.round(dEdge)} m from the edge.` };
-    nextState.notify = { side: "in", at: now, reason: "crossed" };
-  } else if (inside && dEdge < thresholdMetres && dueBySide) {
-    out.notify = { kind: "approaching", title: "Near the hiding zone edge", body: `${Math.round(dEdge)} m from the edge — turn back.` };
-    nextState.notify = { side: "in", at: now, reason: "near" };
-  }
+  // Pick the alert for the band we transitioned INTO. "Returning inside" from
+  // out keeps the back-in alert whether we land in near or safe; safe→near is
+  // approaching; anything→out is the crossing. near→safe (moving deeper inside)
+  // and any move that lands in safe from inside is intentionally silent.
+  let spec = null;
+  if (band === "out") spec = BAND_NOTIFY.out;
+  else if (priorBand === "out") spec = BAND_NOTIFY["back-in"];
+  else if (band === "near") spec = BAND_NOTIFY.near;
+  if (spec) out.notify = { kind: spec.kind, title: spec.title, body: spec.body(Math.round(dEdge)) };
 
-  out.state = nextState;
   return out;
 }
 

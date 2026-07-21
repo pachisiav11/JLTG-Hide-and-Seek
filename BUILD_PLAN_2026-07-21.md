@@ -161,7 +161,7 @@ implement the same state machine).
 
 # Stage 2 — Geofence & notification correctness (web logic)
 
-### Phase 32 — Geofence re-alert semantics (req #6)
+### Phase 32 — [DONE] Geofence re-alert semantics (req #6)
 - **Goal:** Stop the every-minute nudge. Fire **once per transition**: entering
   the near-edge band (approaching), crossing out, and returning inside (only if
   previously out — keep the "back in zone" alert). Re-approaching re-arms **only
