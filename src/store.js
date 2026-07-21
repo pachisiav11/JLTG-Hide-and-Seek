@@ -36,7 +36,18 @@ export async function saveNow() {
 }
 
 // Debounced autosave — call after any mutation to the current game.
+//
+// Phase 22 (fix #10): a no-op when there is no IndexedDB. The whole autosave
+// path exists to persist to IndexedDB; when it is not available (headless
+// node:test runs), scheduling a save just guaranteed a stack trace 500 ms
+// after the test function returned — the timer fired past the test boundary
+// and db.openDB rejected with 'IndexedDB is not available'. That noise
+// misled reads of test output. Callers that actually need to persist under
+// node (they don't currently) can still call saveNow() directly and handle
+// the reject; scheduleSave() is a fire-and-forget convenience whose only
+// customer is the browser event loop.
 export function scheduleSave() {
+  if (typeof indexedDB === "undefined") return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
