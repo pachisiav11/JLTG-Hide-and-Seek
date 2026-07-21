@@ -381,10 +381,17 @@ export class Layers {
       const g = store.getCurrent();
       const stations = g?.stations?.list || [];
       const confirmed = g?.stations?.confirmedAt;
+      // Phase 16 (fix #4): a locked set where every station has already been
+      // eliminated returns count=null from the pure counter. Give that its
+      // own message instead of the generic "unavailable" — the seeker knows
+      // exactly why the counter is silent then, and doesn't wonder if it broke.
+      const allEliminated = stations.length > 0 && stations.every((s) => s.eliminated);
       const stationText = !stations.length
         ? `<span class="muted">No station set — see Stations in the ☰ menu for a live counter.</span>`
         : !confirmed
         ? `<span class="muted">Station set is a draft (see Stations ▸ Lock in for a stable counter).</span>`
+        : allEliminated
+        ? `<span class="muted">No active stations remain — every station in the set is already eliminated.</span>`
         : count === null
         ? `<span class="muted">Station count unavailable.</span>`
         : `<strong>${count.inside}</strong> of ${count.total} active station${count.total === 1 ? "" : "s"} would be eliminated`;

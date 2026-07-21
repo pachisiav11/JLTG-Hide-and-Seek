@@ -136,7 +136,23 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
   const eliminatedByLine = game.stations.list.filter((s) => s.eliminatedBy === `line:${BLUE_LINE.key}`);
   assert.equal(eliminatedByLine.length + activeAfterLine.length, 8, "every station accounted for");
 
-  // 5. Phase 6: the seekers realise ONE off-line station (Devipada) is also
+  // 5. Phase 2: draft a NEW radar at Malad, 3 km radius, side=in — how many
+  //    still-active stations would it eliminate? Runs BEFORE the manual
+  //    toggle below so there's still at least one active station to count
+  //    (post-toggle every station is eliminated and the counter returns null
+  //    per Phase 16 — a case exercised separately in game-count-stations-empty).
+  const draftRadar = {
+    id: "draft", tool: "radar", enabled: true,
+    inputs: { center: { lat: 19.187, lng: 72.848 }, radius: 3000 },
+    answer: { side: "in" },
+  };
+  const { eliminated } = computeElimination(draftRadar, AREA);
+  const pv = countStationsInEliminated(eliminated, game.stations.list);
+  assert.ok(pv, "preview returns a number while active stations remain");
+  assert.equal(pv.total, game.stations.list.filter((s) => !s.eliminated).length,
+    "denominator EXCLUDES already-eliminated stations, per §B1 contract");
+
+  // 6. Phase 6: the seekers realise ONE off-line station (Devipada) is also
   //    ruled out by an ambient clue. A manual toggle wins.
   const dev = game.stations.list.find((s) => s.name === "Devipada");
   const beforeTag = dev.eliminatedBy;
@@ -144,19 +160,6 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
   assert.equal(dev.eliminated, true);
   assert.equal(dev.eliminatedBy, "manual", "manual tag replaces whatever it had");
   assert.notEqual(dev.eliminatedBy, beforeTag);
-
-  // 6. Phase 2: draft a NEW radar at Malad, 3 km radius, side=in — how many
-  //    still-active stations would it eliminate?
-  const draftRadar = {
-    id: "draft", tool: "radar", enabled: true,
-    inputs: { center: { lat: 19.187, lng: 72.848 }, radius: 3000 },
-    answer: { side: "in" },
-  };
-  const eliminated = computeElimination(AREA, [draftRadar]);
-  const pv = countStationsInEliminated(eliminated, game.stations.list);
-  assert.ok(pv, "preview returns a number");
-  assert.equal(pv.total, game.stations.list.filter((s) => !s.eliminated).length,
-    "denominator EXCLUDES already-eliminated stations, per §B1 contract");
 
   // 7. Undo the blue-line action: the manual toggle survives.
   restoreStationsOnLine(game.stations.list, BLUE_LINE.key);
