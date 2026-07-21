@@ -33,7 +33,7 @@ export class Games {
           <button id="mn-library" class="btn">📌 Custom library</button>
           <button id="mn-stations" class="btn">🚉 Stations</button>
           <button id="mn-seeker" class="btn">📍 Seeker location (paste)</button>
-          <button id="mn-copyloc" class="btn">📋 Copy MY location (for WhatsApp)</button>
+          <button id="mn-copyloc" class="btn">📋 Copy MY location</button>
           <button id="mn-liveshare" class="btn">📡 Live location share (session)</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
           <button id="mn-dup" class="btn">⧉ Duplicate current</button>
@@ -582,11 +582,11 @@ export class Games {
 
   // ---- Copy MY location (§C2) — the mirror of A2's paste intake ----
   //
-  // The seeker has to type or paste their own coordinates into WhatsApp so the
-  // hider can then paste them into the app. That reverse leg is the same
-  // friction as A2, one direction earlier. One tap on this button reads the
-  // seeker's GPS, formats it in the exact shape A2 accepts (§ src/ingest.js),
-  // and puts it on the clipboard.
+  // The seeker has to type or paste their own coordinates into whatever chat
+  // the group uses so the hider can then paste them into the app. That reverse
+  // leg is the same friction as A2, one direction earlier. One tap on this
+  // button reads the seeker's GPS, formats it in the exact shape A2 accepts
+  // (§ src/ingest.js), and puts it on the clipboard.
   async copyMyLocation() {
     if (!navigator.geolocation) return toast("Geolocation not available.");
     const cur = await new Promise((resolve) => {
