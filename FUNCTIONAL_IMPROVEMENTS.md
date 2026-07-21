@@ -1,5 +1,11 @@
 # Functional Improvements — post-3-game playtest + code review
 
+**STATUS: ALL 13 ITEMS RESOLVED (2026-07-21).** Every finding below was
+fixed or, for the two documentation-only items, given a concrete written
+verification step. See the closing section for the full commit list. This
+file is kept as the historical record of the findings and their fixes —
+nothing here is outstanding.
+
 Compiled 2026-07-21. Basis: three end-to-end integration games in
 `test/game-full-playtest.test.mjs` covering all 12 §A/§B/§C phases together,
 plus a high-effort code review over the §C additions (phases 8-12).
@@ -31,6 +37,10 @@ or have `evaluateApproach` always return a populated `state` (with
 `inside=false, distance` computed) even when the alert is disabled — the pill
 still wants the distance number.
 
+**Status: FIXED — Phase 13 ([5111483]).** Split the guards; pin-only mode
+now returns a populated state with distance for the pill. See
+`test/game-live-share-pin-only.test.mjs`.
+
 ### 2. Bulk elimination silently reverses a manual station elimination
 **Where:** `src/stations.js:168` (whole-line), `src/stations.js:250` (range)
 
@@ -50,6 +60,10 @@ path is never actually exercised.
 Add a real integration test that puts a manually-eliminated station ON the
 line and asserts the tag survives a bulk eliminate + restore.
 
+**Status: FIXED — Phase 14 ([0b49ce7]).** Guard added to both bulk
+eliminators; new test drops the manual station directly on the way (the
+prior test's 420 m gap was masking the collision path).
+
 ### 3. Session-error is emitted by the server but nobody listens
 **Where:** `src/live-share.js:82` (seeker), `src/live-share.js:110` (hider)
 
@@ -63,6 +77,10 @@ success.
 the pill or via `toast()`, and tear down. A `session-joined` listener is a
 nice extra to confirm connected state, but the error path is the actual bug.
 
+**Status: FIXED — Phase 15 ([3270fbd]).** `_armSessionErrorListener` shared
+by seeker/hider paths; constructor gained an `onError` callback the app
+wires to a toast; teardown clears and rebinds on retry.
+
 ### 4. Preview readout says "0 of 0" when everything is already eliminated
 **Where:** `src/stations.js:305`
 
@@ -72,6 +90,10 @@ carries no signal at all. Also fragile if a future caller ever percentages it.
 
 **Fix:** return `null` (or an explicit `{empty: true}` sentinel) when
 `total === 0`, and let the sheet render "no active stations left".
+
+**Status: FIXED — Phase 16 ([e1e8275]).** `countStationsInEliminated`
+returns `null` on an all-eliminated set; `layers.js` renders "No active
+stations remain" for that case.
 
 ---
 
@@ -96,6 +118,11 @@ in the SW confirms Phase 9+. Cheapest fallback: after a short timeout with
 no delivery ack, fire the page notification too — a duplicate is better than
 silence.
 
+**Status: FIXED — Phase 17 ([7fb5302]).** New `src/sw-notify.js` sends on a
+MessageChannel and waits 400 ms for an ack; no ack fires the page-side
+fallback. A healthy SW (v79+) acks synchronously, so the fallback path is
+dead code on a normal install and only engages during the upgrade window.
+
 ### 6. Server accepts nonsense coordinates on the relay
 **Where:** `server.js:275`
 
@@ -107,6 +134,9 @@ plots the pin would jump to nowhere.
 **Fix:** enforce `-90 ≤ lat ≤ 90` and `-180 ≤ lng ≤ 180` on the server
 before broadcasting.
 
+**Status: FIXED — Phase 18 ([076c3eb]).** `isValidLocationPayload` in the
+new `share-location.js` enforces the range before the relay rebroadcasts.
+
 ### 7. No rate limit on `share-location`
 **Where:** `server.js:266-278`
 
@@ -117,6 +147,11 @@ once-per-crossing debounce entirely.
 
 **Fix:** simple token bucket per socket — e.g. cap `share-location` at 4/s
 per socket. Drop excess silently.
+
+**Status: FIXED — Phase 19 ([e8045b4]).** `allowShareLocation` implements a
+per-socket token bucket: 4/s sustained, 6-token burst. Legitimate 60 s
+cadence is 240x under the limit; a 100 Hz flood is capped at ~46
+emissions/10 s.
 
 ---
 
@@ -143,6 +178,10 @@ will silently disagree.
 **Fix:** move `metresBetween(a, b)` to `src/geo.js` and import both call
 sites from there.
 
+**Status: FIXED — Phase 21 ([981fc26]).** `metresBetween` extracted to
+`src/geo.js` and imported by both files. New test asserts `evaluateGeofence`
+and `evaluateApproach` agree by construction on the same pair of points.
+
 ---
 
 ## Observations from the 3-game playtest (not from code review)
@@ -155,6 +194,11 @@ browser this is benign, but the noise in test output is misleading. Consider
 either exporting a `store.reset()` for tests to call, or letting `setCurrent`
 skip scheduling when running under `node:test`.
 
+**Status: FIXED — Phase 22 ([1c0e7ae]).** `scheduleSave()` returns
+immediately when `typeof indexedDB === "undefined"`, so it is a no-op under
+node:test. Guard is on `indexedDB` specifically (not `window`), so a future
+jsdom run still exercises the save path.
+
 ### 11. High-accuracy GPS every 60 s is a heavy battery pattern
 `src/live-share.js:96` calls `getCurrentPosition({enableHighAccuracy: true})`
 on a 60-second timer for a game that runs 45+ minutes. On Android that keeps
@@ -162,11 +206,22 @@ GPS hot the whole session. A `watchPosition` + client-side throttle on the
 seeker's emit cadence would cost less battery for the same freshness. Not a
 bug — a real cost during a real playtest.
 
+**Status: FIXED — Phase 23 ([85c7a9b]).** Seeker now uses
+`navigator.geolocation.watchPosition`, sharing the GPS subscription with the
+geofence feature, with a client-side throttle capping outbound
+`share-location` emits at the original 60 s cadence. Public `LiveShare` API
+unchanged.
+
 ### 12. Live-share pill formatting for round threshold values
 `src/live-share.js:130` prints "2000 m" when the threshold is 2 km — because
 the ternary `threshold >= 1000` uses `.toFixed(1)` on the km path but leaves
 the metres path unformatted. Minor readability nit; the pill already reads
 km for the seeker's distance.
+
+**Status: FIXED — Phase 24 ([7e0361e]).** New `formatDistance(m)` helper
+strips trailing zeros (`parseFloat` on a `.toFixed(2)`), so round thresholds
+read as "1 km" / "2 km" instead of "1.0 km" / "2.0 km". Both the pill and
+the notification body use it.
 
 ### 13. Google Maps mobile long-press semantics need a real device test
 `src/notes.js:66` wires `mousedown`+`mouseup`+`dragstart` for the note pin.
@@ -205,3 +260,44 @@ targeted new test:
 Every item above has a concrete failure scenario that a future test would
 pin. The `test/game-full-playtest.test.mjs` file is the natural home for the
 integration tests that would catch #2 and (with a mocked SW controller) #5.
+
+---
+
+## Resolution summary (2026-07-21)
+
+All 13 items closed across phases 13-25, one commit per item (phases 20 and
+25 are doc-only, no code change):
+
+| # | Finding | Phase | Commit |
+|---|---|---|---|
+| 1 | Live-share crash on pin-only mode | 13 | [5111483] |
+| 3 | Session-error unlistened | 15 | [3270fbd] |
+| 2 | Bulk elim clobbered manual tag | 14 | [0b49ce7] |
+| 4 | Count-stations "0 of 0" | 16 | [e1e8275] |
+| 5 | SW upgrade-window notification loss | 17 | [7fb5302] |
+| 6 | Server accepted off-globe coords | 18 | [076c3eb] |
+| 7 | No rate limit on share-location | 19 | [e8045b4] |
+| 8 | Dead getPalette import | 20 | [07b5ecb] (already cleared by Phase 15; doc-only) |
+| 9 | Duplicated haversine-lite | 21 | [981fc26] |
+| 10 | Autosave test-teardown noise | 22 | [1c0e7ae] |
+| 11 | GPS battery pattern | 23 | [85c7a9b] |
+| 12 | Pill formatting ("2000 m") | 24 | [7e0361e] |
+| 13 | Mobile long-press device test | 25 | [097689b] (doc-only) |
+
+Total suite grew from 498 (compile time) to **555/555 passing**. Service
+worker cache tracked through **v87**. See [[jltg-playtest-phases]] in
+project memory for the full phase-by-phase build log.
+
+[5111483]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/5111483
+[0b49ce7]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/0b49ce7
+[3270fbd]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/3270fbd
+[e1e8275]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/e1e8275
+[7fb5302]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/7fb5302
+[076c3eb]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/076c3eb
+[e8045b4]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/e8045b4
+[07b5ecb]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/07b5ecb
+[981fc26]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/981fc26
+[1c0e7ae]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/1c0e7ae
+[85c7a9b]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/85c7a9b
+[7e0361e]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/7e0361e
+[097689b]: https://github.com/pachisiav11/JLTG-Hide-and-Seek/commit/097689b
