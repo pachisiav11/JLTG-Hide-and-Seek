@@ -67,12 +67,12 @@ test("geofence 1: removing the hider zone dismisses the geofence notification", 
   gf.init(); // subscribes + reconciles → watch starts, no clear yet
 
   posted.length = 0;
-  assert.equal(gf.watchId, 7, "the watch is running while the zone exists");
+  assert.equal(gf.watching, true, "the watch is running while the zone exists");
 
   // Remove the hider zone — exactly what focus.clear() does.
   store.update((game) => { game.focusZone = { point: null, radius: null }; });
 
-  assert.equal(gf.watchId, null, "the watch stops when the zone is gone");
+  assert.equal(gf.watching, false, "the watch stops when the zone is gone");
   assert.ok(
     posted.some((m) => m.type === "CLEAR_NOTIFY" && m.tag === "jltg-geofence"),
     "a CLEAR_NOTIFY was sent so the stale tray notification is dismissed",

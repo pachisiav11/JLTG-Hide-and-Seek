@@ -216,7 +216,7 @@ implement the same state machine).
 - **Depends on / pairs with:** Phase 36.
 - **Build:** SW bump.
 
-### Phase 36 — Shared GPS watch + blue self-dot (req #7a)
+### Phase 36 — [DONE] Shared GPS watch + blue self-dot (req #7a)
 - **Goal:** A gmaps-style **blue self-dot + accuracy ring** following the
   device's own GPS, **always on**. Introduce a **single shared geolocation
   watch** (`src/geo-watch.js` singleton) so geofence, live-share seeker, and the

@@ -9,6 +9,8 @@ import { Geofence } from "./geofence.js";
 import { StationsLayer } from "./stations-layer.js";
 import { Notes } from "./notes.js";
 import { LiveShare } from "./live-share.js";
+import { geoWatch } from "./geo-watch.js";
+import { SelfLocation } from "./self-location.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -192,15 +194,19 @@ async function main() {
     // onError surfaces server-side session-error as a toast so a mistyped code
     // isn't invisible if the user was looking at the map instead of the pill.
     // Declared before Games so it can be handed in without hitting the TDZ.
-    const liveShare = new LiveShare({ transport: null, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
+    const liveShare = new LiveShare({ transport: null, watch: geoWatch, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
     const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
     layers.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
     // notifications when the hider drifts near or across it. Inert until the seeker
     // sets a geofence threshold in Settings AND a focus zone exists.
-    const geofence = new Geofence();
+    const geofence = new Geofence({ watch: geoWatch });
     geofence.init();
+    // Phase 36 (req #7a): the always-on blue self-dot + accuracy ring, riding the
+    // same shared GeoWatch as the geofence and seeker (one OS watch for all three).
+    const selfLocation = new SelfLocation(map, { watch: geoWatch });
+    selfLocation.init();
     // Phase 6 (A3): render the locked station set as tappable markers so
     // manually eliminating a station is a one-tap map interaction, not a
     // panel scroll. Reuses game.stations.list (Phase 1) and the eliminated
@@ -274,7 +280,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

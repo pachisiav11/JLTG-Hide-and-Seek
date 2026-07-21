@@ -17,6 +17,7 @@ import * as store from "./store.js";
 import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
+import { geoWatch, GeoWatch } from "./geo-watch.js";
 
 // Notification tag — shared with the SW so a stale seeker-close alert can be
 // dismissed from the tray when sharing stops (Phase 31.5 bug).
@@ -103,16 +104,19 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
-    this.geolocation = geolocation;
+    // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
+    // the geofence + self-dot). Production injects the singleton; a test injects
+    // a private GeoWatch or a raw geolocation we wrap here.
+    this.watch = watch || (geolocation ? new GeoWatch({ geolocation }) : geoWatch);
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
     this.role = null;
     this.code = null;
     this.approachState = null;
     this._publishTimer = null;
-    this._watchId = null;
+    this._watchUnsub = null;
     this._locationHandler = null;
     this._sessionErrorHandler = null;
     this._pill = null;
@@ -168,10 +172,13 @@ export class LiveShare {
     this._armSessionErrorListener();
     this.transport?.emit?.("join-session", { code, role: "seeker" });
     this._ensurePill();
-    if (!this.geolocation?.watchPosition) return;
     this._lastEmitAt = null;
-    const onPos = (p) => {
-      const point = { lat: p.coords.latitude, lng: p.coords.longitude };
+    // Phase 36: subscribe to the shared GeoWatch instead of opening a second OS
+    // watch. The client-side throttle (Phase 23) still caps the outbound cadence
+    // at emitIntervalMs so the relay's rate limit is never approached. No
+    // replayLast — the first genuinely-new fix is what the hider is waiting for.
+    const onFix = (fix) => {
+      const point = { lat: fix.lat, lng: fix.lng };
       const nowMs = this._now();
       if (this._lastEmitAt !== null && nowMs - this._lastEmitAt < this._emitIntervalMs) return;
       this._lastEmitAt = nowMs;
@@ -179,7 +186,7 @@ export class LiveShare {
       this._writePill(`Sharing · ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
     };
     const onErr = (err) => { console.warn("live-share seeker: geolocation error", err); this._writePill("Location unavailable"); };
-    this._watchId = this.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
+    this._watchUnsub = this.watch.subscribe(onFix, onErr);
   }
 
   // Hider side. Subscribes to the room and evaluates every incoming ping
@@ -235,10 +242,8 @@ export class LiveShare {
 
   _teardown() {
     if (this._publishTimer) { clearInterval(this._publishTimer); this._publishTimer = null; }
-    if (this._watchId != null && this.geolocation?.clearWatch) {
-      try { this.geolocation.clearWatch(this._watchId); } catch (_) {}
-    }
-    this._watchId = null;
+    this._watchUnsub?.();
+    this._watchUnsub = null;
     if (this._locationHandler) { try { this.transport?.off?.("location", this._locationHandler); } catch (_) {} this._locationHandler = null; }
     if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
     this._lastSeekerPoint = null;

@@ -31,6 +31,7 @@ import * as store from "./store.js";
 import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
+import { geoWatch, GeoWatch } from "./geo-watch.js";
 
 // Notification tag — shared with the SW's showNotification/CLEAR_NOTIFY so a
 // stale alert is dismissed the moment the watch stops (Phase 31.5 bug).
@@ -106,15 +107,21 @@ export function evaluateGeofence({ position, zone, thresholdMetres, prior, now =
 // Live geofence watcher for the app. Manages the geolocation subscription, the
 // notification firing, the foreground pill, and cleanup on toggle-off / game-change.
 export class Geofence {
-  constructor({ Notification = (typeof window !== "undefined" ? window.Notification : null), geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null) } = {}) {
+  constructor({ Notification = (typeof window !== "undefined" ? window.Notification : null), geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null } = {}) {
     this.N = Notification;
-    this.geo = geolocation;
-    this.watchId = null;
+    // Phase 36: ride the shared GeoWatch instead of opening our own OS watch.
+    // Production injects the singleton (shared with the seeker + self-dot); a
+    // test can inject a private GeoWatch, or a raw geolocation we wrap here.
+    this.watch = watch || (geolocation ? new GeoWatch({ geolocation }) : geoWatch);
     this.state = null;
     this.pillEl = null;
-    this._unsub = null;
+    this._unsub = null;       // store subscription
+    this._watchUnsub = null;  // GeoWatch subscription
     this._settingsThreshold = 0;
   }
+
+  // True while subscribed to the shared position watch.
+  get watching() { return this._watchUnsub != null; }
 
   // Read the settings threshold from the current game. 0 means disabled.
   _threshold() {
@@ -145,7 +152,7 @@ export class Geofence {
       // dismiss any notification still sitting in the tray — otherwise the last
       // "near the edge" / "left the zone" alert lingers on the lock screen as if
       // the app were still watching a zone that no longer exists (Phase 31.5).
-      const wasActive = this.watchId != null || !!this.pillEl;
+      const wasActive = this.watching || !!this.pillEl;
       this._stopWatch();
       this._removePill();
       this.state = null;
@@ -162,16 +169,17 @@ export class Geofence {
   }
 
   _startWatch() {
-    if (this.watchId != null || !this.geo?.watchPosition) return;
-    this.watchId = this.geo.watchPosition(
-      (pos) => this._onPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+    if (this._watchUnsub) return;
+    // Only NEW fixes drive the transition machine, so no replayLast here — a
+    // cached fix replayed on subscribe would re-evaluate the same position.
+    this._watchUnsub = this.watch.subscribe(
+      (fix) => this._onPosition(fix),
       (err) => { console.warn("geofence: geolocation error", err); this._writePill("Location unavailable"); },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 },
     );
   }
   _stopWatch() {
-    if (this.watchId != null && this.geo?.clearWatch) this.geo.clearWatch(this.watchId);
-    this.watchId = null;
+    this._watchUnsub?.();
+    this._watchUnsub = null;
   }
 
   _onPosition(position) {
