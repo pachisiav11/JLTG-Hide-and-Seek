@@ -30,6 +30,14 @@ a headless test and an SW cache bump; 580 `node:test` tests pass. Stage 2 (Phase
   Stations panel arms a one-shot map pick that snaps the tap to the closest station
   (new pure `nearestStation(list, point)`) and opens the Phase 30 chooser for it.
   SW → v92.
+- **Phase 31.5 — Bugfix: stale geofence notification after zone removal.**
+  Removing the hider zone stopped new alerts but left the last one sitting in the
+  system tray (the SW shows it with a fixed tag; nothing closed it), so it looked
+  like the app was still watching a zone that was gone. New reusable
+  `clearNotification(tag)` (`src/sw-notify.js`) + a `CLEAR_NOTIFY` handler in the
+  service worker close tagged tray notifications; `Geofence` fires it whenever the
+  watch stops (zone removed / threshold off / game switch / teardown), and
+  `LiveShare` clears `jltg-seeker-close` on disconnect. SW → v93.
 
 ## Phase 7 — Guide-rendering & interaction polish
 Post-launch improvements from [`IMPROVEMENTS.md`](IMPROVEMENTS.md); no new deps, no

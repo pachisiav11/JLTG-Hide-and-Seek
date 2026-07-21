@@ -14,9 +14,13 @@
 // Phase 9 SW path) when the distance drops below a threshold.
 
 import * as store from "./store.js";
-import { notifyViaSwOrPage } from "./sw-notify.js";
+import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
+
+// Notification tag — shared with the SW so a stale seeker-close alert can be
+// dismissed from the tray when sharing stops (Phase 31.5 bug).
+const SEEKER_CLOSE_TAG = "jltg-seeker-close";
 
 // Phase 24 (fix #12): compact distance formatter for the live-share pill.
 //
@@ -215,13 +219,15 @@ export class LiveShare {
     // geofence uses. Guards against a stale SW during the upgrade window
     // silently swallowing the message.
     const firePage = () => {
-      try { new this.N(title, { body, tag: "jltg-seeker-close", renotify: true }); }
+      try { new this.N(title, { body, tag: SEEKER_CLOSE_TAG, renotify: true }); }
       catch (e) { console.warn("live-share notification failed", e); }
     };
-    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body, tag: "jltg-seeker-close" }, firePage);
+    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body, tag: SEEKER_CLOSE_TAG }, firePage);
   }
 
-  stop() { this._teardown(); this._removePill(); this.role = null; this.code = null; }
+  // Disconnecting stops the share; dismiss any seeker-close alert still in the
+  // tray so it doesn't linger after the session ends (Phase 31.5 bug).
+  stop() { this._teardown(); this._removePill(); this.role = null; this.code = null; clearNotification(SEEKER_CLOSE_TAG); }
 
   _teardown() {
     if (this._publishTimer) { clearInterval(this._publishTimer); this._publishTimer = null; }

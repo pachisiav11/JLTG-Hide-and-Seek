@@ -28,9 +28,13 @@
 // notification. That is the always-visible companion to the once-per-crossing alert.
 
 import * as store from "./store.js";
-import { notifyViaSwOrPage } from "./sw-notify.js";
+import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
+
+// Notification tag — shared with the SW's showNotification/CLEAR_NOTIFY so a
+// stale alert is dismissed the moment the watch stops (Phase 31.5 bug).
+const GEOFENCE_TAG = "jltg-geofence";
 
 // Two thresholds are used from the settings value N (metres):
 //   - Fire NEAR-EDGE alert when distance to edge < N and inside the zone.
@@ -119,13 +123,26 @@ export class Geofence {
     if (this._unsub) { this._unsub(); this._unsub = null; }
     this._stopWatch();
     this._removePill();
+    // Tear-down (game unload / app close): drop any lingering tray alert too.
+    clearNotification(GEOFENCE_TAG);
   }
 
   async _reconcile() {
     const threshold = this._threshold();
     const g = store.getCurrent();
     const hasZone = !!(g?.focusZone?.point && g?.focusZone?.radius);
-    if (!threshold || !hasZone) { this._stopWatch(); this._removePill(); this.state = null; return; }
+    if (!threshold || !hasZone) {
+      // Feature turned off or the hider zone was removed. Stop watching AND
+      // dismiss any notification still sitting in the tray — otherwise the last
+      // "near the edge" / "left the zone" alert lingers on the lock screen as if
+      // the app were still watching a zone that no longer exists (Phase 31.5).
+      const wasActive = this.watchId != null || !!this.pillEl;
+      this._stopWatch();
+      this._removePill();
+      this.state = null;
+      if (wasActive) clearNotification(GEOFENCE_TAG);
+      return;
+    }
     // Request Notifications permission on FIRST enable, once. Denial doesn't disable
     // the feature — the pill still updates; the alerts just don't leave the tab.
     if (this.N && this.N.permission === "default") {
@@ -173,10 +190,10 @@ export class Geofence {
     // race where the ack arrives late — the notification tag dedupes on the
     // browser side and a duplicate is better than silence.
     const firePage = () => {
-      try { new this.N(title, { body, tag: "jltg-geofence", renotify: true, silent: false }); }
+      try { new this.N(title, { body, tag: GEOFENCE_TAG, renotify: true, silent: false }); }
       catch (e) { console.warn("geofence: notification failed", e); }
     };
-    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body: body || "", tag: "jltg-geofence" }, firePage);
+    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body: body || "", tag: GEOFENCE_TAG }, firePage);
   }
 
   _alertStyle() {

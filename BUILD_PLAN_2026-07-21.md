@@ -137,6 +137,28 @@ implement the same state machine).
 
 ---
 
+# Stage 1.5 — Bugfix: stale geofence notification after zone removal
+
+### Phase 31.5 — [DONE] Dismiss outstanding notifications when the geofence stops (bug)
+- **Reported:** after **removing the hider zone**, the geofence notification
+  "still pops up" — it stays on the lock screen / notification shade as if the
+  app were still alerting for a zone that no longer exists.
+- **Root cause:** the alert is shown by the **service worker** with a fixed
+  `tag: "jltg-geofence"` and `renotify: true`, so it lives in the system tray
+  until dismissed. When the zone is cleared, `Geofence._reconcile` correctly
+  stops the GPS watch (so no *new* alerts fire — verified: `evaluateGeofence`
+  and the live-share seeker path both guard on a present zone/centre), **but
+  nothing closes the notification already posted to the tray.** No code path in
+  the app ever called `Notification.close()` / `registration.getNotifications`.
+- **Fix:** a reusable `clearNotification(tag)` (`src/sw-notify.js`) + a
+  `CLEAR_NOTIFY` message handler in `service-worker.js` that closes tray
+  notifications by tag (`registration.getNotifications({tag})`→`close()`).
+  `Geofence` calls it when the watch stops (zone removed / threshold off / game
+  switch / destroy); `LiveShare` clears `jltg-seeker-close` on stop.
+- **Tests:** `clearNotification` posts a `CLEAR_NOTIFY` for the tag (and no-ops
+  without a SW); a stopped geofence issues the clear; a running one does not.
+- **Build:** SW bump.
+
 # Stage 2 — Geofence & notification correctness (web logic)
 
 ### Phase 32 — Geofence re-alert semantics (req #6)

@@ -63,3 +63,23 @@ export function notifyViaSwOrPage(payload, firePage) {
   }
   firePage();
 }
+
+// Phase 31.5 (bug): dismiss an outstanding tray notification by tag when its
+// feature is turned off (e.g. the hider zone was removed). A notification shown
+// by the SW lives in the tray until closed, and ONLY the SW that showed it can
+// close it — so this asks the SW to run `getNotifications({tag})` → `close()`.
+//
+// Returns true if the request was dispatched to a SW, false if there is no SW
+// to ask (nothing to clean up in that case — a page-only environment never
+// posted a tray notification). Fire-and-forget: there is no ack, because a
+// missed clear just leaves a stale notification the next fire/clear replaces.
+export function clearNotification(tag) {
+  if (!tag) return false;
+  const sw = typeof navigator !== "undefined" && navigator.serviceWorker;
+  if (!sw) return false;
+  const target = sw.controller || null;
+  const post = (t) => { try { t?.postMessage?.({ type: "CLEAR_NOTIFY", tag }); } catch (_) { /* target gone */ } };
+  if (target) { post(target); return true; }
+  if (sw.ready?.then) { sw.ready.then((reg) => post(reg?.active)).catch(() => {}); return true; }
+  return false;
+}

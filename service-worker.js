@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v92";
+const CACHE_VERSION = "jltg-shell-v93";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -83,6 +83,22 @@ self.addEventListener("message", (event) => {
       const port = event.ports && event.ports[0];
       if (port) { try { port.postMessage({ ack: true }); } catch (_) { /* port closed */ } }
     } catch (e) { console.warn("SW showNotification failed", e); }
+  }
+
+  // Phase 31.5 (bug): dismiss an outstanding tray notification when its feature
+  // is turned off. Geofence/seeker-close alerts are shown by the SW with a fixed
+  // tag and live in the system tray until dismissed; when the hider zone is
+  // removed the page stops firing NEW alerts but the last one lingers on the
+  // lock screen, reading as if the app were still watching a zone that's gone.
+  // Only the SW that showed a notification can close it, hence this handler.
+  if (event.data?.type === "CLEAR_NOTIFY") {
+    const tag = event.data.tag;
+    if (!tag) return;
+    event.waitUntil(
+      self.registration.getNotifications({ tag })
+        .then((ns) => ns.forEach((n) => n.close()))
+        .catch((e) => console.warn("SW clear notifications failed", e)),
+    );
   }
 });
 
