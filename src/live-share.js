@@ -104,7 +104,7 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
     // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
     // the geofence + self-dot). Production injects the singleton; a test injects
@@ -112,6 +112,10 @@ export class LiveShare {
     this.watch = watch || (geolocation ? new GeoWatch({ geolocation }) : geoWatch);
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
+    // Phase 37: (point|null) => void — the app wires the red seeker dot to this.
+    // Assignable after construction too, since the drawing layer may be built
+    // later in boot than LiveShare.
+    this.onSeekerPoint = onSeekerPoint;
     this.role = null;
     this.code = null;
     this.approachState = null;
@@ -206,6 +210,10 @@ export class LiveShare {
   _onSeekerPing(payload) {
     if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
     this._lastSeekerPoint = { lat: payload.lat, lng: payload.lng, at: payload.at || Date.now() };
+    // Phase 37 (req #7b): hand the latest seeker point to whoever draws the red
+    // dot. Fired on every ping, BEFORE the zone check — the hider wants to see
+    // where the seeker is even with no Hider zone set.
+    try { this.onSeekerPoint?.(this._lastSeekerPoint); } catch (e) { console.warn("onSeekerPoint threw", e); }
     const g = store.getCurrent();
     const centre = g?.focusZone?.point;
     const threshold = Number(g?.settings?.approachThresholdM) || 0;
@@ -246,6 +254,9 @@ export class LiveShare {
     this._watchUnsub = null;
     if (this._locationHandler) { try { this.transport?.off?.("location", this._locationHandler); } catch (_) {} this._locationHandler = null; }
     if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
+    // Phase 37: the session is ending — clear the red seeker dot. Only signal a
+    // removal if there was a point to remove, so a plain re-start doesn't churn.
+    if (this._lastSeekerPoint) { try { this.onSeekerPoint?.(null); } catch (e) { console.warn("onSeekerPoint threw", e); } }
     this._lastSeekerPoint = null;
     this.approachState = null;
     this._lastEmitAt = null;

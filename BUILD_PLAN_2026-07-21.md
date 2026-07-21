@@ -1,8 +1,8 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
-> **Status (2026-07-21): Stages 0–2 complete and pushed** — Phases 27–34, plus
+> **Status (2026-07-21): Stages 0–3 complete and pushed** — Phases 27–37, plus
 > a **Phase 31.5** bugfix (stale geofence notification after zone removal). Next
-> up: Stage 3 (Phase 36 → 35 → 37). Each completed phase below is prefixed
+> up: Stage 4 (Phase 38, in-app Guide). Each completed phase below is prefixed
 > **[DONE]**.
 
 Everything scoped in this session's discussion, compiled and ordered **least →
@@ -229,7 +229,7 @@ implement the same state machine).
   watch on the last unsubscribe; the self-dot tracks the latest fix.
 - **Build:** SW bump.
 
-### Phase 37 — Seeker red dot on the hider's map (req #7b)
+### Phase 37 — [DONE] Seeker red dot on the hider's map (req #7b)
 - **Goal:** Render the live-shared seeker position as a **red dot** on the
   hider's map, updated on each ping (~60 s).
 - **Files:** `src/live-share.js` (expose the latest seeker point via a small
@@ -394,11 +394,11 @@ implement the same state machine).
 
 ## Build order summary (least → most important)
 
-~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → 36 → 35 → 37 → 38 →
+~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → ~~36~~ → ~~35~~ → ~~37~~ → 38 →
 **39 → 40 → 41 · 42 → 43 → 44 → 45**
 
-(~~struck~~ = done & pushed. Stages 0–2 complete (+ Phase 31.5 bugfix); resume
-at Stage 3, Phase 36.)
+(~~struck~~ = done & pushed. Stages 0–3 complete (+ Phase 31.5 bugfix); resume
+at Stage 4, Phase 38.)
 
 The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
 before committing to the free plugins. 39 must precede everything native. 43

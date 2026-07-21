@@ -12,6 +12,7 @@ import { LiveShare } from "./live-share.js";
 import { geoWatch } from "./geo-watch.js";
 import { SelfLocation } from "./self-location.js";
 import { GpsStatus } from "./gps-status.js";
+import { SeekerDot } from "./seeker-dot.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -195,7 +196,10 @@ async function main() {
     // onError surfaces server-side session-error as a toast so a mistyped code
     // isn't invisible if the user was looking at the map instead of the pill.
     // Declared before Games so it can be handed in without hitting the TDZ.
-    const liveShare = new LiveShare({ transport: null, watch: geoWatch, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
+    // Phase 37 (req #7b): draw the live seeker as a red dot on the hider's map.
+    // LiveShare hands each ping's point (and null on disconnect) to the dot.
+    const seekerDot = new SeekerDot(map);
+    const liveShare = new LiveShare({ transport: null, watch: geoWatch, onSeekerPoint: (pt) => seekerDot.update(pt), onError: (msg) => toast(`Live share: ${msg}`, 4000) });
     const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
     layers.init();
     focus.init();
@@ -286,7 +290,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, seekerDot, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
