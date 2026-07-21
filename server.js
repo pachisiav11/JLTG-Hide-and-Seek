@@ -17,6 +17,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
+import { isValidLocationPayload } from "./share-location.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -253,7 +254,7 @@ io.on("connection", (socket) => {
     // Only accept publish from a joined seeker; ignore anything else silently
     // so a bad client can't spoof pings into someone else's session.
     if (socket.data.role !== "seeker" || !socket.data.room) return;
-    if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
+    if (!isValidLocationPayload(payload)) return;
     socket.to(socket.data.room).emit("location", {
       lat: payload.lat, lng: payload.lng, at: Date.now(),
     });
