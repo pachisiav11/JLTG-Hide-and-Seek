@@ -158,6 +158,14 @@ export function stationsWithinLine(stations, wayPaths, { toleranceM = DEFAULT_LI
 // `line:<key>` so a later "restore this line" un-eliminates exactly those and not
 // the ones the seeker had already marked out for other reasons.
 //
+// A station previously eliminated with `eliminatedBy = "manual"` is deliberately
+// SKIPPED: the tap-a-station action (Phase 6) is a directly reasoned deduction —
+// a clue photo, a hider slip — and a later bulk rule must not silently overwrite
+// its tag, because a subsequent `restoreStationsOnLine` would then un-eliminate
+// it via the line tag it never should have carried. Line-vs-line clobber is a
+// different case: game 6 in game-line-elimination.test.mjs pins the "later
+// line rule wins" convention, and this fix does not touch it.
+//
 // Returns the mutation as a list of {id, wasEliminated, wasBy} so a caller can
 // build a fold-style undo (Phase 4 does not create a real fold step — the station
 // list is not a fold input — but the undo shape is worth preserving anyway).
@@ -166,6 +174,7 @@ export function eliminateStationsOnLine(stationsList, lineKey, wayPaths, opts = 
   const changed = [];
   for (const s of stationsList) {
     if (!hits.has(s.id)) continue;
+    if (s.eliminatedBy === "manual") continue;
     changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
     s.eliminated = true;
     s.eliminatedBy = `line:${lineKey}`;
@@ -252,6 +261,8 @@ export function eliminateStationsInRange(orderedList, fromId, toId, lineKey, { m
     const s = orderedList[i];
     const shouldEliminate = mode === "outside" ? !inRange(i) : inRange(i);
     if (!shouldEliminate) continue;
+    // Same manual-tag preservation as eliminateStationsOnLine above.
+    if (s.eliminatedBy === "manual") continue;
     changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
     s.eliminated = true;
     s.eliminatedBy = tag;
