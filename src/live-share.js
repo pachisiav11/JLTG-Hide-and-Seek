@@ -67,7 +67,7 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
     this.geolocation = geolocation;
     this.N = Notification;
@@ -81,6 +81,12 @@ export class LiveShare {
     this._sessionErrorHandler = null;
     this._pill = null;
     this._lastSeekerPoint = null;
+    // Phase 23 (fix #11): watchPosition + throttled emit. `emitIntervalMs`
+    // caps outbound share-location cadence; `now` is injectable so tests can
+    // step time without waiting real seconds.
+    this._emitIntervalMs = emitIntervalMs;
+    this._now = now;
+    this._lastEmitAt = null; // null = "never yet" so the first fix always fires
   }
 
   // Bind the session-error listener before anything else. Kept in one place so
@@ -108,7 +114,17 @@ export class LiveShare {
     try { this.onError?.(text); } catch (e) { console.warn("live-share onError callback threw", e); }
   }
 
-  // Seeker side. Publishes GPS every ~60 s to the room named by `code`.
+  // Seeker side. Publishes GPS to the room named by `code`, throttled to at
+  // most once per `emitIntervalMs` (default 60 s).
+  //
+  // Phase 23 (fix #11): switched from `setInterval` + `getCurrentPosition`
+  // to `watchPosition` + client-side throttle. The old pattern woke the GPS
+  // radio to a fresh fix every 60 s for a 45-minute game (heavy on Android
+  // battery); watchPosition keeps a single subscription and rides whatever
+  // fixes the device already produces, so the marginal cost of THIS feature
+  // is close to zero when the geofence is also on (they share the GPS).
+  // Emit cadence is capped by the throttle so the relay's rate limit
+  // (Phase 19) is never approached and the hider's pill is not spammed.
   startAsSeeker(code) {
     this._teardown();
     this.role = "seeker";
@@ -116,23 +132,18 @@ export class LiveShare {
     this._armSessionErrorListener();
     this.transport?.emit?.("join-session", { code, role: "seeker" });
     this._ensurePill();
-    // Publish immediately, then every 60 s. `enableHighAccuracy` on the
-    // watch mirrors what the geofence does; the two features share the GPS
-    // subscription cost in practice.
-    const publish = () => {
-      if (!this.geolocation?.getCurrentPosition) return;
-      this.geolocation.getCurrentPosition(
-        (p) => {
-          const point = { lat: p.coords.latitude, lng: p.coords.longitude };
-          this.transport?.emit?.("share-location", point);
-          this._writePill(`Sharing · ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
-        },
-        (err) => { console.warn("live-share seeker: geolocation error", err); this._writePill("Location unavailable"); },
-        { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 },
-      );
+    if (!this.geolocation?.watchPosition) return;
+    this._lastEmitAt = null;
+    const onPos = (p) => {
+      const point = { lat: p.coords.latitude, lng: p.coords.longitude };
+      const nowMs = this._now();
+      if (this._lastEmitAt !== null && nowMs - this._lastEmitAt < this._emitIntervalMs) return;
+      this._lastEmitAt = nowMs;
+      this.transport?.emit?.("share-location", point);
+      this._writePill(`Sharing · ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
     };
-    publish();
-    this._publishTimer = setInterval(publish, 60_000);
+    const onErr = (err) => { console.warn("live-share seeker: geolocation error", err); this._writePill("Location unavailable"); };
+    this._watchId = this.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
   }
 
   // Hider side. Subscribes to the room and evaluates every incoming ping
@@ -183,10 +194,15 @@ export class LiveShare {
 
   _teardown() {
     if (this._publishTimer) { clearInterval(this._publishTimer); this._publishTimer = null; }
+    if (this._watchId != null && this.geolocation?.clearWatch) {
+      try { this.geolocation.clearWatch(this._watchId); } catch (_) {}
+    }
+    this._watchId = null;
     if (this._locationHandler) { try { this.transport?.off?.("location", this._locationHandler); } catch (_) {} this._locationHandler = null; }
     if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
     this._lastSeekerPoint = null;
     this.approachState = null;
+    this._lastEmitAt = null;
   }
 
   _ensurePill() {

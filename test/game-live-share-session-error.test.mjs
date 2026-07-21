@@ -46,22 +46,24 @@ test("game 1: session-error on the hider path invokes onError and clears role/co
 test("game 2: session-error on the seeker path tears down publish + handlers", () => {
   const transport = makeTransport();
   const errors = [];
-  // A fake geolocation the publisher uses — after teardown, no more calls.
-  const geoCalls = [];
+  // Phase 23 (fix #11): seeker publishes via watchPosition, not
+  // setInterval + getCurrentPosition. The teardown must call clearWatch
+  // with the id watchPosition returned.
+  const cleared = [];
   const geolocation = {
-    getCurrentPosition: (ok) => { geoCalls.push(1); ok({ coords: { latitude: 19.1, longitude: 72.8 } }); },
+    watchPosition: () => 99,
+    clearWatch: (id) => cleared.push(id),
   };
   const share = new LiveShare({ transport, geolocation, Notification: null, onError: (m) => errors.push(m) });
   share.startAsSeeker("xy"); // bad code — server rejects
-  // The initial publish (fired synchronously by startAsSeeker) already happened.
-  assert.equal(geoCalls.length, 1);
   // Session-error arrives.
   transport.fire("session-error", "Invalid session code.");
   assert.equal(share.role, null);
   assert.equal(errors.length, 1);
-  // The teardown must have killed the 60s publish interval — proved by the
-  // absence of any leaked timer state we can inspect. Also, the on/off
-  // symmetry means the session-error listener itself is unregistered.
+  // The teardown must have killed the watch — the GPS subscription cannot
+  // outlive the failed session.
+  assert.deepEqual(cleared, [99], "clearWatch called on teardown");
+  // And the session-error listener itself is unregistered.
   assert.equal(transport.listeners.get("session-error")?.size || 0, 0,
     "session-error listener removed on teardown");
 });
