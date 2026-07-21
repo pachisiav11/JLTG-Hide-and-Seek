@@ -39,6 +39,41 @@ a headless test and an SW cache bump; 580 `node:test` tests pass. Stage 2 (Phase
   watch stops (zone removed / threshold off / game switch / teardown), and
   `LiveShare` clears `jltg-seeker-close` on disconnect. SW → v93.
 
+## Phases 32–39 — Stages 2–5 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
+Notification correctness, the foreground live map, the in-app Guide, and the
+Android shell scaffold. All pushed; each web phase has a headless test + SW bump;
+618 `node:test` tests pass (SW at v100).
+
+- **Phase 32 — Edge-triggered geofence re-alerts.** Replaced the every-minute
+  "still outside" nudge with a state machine over three bands (safe / near / out)
+  that fires once per transition and is silent while parked. Canonical semantics
+  the native OS regions (Phase 41) will mirror.
+- **Phase 33 — Real "notifications Off".** Added `off` to `geofenceAlertStyle`
+  (off | silent | vibrate | vibrate-tone), suppressing the notification *and*
+  buzz/tone for both the geofence and seeker-close alerts (pill still updates).
+- **Phase 34 — Surfaced the edge alert + honest caveat.** The threshold is now
+  set in the 🎯 Hider-zone panel (`Focus.setGeofenceThreshold`), and both surfaces
+  carry "alerts only fire while the app is open — install the Android app".
+- **Phase 36 — Shared GPS watch + blue self-dot.** New `geo-watch.js`
+  ref-counted singleton (one `watchPosition` fanned to N subscribers) + a
+  gmaps-style blue self-dot (`self-location.js`); the geofence + seeker migrated
+  onto it.
+- **Phase 35 — "📍 Location on" chip.** A shared indicator (`gps-status.js`)
+  shown whenever any GPS watch is active, driven by `GeoWatch.onActiveChange`.
+- **Phase 37 — Live seeker red dot.** `LiveShare` emits each ping's point via
+  `onSeekerPoint`; `seeker-dot.js` draws/moves/removes a red marker on the
+  hider's map.
+- **Phase 38 — In-app Guide.** `guide.js` — a Settings ▸ 📘 Guide sheet covering
+  stations, live-share, and alerts, with an Android section scaffolded for the
+  Phase 45 permissions wizard.
+- **Phase 39 — Capacitor Android shell (scaffold).** `capacitor.config.ts`
+  (loads the live Pages site), a self-contained `capacitor-www/offline.html`
+  fallback, Capacitor devDeps, and [`docs/ANDROID_BUILD.md`](docs/ANDROID_BUILD.md).
+  The APK build + device QA are a documented manual step.
+- **Phase 31.5 — Bugfix.** Removing the hider zone now dismisses the outstanding
+  geofence tray notification (new `clearNotification(tag)` + a `CLEAR_NOTIFY` SW
+  handler); it no longer lingers on the lock screen.
+
 ## Phase 7 — Guide-rendering & interaction polish
 Post-launch improvements from [`IMPROVEMENTS.md`](IMPROVEMENTS.md); no new deps, no
 hosting impact (Static Site only).
