@@ -1,8 +1,9 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
-> **Status (2026-07-21): Stage 0 (Phases 27–29) and Stage 1 (Phases 30–31)
-> complete and pushed.** Next up: Stage 2 (Phase 32). Each completed phase below
-> is prefixed **[DONE]**.
+> **Status (2026-07-21): Stages 0–2 complete and pushed** — Phases 27–34, plus
+> a **Phase 31.5** bugfix (stale geofence notification after zone removal). Next
+> up: Stage 3 (Phase 36 → 35 → 37). Each completed phase below is prefixed
+> **[DONE]**.
 
 Everything scoped in this session's discussion, compiled and ordered **least →
 most important** (which also tracks least → most work). Early phases are quick
@@ -189,7 +190,7 @@ implement the same state machine).
   unchanged.
 - **Build:** SW bump.
 
-### Phase 34 — Surface the geofence control + honest caveat (reqs #8, #9 copy)
+### Phase 34 — [DONE] Surface the geofence control + honest caveat (reqs #8, #9 copy)
 - **Goal:** Promote the geofence enable/threshold out of deep Settings to the
   **Hider tool** flow (and/or a dedicated menu entry). Include one honest line
   in the **web** app: *"Alerts only fire while the app is open. Install the
@@ -393,10 +394,11 @@ implement the same state machine).
 
 ## Build order summary (least → most important)
 
-~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → 32 · 33 · 34 → 36 → 35 → 37 → 38 →
+~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → 36 → 35 → 37 → 38 →
 **39 → 40 → 41 · 42 → 43 → 44 → 45**
 
-(~~struck~~ = done & pushed. Stages 0–1 complete; resume at Phase 32.)
+(~~struck~~ = done & pushed. Stages 0–2 complete (+ Phase 31.5 bugfix); resume
+at Stage 3, Phase 36.)
 
 The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
 before committing to the free plugins. 39 must precede everything native. 43

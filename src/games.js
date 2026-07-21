@@ -747,7 +747,8 @@ export class Games {
           ${radio("questionTimer", "300", String(st.questionTimer || 0), "5 minutes")}
         </div>
         <h3 class="sub">Hider geofence</h3>
-        <p class="muted">While hiding, warn me when I'm this close to the edge of the Hider zone (or if I cross it). Requires notification permission; works while the app is open. Set to Off to disable.</p>
+        <p class="muted">While hiding, warn me when I'm this close to the edge of the Hider zone (or if I cross it). Also settable right in the 🎯 Hider-zone panel. Requires notification permission. Set to Off to disable.</p>
+        <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
         <div class="seg">
           ${radio("geofenceMetres", "0", String(st.geofenceMetres || 0), "Off")}
           ${radio("geofenceMetres", "50", String(st.geofenceMetres || 0), "50 m")}

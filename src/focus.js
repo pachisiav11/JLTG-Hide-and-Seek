@@ -48,6 +48,23 @@ export class Focus {
     toast("Hider zone cleared.");
   }
 
+  // Phase 34 (req #8): the edge-alert threshold, surfaced right in the Hider-zone
+  // flow instead of buried in Settings — this is where a hider sets up the zone
+  // they'll be sitting in, so it's where they'll want the "warn me near the
+  // edge" control. Writing settings.geofenceMetres is all it takes: the Geofence
+  // watcher subscribes to the store and (re)starts its GPS watch on the change
+  // once a zone with a radius also exists. 0 (or junk) disables it. Pure enough
+  // to unit-test the write + the watch-start it triggers.
+  setGeofenceThreshold(metres) {
+    const m = Number(metres);
+    // store.update already schedules the (debounced) autosave and emits the
+    // change synchronously, so the Geofence watcher reconciles immediately — no
+    // explicit saveNow() needed (and none of its no-IndexedDB reject noise).
+    store.update((g) => {
+      g.settings = { ...g.settings, geofenceMetres: Number.isFinite(m) && m > 0 ? m : 0 };
+    });
+  }
+
   render() {
     this._clear();
     const zone = this._zone();
@@ -105,6 +122,9 @@ export class Focus {
     const zone = this._zone() || {};
     const pt = zone.point;
     const units = store.getCurrent()?.settings?.units || "metric";
+    const gm = Number(store.getCurrent()?.settings?.geofenceMetres) || 0;
+    const gfRadio = (value, label) =>
+      `<label><input type="radio" name="f-geofence" value="${value}" ${gm === Number(value) ? "checked" : ""}/> ${label}</label>`;
     const s = openSheet({
       title: "Hider zone",
       bodyHTML: `
@@ -120,10 +140,24 @@ export class Focus {
           <button id="f-apply" class="btn btn-primary">Apply radius</button>
           <button id="f-noradius" class="btn">Marker only</button>
         </div>
+        <label class="fieldlbl">Edge alert — warn me when I'm this close to the edge (or if I cross it)</label>
+        <div class="seg">
+          ${gfRadio("0", "Off")}
+          ${gfRadio("50", "50 m")}
+          ${gfRadio("100", "100 m")}
+          ${gfRadio("200", "200 m")}
+        </div>
+        <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
         <div class="row">
           <button id="f-clear" class="btn btn-ghost" ${pt ? "" : "disabled"}>Clear zone</button>
         </div>`,
     });
+    // Apply the edge-alert threshold live on selection (the Geofence watcher
+    // reconciles off the store change) — no separate save step in this flow.
+    s.qa('input[name="f-geofence"]').forEach((r) => (r.onchange = () => {
+      this.setGeofenceThreshold(r.value);
+      toast(Number(r.value) > 0 ? `Edge alert at ${r.value} m.` : "Edge alert off.");
+    }));
     s.q("#f-tap").onclick = async () => {
       s.close();
       const pts = await layers.pick(1, "Tap the hider-zone centre on the map.");
