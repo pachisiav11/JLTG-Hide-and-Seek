@@ -17,7 +17,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js";
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
-import { isValidLocationPayload } from "./share-location.js";
+import { isValidLocationPayload, allowShareLocation } from "./share-location.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -255,6 +255,11 @@ io.on("connection", (socket) => {
     // so a bad client can't spoof pings into someone else's session.
     if (socket.data.role !== "seeker" || !socket.data.room) return;
     if (!isValidLocationPayload(payload)) return;
+    // Phase 19 (fix #7): token-bucket throttle. Silent drop past 4/s sustained
+    // (6-token burst) — a legitimate 60-s cadence sits far under the limit;
+    // a rogue client can no longer flood the hider or jitter across the
+    // close-approach threshold to defeat the once-per-crossing debounce.
+    if (!allowShareLocation(socket.data)) return;
     socket.to(socket.data.room).emit("location", {
       lat: payload.lat, lng: payload.lng, at: Date.now(),
     });
