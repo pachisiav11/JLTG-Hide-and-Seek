@@ -15,6 +15,7 @@
 
 import * as store from "./store.js";
 import { notifyViaSwOrPage } from "./sw-notify.js";
+import { metresBetween } from "./geo.js";
 
 // Pure decision function: given a seeker point + a hider's zone centre +
 // threshold, decide whether a close-approach alert is due. Prior state carries
@@ -31,11 +32,7 @@ import { notifyViaSwOrPage } from "./sw-notify.js";
 // dereferenced `out.state.distance` on the first pin-only ping and threw.
 export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, now = Date.now() }) {
   if (!seekerPoint || !zoneCentre) return { state: prior || null, notify: null };
-  const R = 6371000;
-  const lat0 = ((seekerPoint.lat + zoneCentre.lat) / 2) * Math.PI / 180;
-  const dLat = ((zoneCentre.lat - seekerPoint.lat) * Math.PI) / 180;
-  const dLng = ((zoneCentre.lng - seekerPoint.lng) * Math.PI / 180) * Math.cos(lat0);
-  const d = R * Math.hypot(dLat, dLng);
+  const d = metresBetween(seekerPoint, zoneCentre);
   // Pin-only mode: return distance for the pill but never signal a crossing.
   if (!(thresholdM > 0)) return { state: { inside: false, distance: d, at: now }, notify: null };
   const inside = d < thresholdM;

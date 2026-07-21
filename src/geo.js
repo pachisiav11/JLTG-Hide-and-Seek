@@ -8,6 +8,21 @@ function T() {
   return window.turf;
 }
 
+// Phase 21 (fix #9): shared equirectangular-lite distance between two
+// {lat, lng} points, in metres. Fast, no turf dependency, accurate enough
+// for the sub-kilometre distances the geofence and live-share both measure
+// against (equirectangular error is a few metres per km inside the play
+// area, dominated by GPS noise). Both call sites used to carry their own
+// inline copy; one silent divergence between them would drift the
+// close-approach threshold vs the geofence edge.
+export function metresBetween(a, b) {
+  const R = 6371000;
+  const lat0 = ((a.lat + b.lat) / 2) * Math.PI / 180;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI / 180) * Math.cos(lat0);
+  return R * Math.hypot(dLat, dLng);
+}
+
 // Bound a candidate feature set to the neighbourhood of `area` WITHOUT dropping legitimate
 // partition seeds.
 //

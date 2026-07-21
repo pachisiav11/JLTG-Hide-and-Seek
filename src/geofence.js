@@ -29,6 +29,7 @@
 
 import * as store from "./store.js";
 import { notifyViaSwOrPage } from "./sw-notify.js";
+import { metresBetween } from "./geo.js";
 
 // Two thresholds are used from the settings value N (metres):
 //   - Fire NEAR-EDGE alert when distance to edge < N and inside the zone.
@@ -38,14 +39,6 @@ import { notifyViaSwOrPage } from "./sw-notify.js";
 // crossing-side change also resets the debounce so an out-then-back-in sequence
 // re-alerts properly.
 const MIN_RE_ALERT_MS = 60_000;
-
-function metresBetween(a, b) {
-  const R = 6371000;
-  const lat0 = ((a.lat + b.lat) / 2) * Math.PI / 180;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI / 180) * Math.cos(lat0);
-  return R * Math.hypot(dLat, dLng);
-}
 
 // Given the hider's position and the focus zone, decide whether to fire and (if the
 // caller keeps a persistent pill) what to write in it. Pure — takes state in, returns
