@@ -408,6 +408,9 @@ textarea.field { resize: vertical; }
 .pill-dismiss:hover { background: rgba(255, 255, 255, 0.32); }
 .pill-hidden { display: none; }
 .pill-live-share { background: rgba(59, 130, 246, 0.9); }
+/* Phase 35 (req #5): the "Location on" status chip — a calm green, distinct from
+   the alert-blue live-share pill and the warn-red geofence state. */
+.pill-gps { background: rgba(16, 122, 87, 0.92); }
 .pill-warn { background: rgba(220, 38, 38, 0.92); }
 
 /* B1 draft preview readout — the live "size · N of Y stations would be eliminated" line

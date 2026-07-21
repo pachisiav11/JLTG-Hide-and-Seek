@@ -11,6 +11,7 @@ import { Notes } from "./notes.js";
 import { LiveShare } from "./live-share.js";
 import { geoWatch } from "./geo-watch.js";
 import { SelfLocation } from "./self-location.js";
+import { GpsStatus } from "./gps-status.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
 import { toast } from "./ui.js";
@@ -207,6 +208,11 @@ async function main() {
     // same shared GeoWatch as the geofence and seeker (one OS watch for all three).
     const selfLocation = new SelfLocation(map, { watch: geoWatch });
     selfLocation.init();
+    // Phase 35 (req #5): the shared "📍 Location on" chip, shown to both roles
+    // whenever any foreground GPS watch is active (which, with the self-dot, is
+    // whenever location permission is granted).
+    const gpsStatus = new GpsStatus({ watch: geoWatch });
+    gpsStatus.init();
     // Phase 6 (A3): render the locked station set as tappable markers so
     // manually eliminating a station is a one-tap map interaction, not a
     // panel scroll. Reuses game.stations.list (Phase 1) and the eliminated
@@ -280,7 +286,7 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
-    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");

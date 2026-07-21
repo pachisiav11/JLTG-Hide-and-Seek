@@ -26,11 +26,26 @@ export class GeoWatch {
     this._subs = new Set(); // each: { onFix, onError }
     this._watchId = null;
     this._lastFix = null;   // { lat, lng, accuracy, at }
+    this._activeListeners = new Set(); // (active: boolean) => void
   }
 
   get lastFix() { return this._lastFix; }
   get active() { return this._watchId != null; }
   get subscriberCount() { return this._subs.size; }
+
+  // Phase 35 (req #5): observe whether ANY watch is active, for the shared
+  // "Location on" indicator. Fires on genuine transitions (false↔true) and once
+  // immediately with the current state so a late observer starts in sync.
+  onActiveChange(fn) {
+    this._activeListeners.add(fn);
+    try { fn(this.active); } catch (e) { console.warn("geo-watch active listener threw", e); }
+    return () => this._activeListeners.delete(fn);
+  }
+  _emitActive() {
+    for (const fn of [...this._activeListeners]) {
+      try { fn(this.active); } catch (e) { console.warn("geo-watch active listener threw", e); }
+    }
+  }
 
   // Subscribe to position fixes. `onFix(fix)` is called with each new fix;
   // `onError(err)` (optional) with each GPS error. Returns an unsubscribe fn.
@@ -58,13 +73,16 @@ export class GeoWatch {
       (err) => this._onError(err),
       this.options,
     );
+    if (this._watchId != null) this._emitActive(); // false → true
   }
 
   _stopWatch() {
-    if (this._watchId != null && this.geo?.clearWatch) {
+    const wasActive = this._watchId != null;
+    if (wasActive && this.geo?.clearWatch) {
       try { this.geo.clearWatch(this._watchId); } catch (_) { /* already gone */ }
     }
     this._watchId = null;
+    if (wasActive) this._emitActive(); // true → false
   }
 
   _onPosition(p) {

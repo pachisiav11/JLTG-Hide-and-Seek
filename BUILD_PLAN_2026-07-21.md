@@ -205,7 +205,7 @@ implement the same state machine).
 
 # Stage 3 — Foreground live map (reqs #5, #7)
 
-### Phase 35 — "Location in use" indicator, foreground (req #5)
+### Phase 35 — [DONE] "Location in use" indicator, foreground (req #5)
 - **Goal:** A single clear persistent chip (e.g. **📍 Location on**) shown to
   both roles whenever **any** foreground GPS watch is active. (On the seeker's
   Android device this is *also* covered by the OS foreground-service notification
