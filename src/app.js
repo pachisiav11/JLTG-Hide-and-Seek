@@ -208,7 +208,9 @@ async function main() {
     // Socket.IO client loaded from the backend when the user actually opens
     // the panel — otherwise a fresh boot pays for zero of the sharing infra
     // if it's never used. See games.js openLiveShare for the wire-up.
-    const liveShare = new LiveShare({ transport: null });
+    // onError surfaces server-side session-error as a toast so a mistyped code
+    // isn't invisible if the user was looking at the map instead of the pill.
+    const liveShare = new LiveShare({ transport: null, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers

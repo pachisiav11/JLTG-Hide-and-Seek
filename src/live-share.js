@@ -14,7 +14,6 @@
 // Phase 9 SW path) when the distance drops below a threshold.
 
 import * as store from "./store.js";
-import { getPalette } from "./palette.js";
 
 // Pure decision function: given a seeker point + a hider's zone centre +
 // threshold, decide whether a close-approach alert is due. Prior state carries
@@ -70,18 +69,45 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), Notification = (typeof window !== "undefined" ? window.Notification : null) } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null } = {}) {
     this.transport = transport;
     this.geolocation = geolocation;
     this.N = Notification;
+    this.onError = onError; // (message: string) => void, for a toast the app can wire
     this.role = null;
     this.code = null;
     this.approachState = null;
     this._publishTimer = null;
     this._watchId = null;
     this._locationHandler = null;
+    this._sessionErrorHandler = null;
     this._pill = null;
     this._lastSeekerPoint = null;
+  }
+
+  // Bind the session-error listener before anything else. Kept in one place so
+  // seeker + hider start paths don't drift and every code path that resets the
+  // socket state also re-attaches this handler. The server emits `session-error`
+  // for a bad code or wrong role (server.js) — the client used to have no
+  // listener at all, so a mistyped code showed the "Sharing…" or "Waiting for
+  // a seeker ping…" pill forever with no signal to the user that the join
+  // never actually happened.
+  _armSessionErrorListener() {
+    this._sessionErrorHandler = (message) => this._onSessionError(message);
+    this.transport?.on?.("session-error", this._sessionErrorHandler);
+  }
+
+  _onSessionError(message) {
+    const text = typeof message === "string" && message.trim() ? message : "Session join failed.";
+    console.warn("live-share session-error:", text);
+    this._writePill(`Session error — ${text}`);
+    this._teardown();
+    this.role = null;
+    this.code = null;
+    // The pill stays around with the error text so the user can see it; a
+    // subsequent successful start replaces the content. Toast if the caller
+    // wired one — the pill alone isn't enough if the user was looking away.
+    try { this.onError?.(text); } catch (e) { console.warn("live-share onError callback threw", e); }
   }
 
   // Seeker side. Publishes GPS every ~60 s to the room named by `code`.
@@ -89,6 +115,7 @@ export class LiveShare {
     this._teardown();
     this.role = "seeker";
     this.code = code;
+    this._armSessionErrorListener();
     this.transport?.emit?.("join-session", { code, role: "seeker" });
     this._ensurePill();
     // Publish immediately, then every 60 s. `enableHighAccuracy` on the
@@ -116,6 +143,7 @@ export class LiveShare {
     this._teardown();
     this.role = "hider";
     this.code = code;
+    this._armSessionErrorListener();
     this.transport?.emit?.("join-session", { code, role: "hider" });
     this._locationHandler = (payload) => this._onSeekerPing(payload);
     this.transport?.on?.("location", this._locationHandler);
@@ -161,6 +189,7 @@ export class LiveShare {
   _teardown() {
     if (this._publishTimer) { clearInterval(this._publishTimer); this._publishTimer = null; }
     if (this._locationHandler) { try { this.transport?.off?.("location", this._locationHandler); } catch (_) {} this._locationHandler = null; }
+    if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
     this._lastSeekerPoint = null;
     this.approachState = null;
   }
