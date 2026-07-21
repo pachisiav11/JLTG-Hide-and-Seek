@@ -185,6 +185,14 @@ async function main() {
     const { Library } = await import("./library.js");
     const library = new Library(map, layers);
     layers.library = library;
+    // Phase 12 (§C5): live seeker→hider location share. Transport is a lazy
+    // Socket.IO client loaded from the backend when the user actually opens
+    // the panel — otherwise a fresh boot pays for zero of the sharing infra
+    // if it's never used. See games.js openLiveShare for the wire-up.
+    // onError surfaces server-side session-error as a toast so a mistyped code
+    // isn't invisible if the user was looking at the map instead of the pill.
+    // Declared before Games so it can be handed in without hitting the TDZ.
+    const liveShare = new LiveShare({ transport: null, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
     const games = new Games(zones, { boundaries, features, library, map, lines, liveShare });
     layers.init();
     focus.init();
@@ -204,13 +212,6 @@ async function main() {
     // state instead of losing them in a WhatsApp thread.
     const notes = new Notes(map);
     notes.init();
-    // Phase 12 (§C5): live seeker→hider location share. Transport is a lazy
-    // Socket.IO client loaded from the backend when the user actually opens
-    // the panel — otherwise a fresh boot pays for zero of the sharing infra
-    // if it's never used. See games.js openLiveShare for the wire-up.
-    // onError surfaces server-side session-error as a toast so a mistyped code
-    // isn't invisible if the user was looking at the map instead of the pill.
-    const liveShare = new LiveShare({ transport: null, onError: (msg) => toast(`Live share: ${msg}`, 4000) });
 
     // When the game itself changes (new / open / delete→fresh), wipe overlays
     // from modules that don't re-render on every store update, so nothing lingers
