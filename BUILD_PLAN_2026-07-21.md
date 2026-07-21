@@ -1,9 +1,11 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
-> **Status (2026-07-21): Stages 0–3 complete and pushed** — Phases 27–37, plus
-> a **Phase 31.5** bugfix (stale geofence notification after zone removal). Next
-> up: Stage 4 (Phase 38, in-app Guide). Each completed phase below is prefixed
-> **[DONE]**.
+> **Status (2026-07-21): Stages 0–4 complete and pushed** (Phases 27–38, plus a
+> **Phase 31.5** bugfix). **Stage 5 Phase 39 is scaffolded** — all headless-
+> buildable Capacitor artifacts are committed; the APK build + device QA remain
+> a manual step (needs Android Studio + a phone). Next up: Phase 40 (the
+> real-phone background spike). Completed phases below are prefixed **[DONE]**;
+> Phase 39 is **[SCAFFOLDED]**.
 
 Everything scoped in this session's discussion, compiled and ordered **least →
 most important** (which also tracks least → most work). Early phases are quick
@@ -258,7 +260,14 @@ implement the same state machine).
 
 # Stage 5 — Android native shell (packaging; prerequisite for background)
 
-### Phase 39 — Capacitor Android shell loading GitHub Pages
+### Phase 39 — [SCAFFOLDED] Capacitor Android shell loading GitHub Pages
+> **Committed:** `capacitor.config.ts` (server.url → Pages, errorPath → offline),
+> `capacitor-www/offline.html` + `index.html`, Capacitor devDeps + `cap:*`
+> scripts, `.gitignore` for the generated `android/`, and
+> [`docs/ANDROID_BUILD.md`](docs/ANDROID_BUILD.md) (build + sideload runbook).
+> **Remaining (manual, needs Android Studio + a device — cannot run headless):**
+> `npm install` → `npx cap add android` → `npx cap run android`, launcher icon,
+> and the QA checklist in the runbook.
 - **Goal:** A buildable **Android APK** that is a WebView loading the live
   GitHub Pages site, mirroring the PWA. This is the container the background
   plugins attach to; no background behaviour yet.
@@ -394,11 +403,11 @@ implement the same state machine).
 
 ## Build order summary (least → most important)
 
-~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → ~~36~~ → ~~35~~ → ~~37~~ → 38 →
-**39 → 40 → 41 · 42 → 43 → 44 → 45**
+~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → ~~36~~ → ~~35~~ → ~~37~~ → ~~38~~ →
+**39\* → 40 → 41 · 42 → 43 → 44 → 45**
 
-(~~struck~~ = done & pushed. Stages 0–3 complete (+ Phase 31.5 bugfix); resume
-at Stage 4, Phase 38.)
+(~~struck~~ = done & pushed. Stages 0–4 complete (+ Phase 31.5 bugfix). 39\* =
+scaffolded; APK build/QA is a manual device step. Resume at Phase 40.)
 
 The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
 before committing to the free plugins. 39 must precede everything native. 43

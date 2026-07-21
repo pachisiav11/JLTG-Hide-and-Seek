@@ -14,3 +14,10 @@ Thumbs.db
 
 # Local dev/preview tooling
 .claude/
+
+# Capacitor / Android native build (Phase 39). The android/ project is generated
+# by `npx cap add android` and rebuilt from capacitor.config.ts + capacitor-www/;
+# it (and its Gradle/keystore output) is not committed. Never commit a keystore.
+/android/
+*.keystore
+*.jks

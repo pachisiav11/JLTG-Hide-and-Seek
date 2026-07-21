@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<!--
+  Phase 39 (Stage 5): the Android shell's "no connection" fallback.
+
+  This is the ONLY bundled asset — it shows when the WebView can't reach the
+  live GitHub Pages site (dead signal at launch). It MUST stay self-contained:
+  no remote CSS, fonts, scripts or images, because the whole point is that the
+  network is unavailable when it renders. The Reload button retries the remote
+  server.url (a plain history/location reload — Capacitor re-attempts server.url).
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>JLTG H&amp;S — No connection</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #072129;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      padding-top: max(24px, env(safe-area-inset-top));
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+    }
+    .card { max-width: 420px; width: 100%; text-align: center; }
+    .glyph { font-size: 52px; line-height: 1; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { color: #cbd5e1; font-size: 15px; line-height: 1.5; margin: 0 0 16px; }
+    ol { text-align: left; color: #cbd5e1; font-size: 15px; line-height: 1.6; margin: 0 0 20px; padding-left: 22px; }
+    button {
+      width: 100%;
+      padding: 14px 16px;
+      border: none;
+      border-radius: 12px;
+      background: #14b8a6;
+      color: #04252a;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:active { opacity: 0.85; }
+    .hint { margin-top: 14px; font-size: 13px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="glyph" aria-hidden="true">📡</div>
+    <h1>No connection</h1>
+    <p>JLTG&nbsp;Hide&nbsp;&amp;&nbsp;Seek needs a network connection to load the map and live features.</p>
+    <ol>
+      <li>Turn on Wi-Fi or mobile data.</li>
+      <li>Tap <strong>Reload</strong> below (or fully close and reopen the app).</li>
+    </ol>
+    <button id="reload" type="button">Reload</button>
+    <p class="hint">Still stuck? Move somewhere with a stronger signal and try again.</p>
+  </main>
+  <script>
+    // Retry the remote site. Capacitor re-attempts server.url on a reload.
+    document.getElementById("reload").addEventListener("click", function () {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>

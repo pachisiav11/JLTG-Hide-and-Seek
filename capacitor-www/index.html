@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!--
+  Phase 39: placeholder index for the Capacitor webDir.
+
+  The shell loads the LIVE site via server.url, so this bundled index is only a
+  momentary base the WebView shows before the remote page takes over. If the
+  remote can't load, Capacitor swaps to offline.html (server.errorPath). Kept
+  self-contained for the same reason offline.html is.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>JLTG H&amp;S</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; background: #072129; color: #f8fafc; }
+    body { display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; }
+    .load { text-align: center; opacity: 0.85; }
+    .glyph { font-size: 40px; }
+    p { font-size: 15px; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <main class="load">
+    <div class="glyph" aria-hidden="true">🗺️</div>
+    <p>Loading JLTG Hide &amp; Seek…</p>
+  </main>
+</body>
+</html>
