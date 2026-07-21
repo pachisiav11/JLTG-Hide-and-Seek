@@ -175,6 +175,14 @@ is not covered by any headless test — the whole flow depends on how Google
 Maps synthesises pointer events for touch. Recommend a manual playtest of
 the note-pin flow on both platforms before relying on it during a game.
 
+**Status (2026-07-21):** documented as a required manual step. The C1
+section of `PLAYTEST_IDEAS.md` now carries a 4-step device-verification
+checklist (iOS Safari + Chrome Android, long-press drops a pin, short
+tap does not, fix location if either platform misses). No code change —
+the fix path (Pointer Events or an added `touchstart` pair in
+`src/notes.js`) is documented but not applied until a real device shows
+the current wiring failing.
+
 ---
 
 ## Fix-order recommendation

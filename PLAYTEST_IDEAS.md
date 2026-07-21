@@ -272,6 +272,23 @@ non-goal** and is called out as such.
   - Not a fold step (doesn't eliminate anything), just a visible marker — so
     it can be added and removed freely without touching the elimination engine.
 - **Nice-to-haves (deferred):** photo attachment, colour-code by category.
+- **Manual verification (finding #13, 2026-07-21):** Google Maps synthesises
+  its own pointer events for touch, and the exact shape it delivers on iOS
+  Safari vs Chrome-on-Android is NOT covered by any headless test in the suite —
+  every `game-` test here drives the plain DOM listeners, never the maps
+  synthesiser. Before relying on note pins during a game, verify on a real
+  device:
+  1. Open the game in the deployed app (GitHub Pages URL) on iOS Safari.
+     Hold on the map for ~500 ms without moving your finger. A `!`-labelled
+     pin should drop where you held.
+  2. Same test on Chrome for Android.
+  3. On both, confirm short taps do NOT drop a pin — the long-press timer
+     must be the only path.
+  4. If either platform misses the long-press cleanly, the fix lives in
+     `src/notes.js:66` where the `mousedown`+`mouseup`+`dragstart` wiring
+     is; add a `touchstart`+`touchend` pair or switch to Pointer Events.
+  A manual pass on this flow has to be part of "does this build ship?"
+  until a device-emulator test covers the maps synthesiser.
 
 ### C2. Copy-my-location button *(small)*
 
