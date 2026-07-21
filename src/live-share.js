@@ -14,6 +14,7 @@
 // Phase 9 SW path) when the distance drops below a threshold.
 
 import * as store from "./store.js";
+import { notifyViaSwOrPage } from "./sw-notify.js";
 
 // Pure decision function: given a seeker point + a hider's zone centre +
 // threshold, decide whether a close-approach alert is due. Prior state carries
@@ -171,17 +172,14 @@ export class LiveShare {
 
   _fireNotification({ title, body }) {
     if (!this.N || this.N.permission !== "granted") return;
-    // Same SW-first path Phase 9 introduced for geofence — a backgrounded
-    // hider tab still gets a system-tray alert.
-    const payload = { type: "GEOFENCE_NOTIFY", title, body, tag: "jltg-seeker-close" };
-    try {
-      const sw = typeof navigator !== "undefined" && navigator.serviceWorker;
-      const controller = sw?.controller;
-      if (controller) return controller.postMessage(payload);
-      if (sw?.ready?.then) return sw.ready.then((reg) => reg.active?.postMessage(payload));
-    } catch (_) { /* fall through */ }
-    try { new this.N(title, { body, tag: "jltg-seeker-close", renotify: true }); }
-    catch (e) { console.warn("live-share notification failed", e); }
+    // Phase 17 (fix #5): SW-first with ack-or-page-fallback, same helper the
+    // geofence uses. Guards against a stale SW during the upgrade window
+    // silently swallowing the message.
+    const firePage = () => {
+      try { new this.N(title, { body, tag: "jltg-seeker-close", renotify: true }); }
+      catch (e) { console.warn("live-share notification failed", e); }
+    };
+    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body, tag: "jltg-seeker-close" }, firePage);
   }
 
   stop() { this._teardown(); this._removePill(); this.role = null; this.code = null; }

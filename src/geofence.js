@@ -28,6 +28,7 @@
 // notification. That is the always-visible companion to the once-per-crossing alert.
 
 import * as store from "./store.js";
+import { notifyViaSwOrPage } from "./sw-notify.js";
 
 // Two thresholds are used from the settings value N (metres):
 //   - Fire NEAR-EDGE alert when distance to edge < N and inside the zone.
@@ -170,28 +171,18 @@ export class Geofence {
     // Notifications.permission would defeat the whole point.
     this._buzzAndBeep();
     if (!this.N || this.N.permission !== "granted") return;
-    // Phase 9 (§C4): prefer the service worker's showNotification so the
-    // alert reaches the system tray and survives a backgrounded tab. Falling
-    // back to page-side `new Notification()` is fine when the SW isn't
-    // registered (dev preview, first paint), just less reliable for a hider
-    // whose phone has slept.
-    const payload = { type: "GEOFENCE_NOTIFY", title, body: body || "", tag: "jltg-geofence" };
-    let sent = false;
-    try {
-      const sw = typeof navigator !== "undefined" && navigator.serviceWorker;
-      const controller = sw?.controller;
-      if (controller) { controller.postMessage(payload); sent = true; }
-      else if (sw?.ready?.then) {
-        // If we're not controlled yet (first load post-install), wait for the
-        // registration to be ready. Best-effort; the buzz/beep in Phase 8 has
-        // already fired so the hider isn't left with silence.
-        sw.ready.then((reg) => { try { reg.active?.postMessage(payload); } catch (_) { /* SW gone */ } });
-        sent = true;
-      }
-    } catch (_) { /* fall through to page notification */ }
-    if (sent) return;
-    try { new this.N(title, { body, tag: "jltg-geofence", renotify: true, silent: false }); }
-    catch (e) { console.warn("geofence: notification failed", e); }
+    // Phase 9 (§C4) + Phase 17 (fix #5): prefer the service worker so the alert
+    // reaches the system tray, but if the SW does not ACK the message within
+    // the timeout (an OLD active SW during the upgrade window has no
+    // GEOFENCE_NOTIFY handler and drops it silently), fire the page-side
+    // notification as a fallback. Deliberately allow both to fire in the rare
+    // race where the ack arrives late — the notification tag dedupes on the
+    // browser side and a duplicate is better than silence.
+    const firePage = () => {
+      try { new this.N(title, { body, tag: "jltg-geofence", renotify: true, silent: false }); }
+      catch (e) { console.warn("geofence: notification failed", e); }
+    };
+    notifyViaSwOrPage({ type: "GEOFENCE_NOTIFY", title, body: body || "", tag: "jltg-geofence" }, firePage);
   }
 
   _alertStyle() {

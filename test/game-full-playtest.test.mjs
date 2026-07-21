@@ -275,7 +275,12 @@ test("game 3: live share fires seeker-close notification via SW-first path; no r
   // SW-first path is exercised (and page-side new Notification is NOT called
   // when the SW handles it — same contract Phase 9 pins for geofence).
   const swPosts = [];
-  const controller = { postMessage: (m) => swPosts.push(m) };
+  // Ack the message on the transferred port so notifyViaSwOrPage's page
+  // fallback timeout doesn't fire and add a lingering timer to the run.
+  const controller = { postMessage: (m, transfer) => {
+    swPosts.push(m);
+    if (transfer && transfer[0]) { try { transfer[0].postMessage({ ack: true }); } catch (_) {} }
+  } };
   Object.defineProperty(globalThis, "navigator", {
     value: { serviceWorker: { controller } },
     configurable: true, writable: true,

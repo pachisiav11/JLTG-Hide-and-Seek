@@ -24,8 +24,17 @@ function boot({ withController = false, withReady = false } = {}) {
     static permission = "granted";
     constructor(title, opts) { fired.push({ title, opts }); }
   }
-  const controller = withController ? { postMessage: (m) => posted.push({ via: "controller", m }) } : null;
-  const readyReg = withReady ? { active: { postMessage: (m) => posted.push({ via: "ready", m }) } } : null;
+  // Phase 17: the mock must ACK the message via the transferred port so
+  // notifyViaSwOrPage's page-fallback timeout does not fire. A real (v79+) SW
+  // acks in service-worker.js; the old handler didn't and that was the whole
+  // bug we're guarding against — a separate test in this file covers the
+  // no-ack case explicitly.
+  const ackingPost = (label) => (m, transfer) => {
+    posted.push({ via: label, m });
+    if (transfer && transfer[0]) { try { transfer[0].postMessage({ ack: true }); } catch (_) {} }
+  };
+  const controller = withController ? { postMessage: ackingPost("controller") } : null;
+  const readyReg = withReady ? { active: { postMessage: ackingPost("ready") } } : null;
   Object.defineProperty(globalThis, "navigator", {
     value: {
       serviceWorker: {
@@ -46,14 +55,17 @@ test("game 1: with a controlling SW, the notification is posted, not shown page-
   assert.equal(posted[0].m.type, "GEOFENCE_NOTIFY");
   assert.equal(posted[0].m.title, "Near the edge");
   assert.equal(posted[0].m.body, "80 m from the edge");
+  // Wait past the ack-or-fallback timeout to prove the page path really did not
+  // fire on a healthy (acking) SW.
+  await new Promise((r) => setTimeout(r, 500));
   assert.equal(fired.length, 0, "the page-side Notification path must not fire when the SW took the message");
 });
 
 test("game 2: no controller but a ready registration — postMessage via ready.active", async () => {
   const { gf, posted, fired } = boot({ withController: false, withReady: true });
   gf._fireNotification({ title: "Left the zone", body: "50 m past" });
-  // ready is async, wait a tick.
-  await new Promise((r) => setTimeout(r, 5));
+  // ready is async + the ack-or-fallback timeout is 400 ms, so wait past it.
+  await new Promise((r) => setTimeout(r, 500));
   assert.equal(posted.length, 1);
   assert.equal(posted[0].via, "ready");
   assert.equal(fired.length, 0, "the fallback page Notification must not double-fire");

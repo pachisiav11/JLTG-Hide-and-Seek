@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v82";
+const CACHE_VERSION = "jltg-shell-v83";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -33,6 +33,7 @@ const SHELL_ASSETS = [
   "./src/stations-layer.js",
   "./src/notes.js",
   "./src/live-share.js",
+  "./src/sw-notify.js",
   "./src/lines.js",
   "./src/games.js",
   "./icons/icon.svg",
@@ -55,6 +56,14 @@ self.addEventListener("message", (event) => {
   // notification, so the user sees it in the system tray (and the phone can
   // wake it) instead of a foreground-only `new Notification(...)` that
   // Android throws away when the tab is backgrounded.
+  //
+  // Phase 17 (fix #5): ack the message back to the page so the page can tell
+  // whether the SW actually handled it. Without the ack an OLD active SW
+  // (during the upgrade window before this handler landed) silently drops the
+  // message; the page assumed success and skipped its own fallback. The ack
+  // goes back on the MessageChannel port the page sent along; if there is no
+  // port (old page code) we still render the notification, we just can't
+  // ack.
   if (event.data?.type === "GEOFENCE_NOTIFY") {
     const { title, body, tag } = event.data;
     if (!title) return;
@@ -70,6 +79,8 @@ self.addEventListener("message", (event) => {
         // system notifications honour this pattern on Android.
         vibrate: [200, 100, 200],
       });
+      const port = event.ports && event.ports[0];
+      if (port) { try { port.postMessage({ ack: true }); } catch (_) { /* port closed */ } }
     } catch (e) { console.warn("SW showNotification failed", e); }
   }
 });
