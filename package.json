@@ -18,10 +18,12 @@
     "express": "^4.22.2",
     "socket.io": "^4.7.5"
   },
-  "//devDependencies": "Phase 39 (Android shell). Native-build-only — NOT needed for `npm test`. Run `npm install` before the Android build; see docs/ANDROID_BUILD.md.",
+  "//devDependencies": "Native-build-only — NOT needed for `npm test`. Run `npm install` before the Android build. Phase 39: Capacitor shell. Phase 40: the Doze spike plugins (@capacitor-community/background-geolocation = the free foreground-service watcher under test; @capacitor/local-notifications = firing an alert off a background tick). See docs/PHASE40_DOZE_SPIKE.md.",
   "devDependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.20",
     "@capacitor/android": "^6.2.0",
     "@capacitor/cli": "^6.2.0",
-    "@capacitor/core": "^6.2.0"
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/local-notifications": "^6.1.0"
   }
 }

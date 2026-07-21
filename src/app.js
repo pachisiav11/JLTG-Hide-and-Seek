@@ -15,6 +15,7 @@ import { GpsStatus } from "./gps-status.js";
 import { SeekerDot } from "./seeker-dot.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
+import { initBgSpike } from "./bg-spike.js";
 import { toast } from "./ui.js";
 import * as db from "./db.js";
 
@@ -402,4 +403,7 @@ function wireInstallPrompt() {
 
 registerServiceWorker();
 wireInstallPrompt();
+// Phase 40: the Doze spike overlay. Self-guards to the native shell + a
+// `#bgspike` URL hash, so it is a complete no-op on a normal web/PWA boot.
+initBgSpike();
 main();

@@ -1,11 +1,12 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
 > **Status (2026-07-21): Stages 0–4 complete and pushed** (Phases 27–38, plus a
-> **Phase 31.5** bugfix). **Stage 5 Phase 39 is scaffolded** — all headless-
-> buildable Capacitor artifacts are committed; the APK build + device QA remain
-> a manual step (needs Android Studio + a phone). Next up: Phase 40 (the
-> real-phone background spike). Completed phases below are prefixed **[DONE]**;
-> Phase 39 is **[SCAFFOLDED]**.
+> **Phase 31.5** bugfix). **Stage 5 Phase 39 is scaffolded** and **Phase 40 is
+> wired** — the Doze-spike harness (`src/bg-spike.js`) + its verdict logic are
+> committed and headless-tested; what remains for both is the **manual device
+> half** (Android Studio + a phone: build the APK, then run the spike per
+> `docs/PHASE40_DOZE_SPIKE.md`). Completed phases below are prefixed **[DONE]**;
+> Phase 39 is **[SCAFFOLDED]**, Phase 40 is **[WIRED]**.
 
 Everything scoped in this session's discussion, compiled and ordered **least →
 most important** (which also tracks least → most work). Early phases are quick
@@ -299,7 +300,7 @@ implement the same state machine).
 
 # Stage 6 — Background notifications (MOST important; the core of the tool)
 
-### Phase 40 — Geofence spike (de-risks the free-plugin question)
+### Phase 40 — [WIRED] Geofence spike (de-risks the free-plugin question)
 - **Scope note:** this spike is about **on-device background location** (OS
   geofencing + the seeker's background-location plugin), **independent of FCM**.
   FCM only carries the seeker-close ping's last hop and needs no spike — but the
@@ -309,14 +310,25 @@ implement the same state machine).
 - **Goal:** Prove the free background path on the **real phone**. Bare shell +
   free plugin + one OS geofence region + a local notification; phone **locked in
   a pocket 20 min**, confirm the crossing notification arrives.
-- **Steps:** add `@capacitor/local-notifications` (free, official); try the
-  **community background-geolocation plugin** and/or Android's `GeofencingClient`
-  for a single test region; log/notify on enter/exit; test locked + Doze
-  (`adb shell dumpsys deviceidle force-idle`).
-- **Outcome:** decision — community plugin holds up, or write the ~1-day custom
-  `GeofencingClient` Capacitor plugin. Everything below depends on this answer.
-- **Files:** spike branch; record findings in `docs/ANDROID_BUILD.md`.
-- **Tests:** manual device test (documented). No web changes.
+- **[WIRED] What was built (headless-buildable half):** `src/bg-spike.js` — a
+  self-contained on-device harness, inert unless `#bgspike` **and** the native
+  shell. It opens the community background-geolocation **foreground-service**
+  watcher, stamps every fix and PERSISTS the log to `localStorage` (survives a
+  Doze WebView kill), drops a geofence and fires a `@capacitor/local-notifications`
+  alert on each crossing (reusing the real `evaluateGeofence` band machine), and
+  reduces the log to a **PASS/FAIL verdict from the inter-fix gaps** (a gap > 4×
+  the 30 s cadence = the OS suspended the plugin). Plugins added to `package.json`
+  devDeps. SW cache → **v101**.
+- **[MANUAL] What still needs the phone:** the actual run — build the APK, grant
+  "Allow all the time" + battery-exemption, `adb shell dumpsys deviceidle
+  force-idle`, and read the verdict. Full runbook: `docs/PHASE40_DOZE_SPIKE.md`.
+- **Outcome:** decision — community plugin holds up (**PASS** → hider geofence
+  rides the foreground service), or it dies in Doze (**FAIL** → write the ~1-day
+  custom `GeofencingClient` plugin + FCM). Everything below depends on this answer.
+- **Files:** `src/bg-spike.js`, `test/bg-spike.test.mjs`, wiring in `src/app.js`,
+  `service-worker.js` (v101), `package.json`; runbook `docs/PHASE40_DOZE_SPIKE.md`.
+- **Tests:** `test/bg-spike.test.mjs` pins the verdict logic headlessly (9 tests);
+  the on-device run itself is the documented manual spike.
 
 ### Phase 41 — Track A: hider background geofence (self-contained)
 - **Goal:** Register **two concentric OS geofence regions** from the hider's
@@ -404,10 +416,12 @@ implement the same state machine).
 ## Build order summary (least → most important)
 
 ~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → ~~36~~ → ~~35~~ → ~~37~~ → ~~38~~ →
-**39\* → 40 → 41 · 42 → 43 → 44 → 45**
+**39\* → 40† → 41 · 42 → 43 → 44 → 45**
 
 (~~struck~~ = done & pushed. Stages 0–4 complete (+ Phase 31.5 bugfix). 39\* =
-scaffolded; APK build/QA is a manual device step. Resume at Phase 40.)
+scaffolded; APK build/QA is a manual device step. 40† = harness + verdict logic
+wired & tested; the on-device run is the manual half (`docs/PHASE40_DOZE_SPIKE.md`).
+Resume at the Phase 40 device run, which gates 41/42.)
 
 The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
 before committing to the free plugins. 39 must precede everything native. 43

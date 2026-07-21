@@ -2,6 +2,36 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 40 — [WIRED] Doze spike harness, Stage 6 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
+The headless-buildable half of the real-phone Doze spike that gates the whole
+native background track. The **question**: on a locked, screen-off phone in Doze,
+does a *free* background-location plugin keep firing — so the hider geofence can
+ride a simple foreground service — or must it fall back to native OS geofencing +
+FCM? This phase builds the experiment; the answer needs a device.
+
+- **`src/bg-spike.js`** — a self-contained on-device harness, **inert** unless the
+  URL is `#bgspike` **and** it's inside the Capacitor native shell (never touches a
+  web/PWA boot). It opens the `@capacitor-community/background-geolocation`
+  **foreground-service** watcher, stamps every fix and **persists the log to
+  `localStorage`** (so a Doze-kill of the WebView can't erase the evidence), drops
+  a geofence and fires a `@capacitor/local-notifications` alert on each crossing —
+  reusing the **same `evaluateGeofence` band machine** the real hider uses — and
+  reduces the log to a **PASS/FAIL verdict from the inter-fix gaps** (a gap > 4× the
+  30 s cadence = the OS suspended the plugin).
+- **`test/bg-spike.test.mjs`** — 9 headless tests pinning the verdict reduction: a
+  steady run passes, one Doze-sized gap fails, no/too-few fixes resolve to an honest
+  "can't tell", and the tolerance is configurable. This is what makes the on-device
+  run conclusive rather than a vibe.
+- **`docs/PHASE40_DOZE_SPIKE.md`** — the conclusive runbook: build the spike APK,
+  the two required `AndroidManifest` edits, grant "Allow all the time" + the
+  battery-exemption, force Doze with `adb shell dumpsys deviceidle force-idle`, and
+  read the verdict — run **twice** (battery Unrestricted vs. optimized) to size the
+  exemption's effect for the Phase 45 wizard.
+- Plugins added to `package.json` devDeps (native-build-only); wired in `src/app.js`
+  behind the hash+native guard. SW cache **v100 → v101**; **627** `node:test` pass.
+- **Still manual (needs a phone):** the actual spike run and its PASS/FAIL outcome,
+  which picks the Phase 41 architecture.
+
 ## Phases 27–31 — Web UX batch, Stages 0–1 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
 The quick web wins + station-interaction stages of the 27–45 plan (the tail of
 which is Android-native background notifications). All pushed to `main`, each with
