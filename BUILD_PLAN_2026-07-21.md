@@ -1,5 +1,9 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
+> **Status (2026-07-21): Stage 0 (Phases 27–29) and Stage 1 (Phases 30–31)
+> complete and pushed.** Next up: Stage 2 (Phase 32). Each completed phase below
+> is prefixed **[DONE]**.
+
 Everything scoped in this session's discussion, compiled and ordered **least →
 most important** (which also tracks least → most work). Early phases are quick
 web wins; the plan builds toward its centre of gravity — **real background
@@ -67,14 +71,14 @@ implement the same state machine).
 
 # Stage 0 — Quick web wins (least important)
 
-### Phase 27 — Drop "(for WhatsApp)" from Copy-my-location (req #3)
+### Phase 27 — [DONE] Drop "(for WhatsApp)" from Copy-my-location (req #3)
 - **Goal:** `📋 Copy MY location (for WhatsApp)` → `📋 Copy MY location`. The
   feature isn't WhatsApp-specific.
 - **Files:** `src/games.js` (menu label near line 36; tidy the adjacent comment).
 - **Tests:** none new (string-only) — state that in the commit.
 - **Build:** SW bump (games.js is a cached shell asset).
 
-### Phase 28 — Custom km approach-threshold input (req #4)
+### Phase 28 — [DONE] Custom km approach-threshold input (req #4)
 - **Goal:** In Live-share, add a **Custom** radio + a **km number input** beside
   the 500 m / 1 / 2 / 5 km presets.
 - **Files:** `src/games.js` `openLiveShare` (add the radio + `<input
@@ -85,7 +89,7 @@ implement the same state machine).
   that a custom value drives an `evaluateApproach` crossing.
 - **Build:** SW bump.
 
-### Phase 29 — Declutter / relocate the pills (req #11)
+### Phase 29 — [DONE] Declutter / relocate the pills (req #11)
 - **Goal:** The bottom-right geofence + live-share pills are obstructive. Move
   them out of the toolbar's path, make them **collapsible/dismissible**, and
   ensure they **stack without overlapping** when both are present.
@@ -99,7 +103,7 @@ implement the same state machine).
 
 # Stage 1 — Station interaction (reqs #1, #2)
 
-### Phase 30 — Station long-press action chooser (req #2)
+### Phase 30 — [DONE] Station long-press action chooser (req #2)
 - **Goal:** **Single tap with no active tool = nothing.** **Long-press (or
   desktop right-click) a station → a 2-option sheet: 📝 Add note here /
   ❌ Eliminate ⟷ ♻️ Restore** (label reflects state). Remove the current
@@ -117,7 +121,7 @@ implement the same state machine).
   mutates state.
 - **Build:** SW bump.
 
-### Phase 31 — Tap-the-map-to-select-nearest-station (req #1)
+### Phase 31 — [DONE] Tap-the-map-to-select-nearest-station (req #1)
 - **Goal:** A "Select on map" button in the Stations panel arms a one-shot pick
   mode; the next map tap **snaps to the nearest station** (points only, no name
   labels) and opens the Phase 30 chooser for it. Easier than hitting the tiny
@@ -367,8 +371,10 @@ implement the same state machine).
 
 ## Build order summary (least → most important)
 
-27 · 28 · 29 → 30 → 31 → 32 · 33 · 34 → 36 → 35 → 37 → 38 →
+~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → 32 · 33 · 34 → 36 → 35 → 37 → 38 →
 **39 → 40 → 41 · 42 → 43 → 44 → 45**
+
+(~~struck~~ = done & pushed. Stages 0–1 complete; resume at Phase 32.)
 
 The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
 before committing to the free plugins. 39 must precede everything native. 43

@@ -2,6 +2,35 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phases 27–31 — Web UX batch, Stages 0–1 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
+The quick web wins + station-interaction stages of the 27–45 plan (the tail of
+which is Android-native background notifications). All pushed to `main`, each with
+a headless test and an SW cache bump; 580 `node:test` tests pass. Stage 2 (Phase
+32+) is next.
+
+- **Phase 27 — Copy-my-location label.** Dropped "(for WhatsApp)" from the menu
+  label (the button copies coordinates for *any* chat) and genericised the comment.
+  String-only; SW → v88.
+- **Phase 28 — Custom km approach-threshold.** Live-share gains a **Custom** radio +
+  km number input beside the 500 m / 1 / 2 / 5 km presets. New pure
+  `parseApproachKm(str)` (`src/live-share.js`) converts km → metres, rejecting junk /
+  ≤0 as `null` and clamping to 50 km; still stored in metres in
+  `settings.approachThresholdM`. Also fixed a latent double-check (value 0 lit both
+  Off and 2 km). SW → v89.
+- **Phase 29 — Shared, dismissible pill stack.** New `src/pill-stack.js`: one fixed
+  container lifted clear of the bottom-centre toolbar, holding the geofence +
+  live-share pills as flex-column children so they stack without overlap by
+  construction. Each pill gains a dismiss (×) that hides only the DOM node — the GPS
+  watch keeps running. SW → v90.
+- **Phase 30 — Station long-press chooser.** A plain tap on a station now does
+  **nothing**; a long-press (touch) / right-click (desktop) opens a 2-option sheet —
+  Add note here / Eliminate ⟷ Restore. Pure `stationLongPressActions(station)`;
+  reuses `addNote` + `toggleStationElimination`. SW → v91.
+- **Phase 31 — Select-nearest-station on map.** A "Select on map" button in the
+  Stations panel arms a one-shot map pick that snaps the tap to the closest station
+  (new pure `nearestStation(list, point)`) and opens the Phase 30 chooser for it.
+  SW → v92.
+
 ## Phase 7 — Guide-rendering & interaction polish
 Post-launch improvements from [`IMPROVEMENTS.md`](IMPROVEMENTS.md); no new deps, no
 hosting impact (Static Site only).
