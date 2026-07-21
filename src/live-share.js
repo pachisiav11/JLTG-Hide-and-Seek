@@ -17,6 +17,21 @@ import * as store from "./store.js";
 import { notifyViaSwOrPage } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 
+// Phase 24 (fix #12): compact distance formatter for the live-share pill.
+//
+// Under 1 km reads in metres (nearest metre). At 1 km and above, switch to km
+// with up to two decimals — but strip trailing zeros so a round threshold
+// like 2 km reads as "2 km", not "2.00 km" or (as it once did) "2000 m".
+// parseFloat does the trailing-zero strip: parseFloat("1.00") === 1,
+// parseFloat("2.50") === 2.5, parseFloat("1.23") === 1.23. Tested by
+// test/game-live-share-format-distance.test.mjs on every option the UI
+// offers plus the awkward-boundary cases.
+export function formatDistance(m) {
+  if (!Number.isFinite(m)) return "";
+  if (m < 1000) return `${Math.round(m)} m`;
+  return `${parseFloat((m / 1000).toFixed(2))} km`;
+}
+
 // Pure decision function: given a seeker point + a hider's zone centre +
 // threshold, decide whether a close-approach alert is due. Prior state carries
 // last-inside status so we only fire on the "outside → inside" transition —
@@ -39,14 +54,12 @@ export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, n
   const wasInside = !!prior?.inside;
   const state = { inside, distance: d, at: now };
   if (inside && !wasInside) {
-    const km = d / 1000;
-    const label = km >= 1 ? `${km.toFixed(2)} km` : `${Math.round(d)} m`;
     return {
       state,
       notify: {
         kind: "seeker-close",
         title: "Seeker close",
-        body: `A seeker is ~${label} from your hiding zone centre.`,
+        body: `A seeker is ~${formatDistance(d)} from your hiding zone centre.`,
       },
     };
   }
@@ -173,8 +186,7 @@ export class LiveShare {
     const out = evaluateApproach({ seekerPoint: this._lastSeekerPoint, zoneCentre: centre, thresholdM: threshold, prior: this.approachState });
     this.approachState = out.state;
     const d = out.state.distance;
-    const label = d >= 1000 ? `${(d / 1000).toFixed(2)} km` : `${Math.round(d)} m`;
-    this._writePill(`Seeker ${label} from zone${threshold ? ` (alert < ${threshold >= 1000 ? (threshold / 1000).toFixed(1) + " km" : threshold + " m"})` : ""}`);
+    this._writePill(`Seeker ${formatDistance(d)} from zone${threshold ? ` (alert < ${formatDistance(threshold)})` : ""}`);
     if (out.notify) this._fireNotification(out.notify);
   }
 
