@@ -19,9 +19,9 @@ const config: CapacitorConfig = {
   webDir: "capacitor-www",
   server: {
     // Load the live site. Web phases auto-deploy here and reach the app for free.
-    url: "https://pachisiav11.github.io/JLTG-Hide-and-Seek/",
+    url: "https://pachisiav11.github.io/JLTG-Hide-and-Seek/#bgspike",
     androidScheme: "https",
-    cleartext: false, // HTTPS only — Pages + Render + Google are all TLS.
+    cleartext: false,
     // Shown from the bundled webDir when server.url fails to load (dead signal).
     errorPath: "offline.html",
     // Allow the WebView to navigate to the origins the app legitimately uses, so

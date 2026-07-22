@@ -160,8 +160,16 @@ function saveCfg(cfg) {
 class BgSpike {
   constructor() {
     this.cap = window.Capacitor;
-    this.BG = this.cap.registerPlugin("BackgroundGeolocation");
-    this.LN = this.cap.registerPlugin("LocalNotifications");
+    this.BG = null;
+    this.LN = null;
+    // The remote-loaded live site never bundles @capacitor/core, so the native
+    // bridge object only has isNativePlatform()/getPlatform() — registerPlugin()
+    // is added by @capacitor/core's own module init. Fetch it lazily (only once
+    // the spike actually activates) rather than paying for it on every page load.
+    this._pluginsReady = import("../vendor/capacitor-core.js").then(({ registerPlugin }) => {
+      this.BG = registerPlugin("BackgroundGeolocation");
+      this.LN = registerPlugin("LocalNotifications");
+    });
     this.rows = loadLog();
     this.cfg = loadCfg() || { radius: 150, threshold: 60, expectedIntervalMs: 30000 };
     this.zone = this.cfg.zone || null;
@@ -182,6 +190,7 @@ class BgSpike {
 
   async start() {
     if (this.watcherId != null) return;
+    await this._pluginsReady;
     try {
       // requestPermissions:true makes the plugin walk the user through
       // "Allow all the time" — the exact grant Phase 45's wizard will own.
@@ -256,6 +265,7 @@ class BgSpike {
 
   // Drop the geofence where we are right now (last fix, else a one-shot fix).
   async setZoneHere() {
+    await this._pluginsReady;
     let base = [...this.rows].reverse().find((r) => r.type === "fix");
     let fix = base ? { lat: base.lat, lng: base.lng, at: base.ts } : null;
     if (!fix) {
