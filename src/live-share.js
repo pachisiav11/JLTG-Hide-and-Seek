@@ -105,7 +105,7 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, getPushToken = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, getPushToken = null, initPushReceiver = null, postLocalNotify = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
     // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
     // the geofence + self-dot). Production injects the singleton; a test injects
@@ -123,6 +123,15 @@ export class LiveShare {
     // code so the server can push seeker-close alerts to a LOCKED phone (Phase 44).
     // Null / off-device → no registration, socket-only delivery, as before.
     this._getPushToken = getPushToken;
+    // Phase 44 (Track B 3/3): the RECEIVE + local-notify hooks for the native
+    // shell. `initPushReceiver({onSeekerCoords})` wires the FCM data-message
+    // listener that feeds forwarded seeker coords into the same _onSeekerPing path
+    // a socket ping uses; `postLocalNotify(notify, {alertStyle})` posts the alert
+    // as a local notification (which shows from a locked/backgrounded WebView,
+    // unlike the web Notification API). Both null / off-device → web path only.
+    this._initPushReceiver = initPushReceiver;
+    this._postLocalNotify = postLocalNotify;
+    this._pushUnsub = null;
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
     // Phase 37: (point|null) => void — the app wires the red seeker dot to this.
@@ -222,6 +231,22 @@ export class LiveShare {
     this._ensurePill();
     this._writePill("Waiting for a seeker ping…");
     this._registerHiderToken(code);
+    this._startPushReceiver();
+  }
+
+  // Phase 44: on the Android shell, listen for the server's forwarded seeker
+  // coords (FCM data message) and route them through the SAME _onSeekerPing path
+  // a foreground socket ping uses — so a locked hider's alert, pill, and red dot
+  // are the identical, already-tested code. Off-device this is inert.
+  _startPushReceiver() {
+    if (!this._initPushReceiver || !this._isNative()) return;
+    Promise.resolve(this._initPushReceiver({ onSeekerCoords: (pt) => this._onSeekerPing(pt) }))
+      .then((unsub) => {
+        // A stop() between kickoff and resolve → tear the fresh listener down now.
+        if (this.role === "hider") this._pushUnsub = unsub;
+        else { try { unsub?.(); } catch (_) {} }
+      })
+      .catch((e) => console.warn("live-share: push receiver init failed", e));
   }
 
   // Phase 43: on the Android shell, mint this device's FCM token and register it
@@ -258,11 +283,21 @@ export class LiveShare {
     if (out.notify) this._fireNotification(out.notify);
   }
 
-  _fireNotification({ title, body }) {
+  _fireNotification(notify) {
+    const { title, body } = notify;
     // Phase 33 (req #10): the shared "Off" also silences the seeker-close alert —
     // no system notification (seeker-close has no buzz/tone of its own). The pill
     // still updates in _onSeekerPing, so the hider can still see the distance.
-    if (store.getCurrent()?.settings?.geofenceAlertStyle === "off") return;
+    const alertStyle = store.getCurrent()?.settings?.geofenceAlertStyle || "vibrate-tone";
+    if (alertStyle === "off") return;
+    // Phase 44: on the Android shell, post a LOCAL notification — it shows from a
+    // locked/backgrounded WebView (where the FCM message just woke us), which the
+    // web Notification API can't. Off-device, fall through to the web path.
+    if (this._postLocalNotify && this._isNative()) {
+      Promise.resolve(this._postLocalNotify(notify, { alertStyle }))
+        .catch((e) => console.warn("live-share: local notify failed", e));
+      return;
+    }
     if (!this.N || this.N.permission !== "granted") return;
     // Phase 17 (fix #5): SW-first with ack-or-page-fallback, same helper the
     // geofence uses. Guards against a stale SW during the upgrade window
@@ -284,6 +319,8 @@ export class LiveShare {
     this._watchUnsub = null;
     if (this._locationHandler) { try { this.transport?.off?.("location", this._locationHandler); } catch (_) {} this._locationHandler = null; }
     if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
+    // Phase 44: drop the FCM data-message listener when the session ends.
+    if (this._pushUnsub) { try { this._pushUnsub(); } catch (_) {} this._pushUnsub = null; }
     // Phase 37: the session is ending — clear the red seeker dot. Only signal a
     // removal if there was a point to remove, so a plain re-start doesn't churn.
     if (this._lastSeekerPoint) { try { this.onSeekerPoint?.(null); } catch (e) { console.warn("onSeekerPoint threw", e); } }

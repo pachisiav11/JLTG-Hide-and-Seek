@@ -11,7 +11,8 @@ import { StationsLayer } from "./stations-layer.js";
 import { Notes } from "./notes.js";
 import { LiveShare } from "./live-share.js";
 import { NativeSeekerWatch } from "./native-seeker-location.js";
-import { getHiderPushToken } from "./native-push.js";
+import { getHiderPushToken, initHiderPushReceiver } from "./native-push.js";
+import { postSeekerCloseNotification } from "./native-local-notify.js";
 import { geoWatch } from "./geo-watch.js";
 import { SelfLocation } from "./self-location.js";
 import { GpsStatus } from "./gps-status.js";
@@ -208,7 +209,19 @@ async function main() {
     // Off-device this is inert (available === false) and the foreground geoWatch
     // is used, exactly as before.
     const nativeSeekerWatch = new NativeSeekerWatch();
-    const liveShare = new LiveShare({ transport: null, watch: geoWatch, bgWatch: nativeSeekerWatch, getPushToken: () => getHiderPushToken(), onSeekerPoint: (pt) => seekerDot.update(pt), onError: (msg) => toast(`Live share: ${msg}`, 4000) });
+    const liveShare = new LiveShare({
+      transport: null,
+      watch: geoWatch,
+      bgWatch: nativeSeekerWatch,
+      getPushToken: () => getHiderPushToken(),
+      // Phase 44: on the Android shell, receive the server's forwarded seeker
+      // coords (FCM) and post the seeker-close alert as a local notification so a
+      // LOCKED hider is alerted. Both inert off-device.
+      initPushReceiver: (opts) => initHiderPushReceiver(opts),
+      postLocalNotify: (notify, opts) => postSeekerCloseNotification(notify, opts),
+      onSeekerPoint: (pt) => seekerDot.update(pt),
+      onError: (msg) => toast(`Live share: ${msg}`, 4000),
+    });
     const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
     layers.init();
     focus.init();

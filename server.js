@@ -20,6 +20,7 @@ import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
 import { isValidLocationPayload, allowShareLocation } from "./share-location.js";
 import { HiderTokenRegistry } from "./hider-tokens.js";
 import { createFcm } from "./fcm.js";
+import { forwardPingToHider } from "./relay-forward.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -298,9 +299,14 @@ io.on("connection", (socket) => {
     // a rogue client can no longer flood the hider or jitter across the
     // close-approach threshold to defeat the once-per-crossing debounce.
     if (!allowShareLocation(socket.data)) return;
-    socket.to(socket.data.room).emit("location", {
-      lat: payload.lat, lng: payload.lng, at: Date.now(),
-    });
+    const ping = { lat: payload.lat, lng: payload.lng, at: Date.now() };
+    // Foreground hiders on the socket get it immediately (Phase 12/37).
+    socket.to(socket.data.room).emit("location", ping);
+    // Phase 44: ALSO forward over FCM so a LOCKED hider is woken. Server stays
+    // zone-blind — it sends raw coords; the hider's phone computes the alert.
+    // Fire-and-forget: a send failure must never disrupt the socket relay.
+    forwardPingToHider({ registry: hiderTokens, fcm, code: socket.data.room, payload: ping })
+      .catch((e) => console.warn("[fcm] forward failed:", e?.message || e));
   });
 });
 

@@ -61,3 +61,37 @@ export async function getHiderPushToken({ isNative = isNativeCapacitor, plugin =
   try { errHandle?.remove?.(); } catch { /* ignore */ }
   return token;
 }
+
+// Phase 44 (Track B 3/3): the RECEIVE half. Listen for the server's forwarded
+// seeker-location data message and hand the raw coords to `onSeekerCoords`. The
+// hider's app — woken even when locked — feeds these into the SAME evaluateApproach
+// path a foreground socket ping uses (src/live-share.js), so the local
+// notification, the pill, and the red dot are all reused. Server stays zone-blind:
+// it forwards coordinates; the distance decision happens here, on-device.
+//
+// Returns an unsubscribe fn. Inert off-device (no FCM in a browser/PWA/node).
+export async function initHiderPushReceiver({ isNative = isNativeCapacitor, plugin = null, onSeekerCoords } = {}) {
+  if (!isNative() || typeof onSeekerCoords !== "function") return () => {};
+  const PN = plugin || (await loadPushPlugin());
+  if (!PN) return () => {};
+
+  const handle = (data) => {
+    const d = data || {};
+    if (d.type && d.type !== "seeker-location") return; // not our message
+    const lat = Number(d.lat), lng = Number(d.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    try { onSeekerCoords({ lat, lng, at: Number(d.at) || Date.now() }); }
+    catch (e) { console.warn("native-push: onSeekerCoords threw", e); }
+  };
+
+  const handles = [];
+  try {
+    // Foreground / woken delivery carries the data on the notification.
+    handles.push(await PN.addListener?.("pushNotificationReceived", (n) => handle(n?.data || n)));
+    // A tap on a surfaced notification (if the OS showed one) carries it too.
+    handles.push(await PN.addListener?.("pushNotificationActionPerformed", (a) => handle(a?.notification?.data)));
+  } catch (e) {
+    console.warn("native-push: could not attach receiver", e);
+  }
+  return () => { for (const h of handles) { try { h?.remove?.(); } catch { /* ignore */ } } };
+}
