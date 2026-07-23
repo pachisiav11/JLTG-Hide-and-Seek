@@ -18,6 +18,7 @@ import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
 import { geoWatch, GeoWatch } from "./geo-watch.js";
+import { isNativeCapacitor } from "./bg-spike.js";
 
 // Notification tag — shared with the SW so a stale seeker-close alert can be
 // dismissed from the tray when sharing stops (Phase 31.5 bug).
@@ -104,12 +105,19 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
     // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
     // the geofence + self-dot). Production injects the singleton; a test injects
     // a private GeoWatch or a raw geolocation we wrap here.
     this.watch = watch || (geolocation ? new GeoWatch({ geolocation }) : geoWatch);
+    // Phase 42 (Track B): a GeoWatch-COMPATIBLE background watcher for the native
+    // shell. When present AND we're on-device, the seeker subscribes to THIS
+    // instead of the foreground `watch`, so its GPS keeps streaming to the relay
+    // with the phone locked (a foreground-service watcher, Doze-proof per Phase
+    // 40). Null / off-device → the foreground path is used, unchanged.
+    this.bgWatch = bgWatch;
+    this._isNative = isNative;
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
     // Phase 37: (point|null) => void — the app wires the red seeker dot to this.
@@ -190,7 +198,10 @@ export class LiveShare {
       this._writePill(`Sharing · ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
     };
     const onErr = (err) => { console.warn("live-share seeker: geolocation error", err); this._writePill("Location unavailable"); };
-    this._watchUnsub = this.watch.subscribe(onFix, onErr);
+    // Phase 42: prefer the background watcher on the Android shell so streaming
+    // survives a screen-off pocket; the throttle above is identical either way.
+    const seekerWatch = (this.bgWatch && this._isNative()) ? this.bgWatch : this.watch;
+    this._watchUnsub = seekerWatch.subscribe(onFix, onErr);
   }
 
   // Hider side. Subscribes to the room and evaluates every incoming ping

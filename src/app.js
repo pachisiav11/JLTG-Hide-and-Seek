@@ -10,6 +10,7 @@ import { NativeGeofence } from "./native-geofence.js";
 import { StationsLayer } from "./stations-layer.js";
 import { Notes } from "./notes.js";
 import { LiveShare } from "./live-share.js";
+import { NativeSeekerWatch } from "./native-seeker-location.js";
 import { geoWatch } from "./geo-watch.js";
 import { SelfLocation } from "./self-location.js";
 import { GpsStatus } from "./gps-status.js";
@@ -201,7 +202,12 @@ async function main() {
     // Phase 37 (req #7b): draw the live seeker as a red dot on the hider's map.
     // LiveShare hands each ping's point (and null on disconnect) to the dot.
     const seekerDot = new SeekerDot(map);
-    const liveShare = new LiveShare({ transport: null, watch: geoWatch, onSeekerPoint: (pt) => seekerDot.update(pt), onError: (msg) => toast(`Live share: ${msg}`, 4000) });
+    // Phase 42 (Track B): on the Android shell the seeker streams via a
+    // background-location foreground service so sharing survives a locked pocket.
+    // Off-device this is inert (available === false) and the foreground geoWatch
+    // is used, exactly as before.
+    const nativeSeekerWatch = new NativeSeekerWatch();
+    const liveShare = new LiveShare({ transport: null, watch: geoWatch, bgWatch: nativeSeekerWatch, onSeekerPoint: (pt) => seekerDot.update(pt), onError: (msg) => toast(`Live share: ${msg}`, 4000) });
     const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
     layers.init();
     focus.init();
