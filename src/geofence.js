@@ -32,6 +32,7 @@ import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
 import { metresBetween } from "./geo.js";
 import { createPill } from "./pill-stack.js";
 import { geoWatch, GeoWatch } from "./geo-watch.js";
+import { isNativeCapacitor } from "./bg-spike.js";
 
 // Notification tag — shared with the SW's showNotification/CLEAR_NOTIFY so a
 // stale alert is dismissed the moment the watch stops (Phase 31.5 bug).
@@ -107,8 +108,16 @@ export function evaluateGeofence({ position, zone, thresholdMetres, prior, now =
 // Live geofence watcher for the app. Manages the geolocation subscription, the
 // notification firing, the foreground pill, and cleanup on toggle-off / game-change.
 export class Geofence {
-  constructor({ Notification = (typeof window !== "undefined" ? window.Notification : null), geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null } = {}) {
+  constructor({ Notification = (typeof window !== "undefined" ? window.Notification : null), geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, native = null } = {}) {
     this.N = Notification;
+    // Phase 41: inside the Android shell the BACKGROUND geofence (NativeGeofence,
+    // riding the foreground-service watcher) owns the alerts — it fires even when
+    // this foreground path is throttled/evicted, and it uses the same
+    // evaluateGeofence machine, so letting BOTH fire would double every crossing.
+    // When native, this class keeps only its always-visible foreground PILL and
+    // stays silent on notifications; off-device (browser/PWA) it remains the sole
+    // alerter exactly as before. Injectable for tests.
+    this._native = native != null ? native : isNativeCapacitor();
     // Phase 36: ride the shared GeoWatch instead of opening our own OS watch.
     // Production injects the singleton (shared with the seeker + self-dot); a
     // test can inject a private GeoWatch, or a raw geolocation we wrap here.
@@ -193,6 +202,10 @@ export class Geofence {
   }
 
   _fireNotification({ title, body }) {
+    // Phase 41: on the Android shell, NativeGeofence (background) owns alerting;
+    // the pill already updated in _onPosition, so return before firing to avoid a
+    // duplicate of every crossing. No effect off-device.
+    if (this._native) return;
     // Phase 33 (req #10): a real "Off" — no system notification AND no buzz/tone.
     // Distinct from "silent" (which still posts a tray notification). The pill
     // still updates (that happens in _onPosition, before this), so a hider who

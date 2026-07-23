@@ -128,7 +128,10 @@ Phase 39 is just the container. The background notifications that are the point
 of the Android app attach to this shell in later phases:
 
 - **Phase 40** — real-phone spike: do the free background plugins fire in Doze?
-- **Phase 41** — hider background geofence (OS geofencing + local notifications).
+  **PASS** (`docs/PHASE40_RESULTS.md`) — the foreground service survives Doze.
+- **Phase 41** — hider background geofence: rides the foreground-service watcher,
+  computes the band in JS (`evaluateGeofence`), fires local notifications. Code +
+  tests done; device QA in `docs/PHASE41_HIDER_GEOFENCE.md`.
 - **Phases 42–44** — seeker background streaming + FCM forward → hider computes.
 - **Phase 45** — the permissions setup wizard (fills the Guide's Android section).
 

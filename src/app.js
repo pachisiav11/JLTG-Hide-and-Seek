@@ -6,6 +6,7 @@ import { MapFeatures } from "./features.js";
 import { Layers } from "./layers.js";
 import { Focus } from "./focus.js";
 import { Geofence } from "./geofence.js";
+import { NativeGeofence } from "./native-geofence.js";
 import { StationsLayer } from "./stations-layer.js";
 import { Notes } from "./notes.js";
 import { LiveShare } from "./live-share.js";
@@ -209,6 +210,14 @@ async function main() {
     // sets a geofence threshold in Settings AND a focus zone exists.
     const geofence = new Geofence({ watch: geoWatch });
     geofence.init();
+    // Phase 41 (Track A): on the Android shell, the hider's geofence also runs in
+    // the BACKGROUND — a foreground-service location watcher (proven Doze-proof by
+    // the Phase 40 spike) feeds the same evaluateGeofence machine and posts local
+    // notifications while the phone is locked in a pocket. Inert in the browser/PWA
+    // (init() no-ops off-device), where the foreground `geofence` above is the only
+    // alerter; when native, `geofence` keeps its pill but defers alerts to this.
+    const nativeGeofence = new NativeGeofence();
+    nativeGeofence.init();
     // Phase 36 (req #7a): the always-on blue self-dot + accuracy ring, riding the
     // same shared GeoWatch as the geofence and seeker (one OS watch for all three).
     const selfLocation = new SelfLocation(map, { watch: geoWatch });
