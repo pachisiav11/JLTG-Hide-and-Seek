@@ -2,17 +2,42 @@
 
 let activeSheet = null;
 
-export function toast(msg, ms = 2400) {
+// Bumped on every toast()/loadingToast() call so a stale loadingToast's dismiss fn
+// (returned before some NEWER toast took over the shared element) knows not to hide
+// content it no longer owns.
+let toastToken = 0;
+
+function toastEl() {
   let t = document.getElementById("toast");
   if (!t) {
     t = document.createElement("div");
     t.id = "toast";
     document.body.appendChild(t);
   }
+  return t;
+}
+
+export function toast(msg, ms = 2400) {
+  const t = toastEl();
+  const myToken = ++toastToken;
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove("show"), ms);
+  t._timer = setTimeout(() => { if (toastToken === myToken) t.classList.remove("show"); }, ms);
+}
+
+// For a load of unknown duration (a fetch, geocode, reverse-geocode, GPS fix, …):
+// show `msg` and keep it up — no auto-hide timer — until the caller invokes the
+// returned function. Use this instead of toast() for "X is loading…" messages so the
+// toast disappearing is tied to the load actually finishing, not a guessed duration.
+export function loadingToast(msg) {
+  const t = toastEl();
+  const myToken = ++toastToken;
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._timer);
+  t._timer = null;
+  return () => { if (toastToken === myToken) t.classList.remove("show"); };
 }
 
 // Open a bottom sheet. `bodyHTML` is inserted into the content area; the returned

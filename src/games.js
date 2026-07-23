@@ -1,7 +1,7 @@
 // Game history browser, settings, and import/export (guide §6.3, §7 screens 5–6).
 import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
-import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
+import { openSheet, toast, loadingToast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange, makeManualStation } from "./stations.js";
 import { formatLocationForClipboard } from "./ingest.js";
@@ -611,6 +611,7 @@ export class Games {
       // Phase 13 documented in MULTIPLAYER_DESIGN.md: load the client shim
       // from the backend so we don't ship a socket.io-client dep in the SW.
       if (!shareState.transport) {
+        const hideLoading = loadingToast("Connecting…");
         try {
           await new Promise((resolve, reject) => {
             if (window.io) return resolve();
@@ -624,8 +625,10 @@ export class Games {
           shareState.transport = sock; // Socket.IO client IS the EventEmitter API LiveShare expects
         } catch (e) {
           console.warn("live-share transport init failed", e);
+          hideLoading();
           return toast(`Couldn't connect to relay — ${e.message}`);
         }
+        hideLoading();
       }
       if (role === "seeker") shareState.startAsSeeker(code); else shareState.startAsHider(code);
       toast(`Live share: ${role} in "${code}"`);

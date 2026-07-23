@@ -10,7 +10,7 @@ import { countStationsInEliminated } from "./stations.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
-import { openSheet, closeSheet, toast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
+import { openSheet, closeSheet, toast, loadingToast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
 import { geoWatch } from "./geo-watch.js";
 
@@ -925,8 +925,10 @@ export class Layers {
           }
 
           let results = [];
-          try { toast("Not in the list — searching…"); results = await searchText(this.map, query.trim(), { location: center || undefined, radius }); }
-          catch (e) { toast(e.message); render(); return; }
+          const hideLoading = loadingToast("Not in the list — searching…");
+          try { results = await searchText(this.map, query.trim(), { location: center || undefined, radius }); }
+          catch (e) { hideLoading(); toast(e.message); render(); return; }
+          hideLoading();
           if (!results.length) { toast("No matches — try a more specific name."); render(); return; }
           s.close();
           const added = await this._pickSearchResults(card, results, area, { center, radius });
@@ -1064,7 +1066,7 @@ export class Layers {
     const pts = await this.pick(2, "Tap two points to compare their admin divisions.");
     if (!pts || pts.length < 2) return this.openPanel();
     const markers = pts.map((p, i) => new google.maps.Marker({ position: p, label: `${i + 1}`, map: this.map }));
-    toast("Looking up divisions…");
+    const hideLoading = loadingToast("Looking up divisions…");
     let A, B;
     try {
       [A, B] = await Promise.all([reverseGeocode(pts[0]), reverseGeocode(pts[1])]);
@@ -1072,6 +1074,8 @@ export class Layers {
       markers.forEach((m) => m.setMap(null));
       toast(e.message);
       return this.openPanel();
+    } finally {
+      hideLoading();
     }
     // Labelled in GOOGLE's terms, with no ordinals. These rows come from reverse geocoding, and
     // "County / 2nd admin" / "State / 1st admin" asserted an equivalence to the game's division
@@ -1142,8 +1146,9 @@ export class Layers {
     if (!source) return this.openPanel();
     let centerPt = null;
     if (source === "self") {
-      toast("Finding your location…");
+      const hideLoading = loadingToast("Finding your location…");
       centerPt = await this._getSelfPosition();
+      hideLoading();
       const area = store.getCurrent()?.gameArea;
       if (centerPt && area && window.turf && !this._inArea(centerPt, area)) {
         toast("Your location is outside the play area — tap a point instead.");
@@ -1236,8 +1241,9 @@ export class Layers {
       const ptsA = await this.pick(1, "Tap point A inside the play area.", { constrainToArea: true });
       if (!ptsA) return this.openPanel();
       a = ptsA[0];
-      toast("Finding your location…");
+      const hideLoading = loadingToast("Finding your location…");
       b = await this._getSelfPosition();
+      hideLoading();
       if (b && area && window.turf && !this._inArea(b, area)) {
         toast("Your location is outside the play area — tap point B instead.");
         b = null;
@@ -1562,7 +1568,7 @@ export class Layers {
   async _sourcedMatchLines(card) {
     const g = store.getCurrent();
     if (!g?.gameArea) { toast("Draw a game area first."); return false; }
-    toast(`Finding ${pluralLabel(card.label).toLowerCase()}…`);
+    const hideLoading = loadingToast(`Finding ${pluralLabel(card.label).toLowerCase()}…`);
     let sourced = [];
     try {
       const { candidateLines } = await import("./lines.js");
@@ -1578,6 +1584,8 @@ export class Layers {
         ? `${card.label} request rejected: ${e.message} — draw them instead.`
         : `Couldn't load ${pluralLabel(card.label).toLowerCase()} — draw them instead.`);
       return false;
+    } finally {
+      hideLoading();
     }
     if (sourced.length < 2) {
       toast(sourced.length
@@ -1893,7 +1901,7 @@ export class Layers {
       // is no proxy, Overpass is down, or the board genuinely has no metro. A silent fallback
       // would hide that the seeker is back on the approximate question.
       if (cat.lineKind) {
-        toast("Finding metro lines…");
+        const hideLines = loadingToast("Finding metro lines…");
         try {
           const { candidateLines } = await import("./lines.js");
           const { lines, hidden } = await candidateLines(cat.lineKind, g.gameArea, center, cat.radius);
@@ -1905,10 +1913,12 @@ export class Layers {
         } catch (e) {
           console.warn("metro line sourcing failed", e);
           toast("Couldn't load metro lines — falling back to stations.");
+        } finally {
+          hideLines();
         }
       }
 
-      toast("Searching…");
+      const hideSearching = loadingToast("Searching…");
       const turf = window.turf;
       let feats = [], source = "google", reason = "primary";
       try {
@@ -1920,6 +1930,8 @@ export class Layers {
       } catch (e) {
         toast(e.message);
         return this.openPanel();
+      } finally {
+        hideSearching();
       }
       // No clamp warning here: Tentacles searches a FIXED card radius (2 km / 25 km) around
       // the seeker, not the play area's diagonal, so it can never hit Google's 50 km ceiling.
@@ -2239,7 +2251,7 @@ export class Layers {
   async _autoLine(card) {
     const g = store.getCurrent();
     if (!g?.gameArea) { toast("Draw a game area first."); return null; }
-    toast(`Finding the ${card.label.toLowerCase()}…`);
+    const hideLoading = loadingToast(`Finding the ${card.label.toLowerCase()}…`);
     try {
       const { lineGeometry } = await import("./lines.js");
       const out = await lineGeometry(card.lineKind, g.gameArea, {
@@ -2269,6 +2281,8 @@ export class Layers {
         ? `${card.label} request rejected: ${e.message} — draw it instead.`
         : `Couldn't load the ${card.label.toLowerCase()} — draw it instead.`);
       return null;
+    } finally {
+      hideLoading();
     }
   }
 

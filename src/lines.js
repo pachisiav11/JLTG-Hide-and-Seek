@@ -18,7 +18,7 @@
 // a mode's colour is what makes the filter legible on the map instead of a guess.
 import * as db from "./db.js";
 import * as store from "./store.js";
-import { toast, openSheet, escapeHtml } from "./ui.js";
+import { toast, loadingToast, openSheet, escapeHtml } from "./ui.js";
 
 // Rail geometry changes on the timescale of construction projects, so a long TTL. This is a
 // refresh horizon, not an expiry: a stale entry is still served when the network fails (see
@@ -560,8 +560,8 @@ export class Lines {
     // there rather than like a stale fetch.
     if (this.data && this.bbox === bbox) return this.data;
     this.loading = true;
+    const hideLoading = loadingToast("Loading rail lines…");
     try {
-      toast("Loading rail lines…");
       const proxyBase = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
       this.data = await loadLines("rail", bbox, { proxyBase });
       this.bbox = bbox;
@@ -575,6 +575,7 @@ export class Lines {
       return null;
     } finally {
       this.loading = false;
+      hideLoading();
     }
   }
 
