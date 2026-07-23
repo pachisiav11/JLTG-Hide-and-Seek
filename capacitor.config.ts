@@ -19,7 +19,12 @@ const config: CapacitorConfig = {
   webDir: "capacitor-www",
   server: {
     // Load the live site. Web phases auto-deploy here and reach the app for free.
-    url: "https://pachisiav11.github.io/JLTG-Hide-and-Seek/#bgspike",
+    // NOTE: the #bgspike hash lived here through Phase 40's on-device runs (it
+    // arms the diagnostic overlay in src/bg-spike.js) — now that the spike PASSED
+    // and Phases 41-45 are built, a real build must NOT boot into the spike
+    // screen. Append "#bgspike" yourself (in-app, via the address bar equivalent,
+    // or a debug build variant) only when re-running that diagnostic.
+    url: "https://pachisiav11.github.io/JLTG-Hide-and-Seek/",
     androidScheme: "https",
     cleartext: false,
     // Shown from the bundled webDir when server.url fails to load (dead signal).
