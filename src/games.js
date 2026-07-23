@@ -551,12 +551,12 @@ export class Games {
     const s = openSheet({
       title: "Live location share",
       bodyHTML: `
-        <p class="muted">A narrow one-way channel: the SEEKER's device streams its GPS to the HIDER's device (no game state). Exchange the session code out of band.</p>
+        <p class="muted">A narrow one-way channel: the SEEKER's device streams its GPS to the HIDER's device (no game state). The <strong>HIDER</strong> generates a 4-digit code and reads it out to the <strong>SEEKER</strong>, who types it in.</p>
         ${!proxy ? `<p class="warn-note">No relay URL is configured (OVERPASS_PROXY_URL / MULTIPLAYER_URL). The share won't reach the other device — set it in config.js or in the deployment env vars.</p>` : ""}
         <label class="fieldlbl">Session code</label>
         <div class="row">
-          <input id="ls-code" class="field" type="text" spellcheck="false" autocomplete="off" value="${escapeHtml(shareState?.code || localStorage.getItem("jltg.liveShareCode") || "")}" placeholder="e.g. m5x7pq"/>
-          <button id="ls-gen" class="btn">Generate</button>
+          <input id="ls-code" class="field" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" spellcheck="false" autocomplete="off" value="${escapeHtml(shareState?.code || localStorage.getItem("jltg.liveShareCode") || "")}" placeholder="4-digit code"/>
+          <button id="ls-gen" class="btn">🎲 Generate (as HIDER)</button>
         </div>
         <label class="fieldlbl">Approach threshold (hider only) — alert when seeker within</label>
         <div class="seg">
@@ -601,8 +601,8 @@ export class Games {
       return true;
     };
     const connect = async (role) => {
-      const code = s.q("#ls-code").value.trim().toLowerCase();
-      if (!/^[a-z0-9-]{3,32}$/.test(code)) return toast("Enter a 3-32 char session code (letters, digits, hyphens).");
+      const code = s.q("#ls-code").value.trim();
+      if (!/^[0-9]{4}$/.test(code)) return toast("Enter the 4-digit code (the HIDER generates it, the SEEKER types it in).");
       localStorage.setItem("jltg.liveShareCode", code);
       if (!saveThreshold()) return;
       if (!proxy) return toast("No relay URL configured — cannot connect.");

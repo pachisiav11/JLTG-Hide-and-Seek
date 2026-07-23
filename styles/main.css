@@ -610,12 +610,22 @@ textarea.field { resize: vertical; }
 }
 .update-banner .update-x { border: none; background: transparent; color: var(--text-dim); font-size: 14px; padding: 2px 4px; }
 
-/* Print / save-to-PDF view (Phase 12): hide the app chrome, print only the map. */
+/* Print / save-to-PDF view (Phase 12): hide the app chrome, print only the map.
+   Bug (2026-07-23): `height: 100vh` on #map and `height: auto` on html/body don't
+   agree on what "full page" means in a print context — `vh` is unreliable across
+   browsers' print rendering (it isn't always resolved against the actual paper
+   size), so the map came out covering only ~1/3 of the page while every fixed-
+   position overlay still floating at its on-screen coordinates read as "centred
+   on the paper" against that mostly-blank page. Fixing it means giving html/body
+   a DEFINITE 100% (not auto) so #map's own height:100% has something to resolve
+   against, and dropping vh in favour of that percentage chain; .pill-stack (the
+   GPS/live-share pills) was also missing from the hidden list. */
 @media print {
+  @page { margin: 0; }
   #topbar, #toolbar, #install-btn, #q-timer, .err-banner, .update-banner,
-  .sheet, .sheet-backdrop, #toast, #measure-readout, .draw-bar, .ctx-menu { display: none !important; }
-  html, body { overflow: visible !important; height: auto !important; }
-  #map { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100vh !important; }
+  .sheet, .sheet-backdrop, #toast, #measure-readout, .draw-bar, .ctx-menu, .pill-stack { display: none !important; }
+  html, body { margin: 0 !important; overflow: visible !important; width: 100% !important; height: 100% !important; }
+  #map { position: fixed !important; inset: 0 !important; width: 100% !important; height: 100% !important; }
 }
 
 /* Soft question timer (Phase 11) */

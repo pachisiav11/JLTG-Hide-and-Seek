@@ -42,7 +42,7 @@ export const GUIDE_SECTIONS = [
     id: "live-share",
     title: "📡 Live location share",
     html: `
-      <p class="muted">A one-way channel (no game state): the SEEKER's device streams its GPS to the HIDER's device. Exchange the 6-character session code out of band, then one shares as SEEKER and one receives as HIDER.</p>
+      <p class="muted">A one-way channel (no game state): the SEEKER's device streams its GPS to the HIDER's device. The HIDER generates a 4-digit code and reads it out; the SEEKER types it in, then one shares as SEEKER and one receives as HIDER.</p>
       <ul>
         <li>The hider sees a <strong>red dot</strong> jump to the seeker's latest position each update, plus a pill with the live distance.</li>
         <li>Your own position always shows as a <strong>blue dot</strong> with an accuracy ring, and a <strong>📍 Location on</strong> chip appears whenever the app is using GPS.</li>

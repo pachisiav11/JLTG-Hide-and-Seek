@@ -91,13 +91,12 @@ export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, n
   return { state, notify: null };
 }
 
-// Session code generator — 6-char alphanumeric, human-readable, no ambiguous
-// characters (0/O, 1/I/L). The two players exchange this out of band; the
-// relay uses it as a room name.
+// Session code generator — 4 digits, read aloud by the HIDER to the seeker (see
+// games.js's Live location share sheet for the generate/enter role split). Digits only,
+// so there's no letter-case or ambiguous-character (0/O, 1/I/L) problem to design around.
 export function generateSessionCode() {
-  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
   let out = "";
-  for (let i = 0; i < 6; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < 4; i++) out += Math.floor(Math.random() * 10);
   return out;
 }
 

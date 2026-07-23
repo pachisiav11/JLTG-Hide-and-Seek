@@ -12,6 +12,7 @@ import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, 
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
 import { getPalette } from "./palette.js";
+import { geoWatch } from "./geo-watch.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
 // zones), we shade EVERYTHING outside it: the mask fills the excluded region dark,
@@ -667,6 +668,75 @@ export class Layers {
     });
   }
 
+  // Confirm a just-tapped point before adding it as a candidate: drops a temporary green
+  // pin at the exact spot so the seeker can VERIFY placement visually — that's the whole
+  // check, replacing a typed name (which confirms nothing about position). Resolves
+  // true (Add) / false (Cancel or dismiss); the marker is always cleaned up.
+  _confirmPin(point, msg) {
+    return new Promise((resolve) => {
+      const pal = getPalette();
+      const marker = new google.maps.Marker({
+        position: point,
+        map: this.map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 7,
+          fillColor: pal?.active || "#34d399",
+          fillOpacity: 0.9,
+          strokeColor: "#04252a",
+          strokeWeight: 1.5,
+        },
+      });
+      let done = false;
+      const s = openSheet({
+        title: "Confirm location",
+        mapInteractive: true,
+        bodyHTML: `<p>${escapeHtml(msg)}</p>
+          <div class="sheet-actions"><button id="cp-cancel" class="btn btn-ghost">Cancel</button><button id="cp-add" class="btn btn-primary">Add</button></div>`,
+        onClose: () => { marker.setMap(null); if (!done) resolve(false); },
+      });
+      s.q("#cp-cancel").onclick = () => { done = true; s.close(); resolve(false); };
+      s.q("#cp-add").onclick = () => { done = true; s.close(); resolve(true); };
+    });
+  }
+
+  // "Sourced from my GPS, or tap the map?" — a small custom chooser, since a Yes/No
+  // _confirm reads wrong here (neither branch is a rejection). Resolves "self" / "manual"
+  // / null (Cancel or dismiss).
+  _chooseOption(msg, { manualLabel, selfLabel } = {}) {
+    return new Promise((resolve) => {
+      let done = false;
+      const s = openSheet({
+        title: "Location",
+        bodyHTML: `<p>${escapeHtml(msg)}</p>
+          <div class="sheet-actions">
+            <button id="op-cancel" class="btn btn-ghost">Cancel</button>
+            <button id="op-manual" class="btn">${escapeHtml(manualLabel)}</button>
+            <button id="op-self" class="btn btn-primary">${escapeHtml(selfLabel)}</button>
+          </div>`,
+        onClose: () => { if (!done) resolve(null); },
+      });
+      s.q("#op-cancel").onclick = () => { done = true; s.close(); resolve(null); };
+      s.q("#op-manual").onclick = () => { done = true; s.close(); resolve("manual"); };
+      s.q("#op-self").onclick = () => { done = true; s.close(); resolve("self"); };
+    });
+  }
+
+  // One-off fix from the shared GPS watch (the same singleton self-location.js's blue dot
+  // rides — see geo-watch.js). Resolves null on timeout/error/no-permission rather than
+  // hanging the flow; callers fall back to a manual tap. `lastFix` is served immediately
+  // when a watch is already running (geofence/self-dot/live-share), so this usually
+  // resolves without waiting on a fresh GPS cycle at all.
+  _getSelfPosition(timeoutMs = 8000) {
+    if (geoWatch.lastFix) return Promise.resolve({ lat: geoWatch.lastFix.lat, lng: geoWatch.lastFix.lng });
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (v) => { if (settled) return; settled = true; unsub(); resolve(v); };
+      const unsub = geoWatch.subscribe((fix) => finish({ lat: fix.lat, lng: fix.lng }), () => finish(null));
+      setTimeout(() => finish(null), timeoutMs);
+    });
+  }
+
   // True if {lat,lng} falls inside the game-area polygon (used to keep manually
   // placed objects / seeker points within the play zone).
   _inArea(p, area) {
@@ -813,15 +883,21 @@ export class Layers {
           if (chosen.length < minCount) { toast(`Select at least ${minCount}.`); return; }
           s.close(); finish(chosen);
         };
-        // Add by tap: close the sheet, drop a pin (constrained to the play area),
-        // name it, then re-open the picker with the new candidate.
+        // Add by tap: close the sheet, drop a pin (constrained to the play area), confirm
+        // it (the pin itself is the verification — no name prompt), then re-open the picker
+        // with the new candidate. A typed name doesn't help the seeker place a real-world POI
+        // any more accurately than the tap already did, and it's an extra step on every one
+        // of potentially many candidates; the auto label matches makeManualStation's pattern
+        // for manually-placed stations.
         s.q("#cand-tap").onclick = async () => {
           s.close();
           const pts = await this.pick(1, `Tap the ${card.label.toLowerCase()} location.`, area ? { constrainToArea: true } : {});
           if (pts) {
-            const name = await promptText({ title: `Name this ${card.label.toLowerCase()}`, label: "Name", value: `${card.label} ${feats.length + 1}`, cta: "Add", mapInteractive: true });
-            feats.push({ lat: pts[0].lat, lng: pts[0].lng, name: name || `${card.label} ${feats.length + 1}`, on: true });
-            drawMarkers();
+            const ok = await this._confirmPin(pts[0], `Add this as a ${card.label.toLowerCase()}?`);
+            if (ok) {
+              feats.push({ lat: pts[0].lat, lng: pts[0].lng, name: `${card.label} ${feats.length + 1}`, on: true });
+              drawMarkers();
+            }
           }
           render();
         };
@@ -1056,15 +1132,38 @@ export class Layers {
     // shade (the map would look unchanged). Require a zone first, like the other
     // tools — a 🌍 Region boundary is only a reference, not a play area.
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
-    if (!pts) return this.openPanel();
+    // "Are you within X of here?" is almost always asked from the seeker's own position —
+    // but a point elsewhere (answering on someone else's behalf, or asking about a fixed
+    // landmark) is legitimate too, so ask rather than assume either way.
+    const source = await this._chooseOption(
+      "Is the radar centred on your current location, or a point on the map?",
+      { manualLabel: "✋ Tap a point", selfLabel: "📍 Use my location" },
+    );
+    if (!source) return this.openPanel();
+    let centerPt = null;
+    if (source === "self") {
+      toast("Finding your location…");
+      centerPt = await this._getSelfPosition();
+      const area = store.getCurrent()?.gameArea;
+      if (centerPt && area && window.turf && !this._inArea(centerPt, area)) {
+        toast("Your location is outside the play area — tap a point instead.");
+        centerPt = null;
+      } else if (!centerPt) {
+        toast("Couldn't get your location — tap a point instead.");
+      }
+    }
+    if (!centerPt) {
+      const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
+      if (!pts) return this.openPanel();
+      centerPt = pts[0];
+    }
     const units = store.getCurrent()?.settings?.units || "metric";
     // Live preview (B1): the eliminated shape and a "would eliminate X of Y" readout
     // update as the seeker drags the centre, edits the radius, or flips the side —
     // so the size is a visible decision rather than a guess that only reveals its
     // impact after commit.
     let preview = null; // rebound once the sheet renders and the readout element exists
-    const anchor = this._setupAnchor(pts[0], "◎", { onMove: () => refresh() });
+    const anchor = this._setupAnchor(centerPt, "◎", { onMove: () => refresh() });
     const s = openSheet({
       title: "Radar",
       mapInteractive: true,
@@ -1121,15 +1220,43 @@ export class Layers {
   // ---- Thermometer flow ----
   async startThermometer() {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    const pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
-    if (!pts || pts.length < 2) return this.openPanel();
+    // Point A is somewhere the seeker WAS, necessarily not where they're standing now —
+    // it always comes from a tap. Point B is where they are when they ask the question, so
+    // it's the one that can be sourced from GPS instead of a second tap. (Point A as "my
+    // location" would be backwards: by the time the question is asked, the seeker has
+    // already moved on from A.)
+    const mode = await this._chooseOption(
+      "Is point B (where you are now) your current location, or will you tap both points?",
+      { manualLabel: "✋ Tap both points", selfLabel: "📍 B = my location" },
+    );
+    if (!mode) return this.openPanel();
+    const area = store.getCurrent()?.gameArea;
+    let a = null, b = null;
+    if (mode === "self") {
+      const ptsA = await this.pick(1, "Tap point A inside the play area.", { constrainToArea: true });
+      if (!ptsA) return this.openPanel();
+      a = ptsA[0];
+      toast("Finding your location…");
+      b = await this._getSelfPosition();
+      if (b && area && window.turf && !this._inArea(b, area)) {
+        toast("Your location is outside the play area — tap point B instead.");
+        b = null;
+      } else if (!b) {
+        toast("Couldn't get your location — tap point B instead.");
+      }
+    }
+    if (!a || !b) {
+      const pts = await this.pick(a ? 1 : 2, a ? "Tap point B inside the play area." : "Tap point A then B, inside the play area.", { constrainToArea: true });
+      if (!pts || (a ? pts.length < 1 : pts.length < 2)) return this.openPanel();
+      if (a) b = pts[0]; else { a = pts[0]; b = pts[1]; }
+    }
     const units = store.getCurrent()?.settings?.units || "metric";
     // Live preview (B1): the eliminated half and station count update as A/B drag or
     // the side flips. Unlike radar the thermometer has no radius field — its only
     // knobs are the endpoints and the answer, so both drive `refresh`.
     let preview = null;
-    const anchorA = this._setupAnchor(pts[0], "A", { onMove: () => refresh() });
-    const anchorB = this._setupAnchor(pts[1], "B", { onMove: () => refresh() });
+    const anchorA = this._setupAnchor(a, "A", { onMove: () => refresh() });
+    const anchorB = this._setupAnchor(b, "B", { onMove: () => refresh() });
     const s = openSheet({
       title: "Thermometer",
       mapInteractive: true,
@@ -1139,6 +1266,7 @@ export class Layers {
           <label><input type="radio" name="th-side" value="hotter" checked /> Hotter (closer to B)</label>
           <label><input type="radio" name="th-side" value="colder" /> Colder (closer to A)</label>
         </div>
+        <p id="th-distance" class="muted"></p>
         <p id="th-readout" class="draft-readout muted"></p>
         <div class="sheet-actions">
           <button id="th-cancel" class="btn btn-ghost">Cancel</button>
@@ -1155,14 +1283,16 @@ export class Layers {
       // Straight-line A→B distance as the "size" — the question's scale, and what a
       // seeker adjusts by dragging.
       let sizeLabel = "";
+      const distEl = s.q("#th-distance");
       if (window.turf) {
         try {
           const km = window.turf.distance(window.turf.point([a.lng, a.lat]), window.turf.point([b.lng, b.lat]), { units: "kilometers" });
           sizeLabel = units === "imperial"
             ? `A→B ${(km * 0.621371).toFixed(km * 0.621371 >= 1 ? 2 : 3)} mi`
             : km >= 1 ? `A→B ${km.toFixed(2)} km` : `A→B ${Math.round(km * 1000)} m`;
-        } catch (_) { sizeLabel = ""; }
-      }
+          if (distEl) distEl.innerHTML = `<strong>Distance A → B:</strong> ${escapeHtml(sizeLabel.replace("A→B ", ""))}`;
+        } catch (_) { sizeLabel = ""; if (distEl) distEl.textContent = ""; }
+      } else if (distEl) distEl.textContent = "";
       preview.render(step, { sizeLabel });
     };
     refresh();

@@ -54,14 +54,14 @@ test("game 4: threshold=0 disables the alert entirely (pin only, per §C5)", () 
   assert.equal(r.notify, null);
 });
 
-test("game 5: generateSessionCode is 6 chars, unambiguous alphabet", () => {
+test("game 5: generateSessionCode is 4 digits, read aloud by the HIDER", () => {
   const seen = new Set();
   for (let i = 0; i < 100; i++) {
     const c = generateSessionCode();
-    assert.match(c, /^[a-hjkmnpqrstuvwxyz23456789]{6}$/, `code "${c}" contains ambiguous chars`);
+    assert.match(c, /^[0-9]{4}$/, `code "${c}" is not exactly 4 digits`);
     seen.add(c);
   }
-  assert.ok(seen.size > 50, "collision rate is far too high for a 6-char random space");
+  assert.ok(seen.size > 50, "collision rate is far too high for a 10,000-code space");
 });
 
 test("game 6: LiveShare (hider role) receives a seeker ping via mock transport and fires an alert", async () => {
