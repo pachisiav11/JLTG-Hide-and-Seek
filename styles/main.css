@@ -330,7 +330,7 @@ textarea.field { resize: vertical; }
   border-radius: 12px;
   font-size: 15px;
 }
-.seg input { accent-color: var(--teal); width: 18px; height: 18px; }
+.seg input[type="radio"], .seg input[type="checkbox"] { accent-color: var(--teal); width: 18px; height: 18px; }
 
 /* Searchable, uncapped candidate lists (matching / tentacles / measuring) */
 .feat-list { max-height: 42vh; overflow-y: auto; }
