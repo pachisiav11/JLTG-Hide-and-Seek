@@ -1,12 +1,15 @@
 # Build Plan — 2026-07-21 (Phases 27–45)
 
-> **Status (2026-07-21): Stages 0–4 complete and pushed** (Phases 27–38, plus a
-> **Phase 31.5** bugfix). **Stage 5 Phase 39 is scaffolded** and **Phase 40 is
-> wired** — the Doze-spike harness (`src/bg-spike.js`) + its verdict logic are
-> committed and headless-tested; what remains for both is the **manual device
-> half** (Android Studio + a phone: build the APK, then run the spike per
-> `docs/PHASE40_DOZE_SPIKE.md`). Completed phases below are prefixed **[DONE]**;
-> Phase 39 is **[SCAFFOLDED]**, Phase 40 is **[WIRED]**.
+> **Status (2026-07-23): ALL PHASES 27–45 code-complete and pushed.** Stages 0–4
+> (Phases 27–38 + the **Phase 31.5** bugfix), then the full native track: Phase 39
+> **[SCAFFOLDED]**, Phase 40 **[WIRED]** and since **run on-device — PASS** both
+> runs (`docs/PHASE40_RESULTS.md`), and Phases **41–45 built** (headless-buildable
+> half + Node tests committed per phase; **689 tests pass**, SW at **v106**). What
+> remains everywhere is the **manual device/Firebase half** each phase documents
+> (`docs/PHASE41_HIDER_GEOFENCE.md` … `docs/PHASE45_PERMISSIONS_WIZARD.md`): build
+> the APK, the one-time Firebase project + `FIREBASE_SERVICE_ACCOUNT` env var, the
+> two notification channels, and the locked-pocket walkthroughs. Nothing further
+> is code-buildable from a desk.
 
 Everything scoped in this session's discussion, compiled and ordered **least →
 most important** (which also tracks least → most work). Early phases are quick
@@ -416,16 +419,19 @@ implement the same state machine).
 ## Build order summary (least → most important)
 
 ~~27 · 28 · 29~~ → ~~30~~ → ~~31~~ → ~~32 · 33 · 34~~ → ~~36~~ → ~~35~~ → ~~37~~ → ~~38~~ →
-**39\* → 40† → 41 · 42 → 43 → 44 → 45**
+~~39\*~~ → ~~40†~~ → ~~41 · 42~~ → ~~43~~ → ~~44~~ → ~~45~~
 
-(~~struck~~ = done & pushed. Stages 0–4 complete (+ Phase 31.5 bugfix). 39\* =
-scaffolded; APK build/QA is a manual device step. 40† = harness + verdict logic
-wired & tested; the on-device run is the manual half (`docs/PHASE40_DOZE_SPIKE.md`).
-Resume at the Phase 40 device run, which gates 41/42.)
+(~~struck~~ = done & pushed. **All 27–45 code-complete.** 39\* = scaffolded (APK
+build is a manual device step). 40† = harness wired, then **run on-device: PASS**
+(`docs/PHASE40_RESULTS.md`), which chose the 41–45 architecture: ride the free
+foreground service, compute on-device, FCM only for the seeker→hider last hop.
+41–45 shipped their headless half + tests; each documents its manual device/
+Firebase QA.)
 
-The bold tail is the point of the exercise. 40 (the spike) gates 41/42 — do it
-before committing to the free plugins. 39 must precede everything native. 43
-precedes 44. 36 precedes 35 and 37.
+The bold tail was the point of the exercise, and it's built. What's left is not
+code: the APK build, the one-time Firebase setup, the native notification
+channels + battery/openSettings intents, and the locked-pocket device
+walkthroughs — all captured in the per-phase `docs/PHASE4x_*.md` runbooks.
 
 ## Cross-cutting discipline (unchanged)
 - One commit + push per phase; message explains the WHY; `Co-Authored-By` footer.

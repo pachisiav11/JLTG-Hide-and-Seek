@@ -122,18 +122,31 @@ Record the result of this checklist in the Phase 39 commit message.
 
 ---
 
-## What's next (background track)
+## Background track — COMPLETE (code) 
 
-Phase 39 is just the container. The background notifications that are the point
-of the Android app attach to this shell in later phases:
+Phase 39 is the container; the background notifications that are the point of the
+Android app are now all built on top of it. Code + headless tests are committed
+and pushed for every phase; what remains is the **manual device/Firebase QA** each
+phase's runbook describes.
 
-- **Phase 40** — real-phone spike: do the free background plugins fire in Doze?
-  **PASS** (`docs/PHASE40_RESULTS.md`) — the foreground service survives Doze.
-- **Phase 41** — hider background geofence: rides the foreground-service watcher,
-  computes the band in JS (`evaluateGeofence`), fires local notifications. Code +
-  tests done; device QA in `docs/PHASE41_HIDER_GEOFENCE.md`.
-- **Phases 42–44** — seeker background streaming + FCM forward → hider computes.
-- **Phase 45** — the permissions setup wizard (fills the Guide's Android section).
+- **Phase 40** — real-phone Doze spike: **PASS** both runs (`docs/PHASE40_RESULTS.md`).
+  The free foreground service survives Doze on the target OEM → 41–45 ride it.
+- **Phase 41** — hider background geofence (`docs/PHASE41_HIDER_GEOFENCE.md`).
+- **Phase 42** — seeker background streaming (`docs/PHASE42_SEEKER_STREAM.md`).
+- **Phase 43** — FCM plumbing / hider token registry (`docs/PHASE43_FCM_PLUMBING.md`).
+- **Phase 44** — FCM forward, locked-hider local alert (`docs/PHASE44_FCM_FORWARD.md`).
+- **Phase 45** — permissions setup wizard (`docs/PHASE45_PERMISSIONS_WIZARD.md`).
 
-Those need **"Allow all the time"** location and a **battery-optimization
-exemption**; the Phase 45 wizard will detect and deep-link to them.
+### To take it live on a device (manual, in order)
+
+1. **Build + sideload the APK** (this doc's runbook above) and confirm the
+   foreground-service alerts (Phase 41/42) fire locked-in-pocket.
+2. **One-time Firebase setup** for the seeker-close-while-locked path (Phase 43):
+   create the project, drop `google-services.json` into `android/app/`, set
+   `FIREBASE_SERVICE_ACCOUNT` (base64) on the Render web service. See
+   `docs/PHASE43_FCM_PLUMBING.md`.
+3. **Native glue** the JS expects: create the notification channels
+   (`jltg-geofence` / `-silent`, `jltg-seeker-close` / `-silent`) and the Phase 45
+   battery `checkBatteryOptimizations()` / `openBatterySettings()` methods.
+4. **Grants:** "Allow all the time" location + a battery-optimization exemption —
+   the Phase 45 wizard (in the in-app Guide) detects these and deep-links to them.

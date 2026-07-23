@@ -2,6 +2,54 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phases 41–45 — Android background notifications, Stage 6 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
+The core of the Android track: real alerts on a **locked** phone. Phase 40's
+on-device Doze spike **PASSED** (`docs/PHASE40_RESULTS.md` — the free
+`@capacitor-community/background-geolocation` foreground service survives Doze on
+the target OEM), which chose the architecture below: ride the foreground service,
+compute on-device, and use FCM only for the seeker→hider last hop. Every phase
+ships the **headless-buildable half** (pure logic + bridges + Node tests, committed
+and pushed) and documents the **manual device/Firebase half** it can't run from a
+desk — the same `[SCAFFOLDED]`/`[WIRED]` discipline as Phases 39/40.
+
+- **Phase 41 — hider background geofence** (`src/native-geofence.js`, 10 tests).
+  While a hider zone + threshold exist, a foreground-service watcher feeds every
+  background fix to the **same `evaluateGeofence` band machine** the web path uses,
+  posting a `@capacitor/local-notifications` alert on each transition — honouring
+  Phase 33 "Off"/"silent", resetting the baseline on a zone re-place, and cancelling
+  stale alerts on removal (native mirror of Phase 31.5). `src/geofence.js` keeps its
+  pill but defers alerts to this in the shell, so a crossing is never double-fired.
+- **Phase 42 — seeker background streaming** (`src/native-seeker-location.js`, 8
+  tests). `NativeSeekerWatch` is a **GeoWatch-compatible** adapter around the same
+  foreground service, so `LiveShare`'s Phase 23 throttle rides it unchanged — the
+  seeker keeps streaming to the relay with the screen off; its persistent "sharing
+  your location" notification is the req-#5 indicator. Ref-counted, with a race
+  guard so an unsubscribe can't leak a service.
+- **Phase 43 — FCM plumbing** (`hider-tokens.js`, `fcm.js`, `src/native-push.js`,
+  22 tests). The hider mints its FCM token and registers it against the session
+  code; the server keeps an expiring `code→token` registry (no game state — a token
+  is a delivery address). `createFcm` **degrades gracefully**: `firebase-admin` is
+  lazy + optional, and a missing/broken key disables FCM while the Overpass proxy
+  and socket relay keep working (`npm test` never needs the dep).
+- **Phase 44 — FCM forward + hider computes locally** (`relay-forward.js`,
+  `src/native-local-notify.js`, 11 tests). On each seeker ping the server forwards
+  the **raw coordinates** over high-priority FCM — staying **zone-blind** — and the
+  woken hider runs `evaluateApproach` against its **local** zone, posting a local
+  notification once per crossing. The FCM coords route through the *same*
+  `_onSeekerPing` path as a socket ping, so pill, red dot, and the once-per-crossing
+  debounce are all reused.
+- **Phase 45 — permissions setup wizard** (`src/native-permissions.js`, 11 tests).
+  The Guide's Android section becomes a live wizard: detect each grant (location
+  "all the time", notifications, battery-exemption), explain it, deep-link to the
+  exact settings screen, and flag background alerts **inactive** until all are
+  granted. Strict — an unknown grant is never a false all-clear, and "while using"
+  never passes as "all the time".
+- Cross-cutting: SW cache **v101 → v106** (one bump per shell-asset phase); secrets
+  stay out of git (`.gitignore` blocks `google-services.json` / `serviceAccount*.json`;
+  the Firebase key lives only in the `FIREBASE_SERVICE_ACCOUNT` Render env var).
+  **689** `node:test` tests pass (627 → 689, +62). Per-phase device/Firebase QA:
+  `docs/PHASE41_HIDER_GEOFENCE.md` … `docs/PHASE45_PERMISSIONS_WIZARD.md`.
+
 ## Phase 40 — [WIRED] Doze spike harness, Stage 6 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
 The headless-buildable half of the real-phone Doze spike that gates the whole
 native background track. The **question**: on a locked, screen-off phone in Doze,
