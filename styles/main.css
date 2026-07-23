@@ -353,6 +353,31 @@ textarea.field { resize: vertical; }
   line-height: 1.4;
 }
 
+/* Phase 45: the "background alerts are active" banner — the green counterpart to
+   .warn-note, shown once every permission grant is in place. */
+.ok-note {
+  background: rgba(16, 185, 129, 0.12);
+  border-left: 3px solid var(--teal, #10b981);
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* Phase 45: the Android permissions setup wizard inside the Guide. Each step is a
+   card with a status badge, the reason it's needed, and (unless already granted) a
+   deep-link button to the exact settings screen. */
+.perm-wizard { list-style: none; margin: 0.5rem 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.perm-step { border: 1px solid var(--border, #2a2f3a); border-radius: 8px; padding: 0.55rem 0.65rem; }
+.perm-step.perm-granted { border-color: rgba(16, 185, 129, 0.5); }
+.perm-step.perm-action { border-color: rgba(245, 158, 11, 0.5); }
+.perm-head { display: flex; align-items: center; gap: 8px; }
+.perm-head strong { flex: 1; min-width: 0; }
+.perm-badge { font-size: 1rem; }
+.perm-step p { margin: 0.35rem 0 0; }
+.btn-small { padding: 0.25rem 0.55rem; font-size: 0.8rem; white-space: nowrap; }
+
 /* Phase 29 (req #11): shared foreground pill stack.
    One fixed container lifted clear of the bottom-centre floating toolbar. Pills
    (geofence, live-share, …) are flex-column children so any number of them

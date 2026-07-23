@@ -8,6 +8,8 @@ import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
 import { guideBodyHTML } from "./guide.js";
+import { isNativeCapacitor } from "./bg-spike.js";
+import { queryGrants, wizardHTML, openSettingsFor } from "./native-permissions.js";
 
 export class Games {
   constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null, layers = null } = {}) {
@@ -817,6 +819,36 @@ export class Games {
   openGuide() {
     const s = openSheet({ title: "Guide", bodyHTML: guideBodyHTML() });
     s.q("#guide-close").onclick = () => s.close();
+    // Phase 45: on the Android shell, replace the Android section's static "here's
+    // what it'll need" copy with a LIVE permissions wizard — detect each grant,
+    // explain it, and deep-link to the exact settings screen. Off-device the
+    // honest static caveat stays. Async (grants come from plugins), so the sheet
+    // opens immediately and the wizard fills in.
+    this._mountPermissionsWizard(s);
+  }
+
+  async _mountPermissionsWizard(sheet) {
+    if (!isNativeCapacitor()) return;
+    const section = sheet.q?.("#guide-android");
+    if (!section) return;
+    const render = async () => {
+      let grant;
+      try { grant = await queryGrants(); }
+      catch (e) { console.warn("guide: permission query failed", e); return; }
+      // Keep the section heading; swap the body for the wizard.
+      const heading = section.querySelector("h3");
+      section.innerHTML = (heading ? heading.outerHTML : "") + wizardHTML(grant);
+      section.querySelectorAll("button[data-perm]").forEach((btn) => {
+        btn.onclick = async () => {
+          await openSettingsFor(btn.dataset.perm);
+          // The user returns from Settings having (maybe) changed a grant; a
+          // one-shot re-render on next open is enough, but re-check now too so the
+          // badges refresh without reopening if the OS returns focus quickly.
+          setTimeout(render, 400);
+        };
+      });
+    };
+    render();
   }
 
   // ---- Instructions / user guide ----

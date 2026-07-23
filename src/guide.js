@@ -3,10 +3,12 @@
 // The tool has grown well past what the original "How to play" sheet covers —
 // a locked station set with map interactions, a live seeker↔hider location
 // channel, and a small family of proximity alerts. This Guide is the reference
-// for those, split into labelled sections. It's a scaffold: Phase 45 fills the
-// Android section with a real permissions setup WIZARD (detect grants,
-// deep-link to the exact settings screens) once the native track lands; until
-// then that section is an honest "here's what background alerts will need".
+// for those, split into labelled sections. The Android section below is the
+// off-device fallback copy: on the native shell, Phase 45's games.js replaces it
+// with a LIVE permissions setup wizard (src/native-permissions.js) that detects
+// each grant and deep-links to the exact settings screen. In the browser/PWA
+// (no grants to detect) this honest "here's what background alerts will need"
+// text stays.
 //
 // The sections are data (pure `guideSections()` / `guideBodyHTML()`), so the
 // content is unit-tested without a DOM and games.js just drops the HTML into a
