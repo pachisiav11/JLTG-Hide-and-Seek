@@ -965,17 +965,8 @@ export class Layers {
     // shade (the map would look unchanged). Require a zone first, like the other
     // tools — a 🌍 Region boundary is only a reference, not a play area.
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    // A2 shortcut: if a seeker location has been pasted this game, offer to use
-    // it instead of a fresh tap. The setup sheet still lets the seeker drag from
-    // there, so this is a jump-start, not a lock-in.
-    let pts;
-    const sk = store.getCurrent()?.seekerLocation;
-    if (sk && this._inArea(sk, store.getCurrent().gameArea)) {
-      pts = [{ lat: sk.lat, lng: sk.lng }];
-    } else {
-      pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
-      if (!pts) return this.openPanel();
-    }
+    const pts = await this.pick(1, "Tap the radar centre inside the play area.", { constrainToArea: true });
+    if (!pts) return this.openPanel();
     const units = store.getCurrent()?.settings?.units || "metric";
     // Live preview (B1): the eliminated shape and a "would eliminate X of Y" readout
     // update as the seeker drags the centre, edits the radius, or flips the side —
@@ -1039,20 +1030,8 @@ export class Layers {
   // ---- Thermometer flow ----
   async startThermometer() {
     if (!store.getCurrent()?.gameArea) return toast("Add a zone first (Zones ▸ Draw) to define the play area.");
-    // A2 shortcut: default point A to the pasted seeker location when present
-    // and inside the area (Thermometer's "your side" is naturally centred on the
-    // seeker's spot). B still needs a tap. If no seeker location, both are tapped
-    // as before.
-    let pts;
-    const sk = store.getCurrent()?.seekerLocation;
-    if (sk && this._inArea(sk, store.getCurrent().gameArea)) {
-      const bPts = await this.pick(1, "A = seeker location. Tap point B inside the play area.", { constrainToArea: true });
-      if (!bPts) return this.openPanel();
-      pts = [{ lat: sk.lat, lng: sk.lng }, bPts[0]];
-    } else {
-      pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
-      if (!pts || pts.length < 2) return this.openPanel();
-    }
+    const pts = await this.pick(2, "Tap point A then B, inside the play area.", { constrainToArea: true });
+    if (!pts || pts.length < 2) return this.openPanel();
     const units = store.getCurrent()?.settings?.units || "metric";
     // Live preview (B1): the eliminated half and station count update as A/B drag or
     // the side flips. Unlike radar the thermometer has no radius field — its only

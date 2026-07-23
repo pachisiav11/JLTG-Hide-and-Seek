@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
 import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange, nearestStation } from "./stations.js";
-import { parseSeekerLocation, formatLocationForClipboard } from "./ingest.js";
+import { formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
 import { guideBodyHTML } from "./guide.js";
@@ -37,7 +37,6 @@ export class Games {
           <button id="mn-history" class="btn">🗂 Game history</button>
           <button id="mn-library" class="btn">📌 Custom library</button>
           <button id="mn-stations" class="btn">🚉 Stations</button>
-          <button id="mn-seeker" class="btn">📍 Seeker location (paste)</button>
           <button id="mn-copyloc" class="btn">📋 Copy MY location</button>
           <button id="mn-liveshare" class="btn">📡 Live location share (session)</button>
           <button id="mn-rename" class="btn">✏️ Rename current</button>
@@ -53,7 +52,6 @@ export class Games {
     s.q("#mn-history").onclick = () => { s.close(); this.openHistory(); };
     s.q("#mn-library").onclick = () => { s.close(); this.library ? this.library.openManager() : toast("Library unavailable."); };
     s.q("#mn-stations").onclick = () => { s.close(); this.openStations(); };
-    s.q("#mn-seeker").onclick = () => { s.close(); this.openSeekerLocation(); };
     s.q("#mn-copyloc").onclick = () => { s.close(); this.copyMyLocation(); };
     s.q("#mn-liveshare").onclick = () => { s.close(); this.openLiveShare(); };
     s.q("#mn-rename").onclick = () => { s.close(); this.rename(); };
@@ -629,13 +627,11 @@ export class Games {
     s.q("#ls-close").onclick = () => { if (saveThreshold()) s.close(); };
   }
 
-  // ---- Copy MY location (§C2) — the mirror of A2's paste intake ----
+  // ---- Copy MY location (§C2) ----
   //
   // The seeker has to type or paste their own coordinates into whatever chat
-  // the group uses so the hider can then paste them into the app. That reverse
-  // leg is the same friction as A2, one direction earlier. One tap on this
-  // button reads the seeker's GPS, formats it in the exact shape A2 accepts
-  // (§ src/ingest.js), and puts it on the clipboard.
+  // the group uses. One tap on this button reads the seeker's GPS, formats it
+  // as a plain "lat, lng" string (§ src/ingest.js), and puts it on the clipboard.
   async copyMyLocation() {
     if (!navigator.geolocation) return toast("Geolocation not available.");
     const cur = await new Promise((resolve) => {
@@ -657,53 +653,6 @@ export class Games {
       // information the button was for.
       toast(`Copy blocked — coordinates: ${text}`);
     }
-  }
-
-  // ---- Seeker location paste (A2 — WhatsApp intake) ----
-  //
-  // Playtest 1's systemic pain 2: seekers shared their live location, radar
-  // centres, and thermometer endpoints via WhatsApp; the hider transcribed each
-  // one by hand, and the transcription is the miss (dropped digits, swapped
-  // lat/lng, "we're two messages behind"). One paste box that accepts either
-  // bare "lat, lng" or a Google Maps URL removes the transcription step.
-  openSeekerLocation() {
-    const g = store.getCurrent();
-    const cur = g?.seekerLocation || null;
-    const s = openSheet({
-      title: "Seeker location",
-      bodyHTML: `
-        <p class="muted">Paste whatever the seeker sent: <em>lat, lng</em> ("19.15, 72.85"), a Google Maps URL, or WhatsApp's "share location" text. The app pulls the coordinates out.</p>
-        ${cur ? `<p>Current: <strong>${cur.lat.toFixed(5)}, ${cur.lng.toFixed(5)}</strong> <span class="muted">(set ${new Date(cur.at).toLocaleTimeString()})</span></p>` : `<p class="muted">No seeker location set for this game yet.</p>`}
-        <label class="fieldlbl">Paste</label>
-        <textarea id="sl-input" class="field" rows="3" placeholder="19.15, 72.85 &#10;or https://maps.google.com/…?q=19.15,72.85"></textarea>
-        <div class="row">
-          <button id="sl-apply" class="btn btn-primary">Apply</button>
-          <button id="sl-clear" class="btn btn-ghost" ${cur ? "" : "disabled"}>Clear</button>
-        </div>
-        <p id="sl-status" class="muted"></p>
-        <p class="muted">Once set, the Radar and Thermometer setup sheets offer <em>Use seeker location</em> to snap the anchor to this point — no map-tap needed.</p>
-      `,
-    });
-    s.q("#sl-apply").onclick = () => {
-      const text = s.q("#sl-input").value;
-      const parsed = parseSeekerLocation(text);
-      if (!parsed) {
-        s.q("#sl-status").textContent = "Couldn't read coordinates from that — try 'lat, lng' or a Google Maps URL.";
-        return;
-      }
-      store.update((gg) => {
-        gg.seekerLocation = { lat: parsed.lat, lng: parsed.lng, at: Date.now(), source: parsed.source };
-      });
-      store.saveNow();
-      toast(`Seeker location set: ${parsed.lat.toFixed(5)}, ${parsed.lng.toFixed(5)}`);
-      s.close();
-    };
-    s.q("#sl-clear").onclick = () => {
-      store.update((gg) => (gg.seekerLocation = null));
-      store.saveNow();
-      toast("Seeker location cleared.");
-      s.close();
-    };
   }
 
   // ---- Settings ----

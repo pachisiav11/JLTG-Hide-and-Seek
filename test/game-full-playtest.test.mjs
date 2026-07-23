@@ -38,7 +38,7 @@ import {
 } from "../src/stations.js";
 import { computeElimination } from "../src/tools.js";
 import { evaluateGeofence } from "../src/geofence.js";
-import { parseSeekerLocation, formatLocationForClipboard } from "../src/ingest.js";
+import { formatLocationForClipboard } from "../src/ingest.js";
 import { addNote, removeNote } from "../src/notes.js";
 import { evaluateApproach, LiveShare } from "../src/live-share.js";
 import * as store from "../src/store.js";
@@ -183,25 +183,7 @@ test("game 2: seeker WhatsApps a location; hider ingests, runs range elim, drops
   const game = createGame({ name: "WhatsApp relay", gameArea: AREA });
   game.stations = { source: "osm", bbox: "0,0,0,0", confirmedAt: Date.now(), list: OSM_PAYLOAD.stations.map((s) => ({ ...s })) };
 
-  // 1. Phase 5: hider receives a WhatsApp message with a Google Maps @-URL.
-  //    Parser must return the coords cleanly.
-  const gmapsPaste = "Coming from https://www.google.com/maps/place/Colaba/@18.9067,72.8147,15z/data=abc";
-  const parsed1 = parseSeekerLocation(gmapsPaste);
-  assert.ok(parsed1, "gmaps @-URL parses");
-  assert.equal(parsed1.source, "gmaps-at");
-  assert.ok(Math.abs(parsed1.lat - 18.9067) < 1e-9);
-  assert.ok(Math.abs(parsed1.lng - 72.8147) < 1e-9);
-  game.seekerLocation = { lat: parsed1.lat, lng: parsed1.lng, at: Date.now() };
-
-  // Bare-pair form must also work — the hider might just paste "lat, lng".
-  const parsed2 = parseSeekerLocation("19.076, 72.877");
-  assert.ok(parsed2 && parsed2.source === "pair");
-
-  // And a pair of naked integers must REFUSE, per the parser's "prefer to refuse
-  // than to eliminate somewhere in the Indian Ocean" stance.
-  assert.equal(parseSeekerLocation("19 72"), null, "ambiguous integer pair refused");
-
-  // 2. Phase 7: hider asks "are you north or south of Dahisar?" — seeker says
+  // 1. Phase 7: hider asks "are you north or south of Dahisar?" — seeker says
   //    "south". Run range elim on the blue line with mode=outside so everything
   //    NORTH of (and including) Dahisar stays eliminated.
   const ordered = orderStationsAlongLine(game.stations.list, BLUE_LINE.paths, { toleranceM: 200 });
@@ -227,26 +209,19 @@ test("game 2: seeker WhatsApps a location; hider ingests, runs range elim, drops
   const eliminatedIdsAfter = game.stations.list.filter((s) => s.eliminated).map((s) => s.id).sort();
   assert.deepEqual(eliminatedIdsBefore, eliminatedIdsAfter, "notes do not eliminate stations");
 
-  // 4. Phase 11: hider copies THEIR OWN location — formatted to match the exact
-  //    shape Phase 5 accepts. Round-trip must be lossless to 5 decimal places.
+  // 4. Phase 11: hider copies THEIR OWN location — a clean 5dp "lat, lng" pair.
   const myLat = 19.076, myLng = 72.877;
   const clipboard = formatLocationForClipboard(myLat, myLng);
   assert.equal(clipboard, "19.07600, 72.87700");
-  const roundTrip = parseSeekerLocation(clipboard);
-  assert.ok(roundTrip);
-  assert.ok(Math.abs(roundTrip.lat - myLat) < 1e-9);
-  assert.ok(Math.abs(roundTrip.lng - myLng) < 1e-9);
 
   // 5. Delete one note — the mutation is precise.
   removeNote(game.notes, noteEntry.id);
   assert.equal(game.notes.length, 1);
   assert.equal(game.notes[0].text, "heard train 3:12");
 
-  // 6. Serialize + normalize: eliminated station, remaining note, and seeker
-  //    location all survive.
+  // 6. Serialize + normalize: eliminated station and remaining note survive.
   const round = normalizeGame(JSON.parse(JSON.stringify(game)));
   assert.equal(round.notes.length, 1);
-  assert.equal(round.seekerLocation.lat, parsed1.lat);
   assert.equal(round.stations.list.find((s) => s.name === "Dahisar").eliminated, true);
 });
 

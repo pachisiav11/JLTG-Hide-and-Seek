@@ -148,7 +148,6 @@ export async function clearBoard() {
   current.history = [];
   current.focusZone = { point: null, radius: null };
   current.stations = { source: null, bbox: null, confirmedAt: null, list: [] };
-  current.seekerLocation = null;
   current.notes = [];
   // These two were left behind, and both outlive the board they belonged to.
   //
