@@ -2,10 +2,13 @@
 
 Phase 39 (Stage 5) of [`BUILD_PLAN_2026-07-21.md`](../BUILD_PLAN_2026-07-21.md).
 
-The Android app is a thin **Capacitor** WebView that loads the **live GitHub
-Pages site** — it is not a bundled copy of the web app. Every web phase
-(27–38) auto-deploys to Pages and reaches the app with **no APK rebuild**. You
-only rebuild the APK for native changes (the background plugins, Phases 40–45).
+The Android app is a thin **Capacitor** WebView that loads the **live Render
+static site** (`https://jltg-map-companion.onrender.com/`, re-pointed from
+GitHub Pages 2026-07-23 so the Maps API key can be restricted to the
+`*.onrender.com` referrer instead of shipping unrestricted) — it is not a
+bundled copy of the web app. Web pushes auto-deploy there and reach the app
+with **no APK rebuild**. You only rebuild the APK for native changes (the
+background plugins, Phases 40–45) or if `server.url` itself ever changes.
 
 > **Why load remote, not bundle?** The game already needs a network for map
 > tiles + the live-share relay, so requiring one at launch costs nothing, and it
@@ -63,7 +66,7 @@ npx cap run android
 ```
 
 `npx cap run android` builds a **debug** APK, installs it over USB, and launches
-it. The WebView should load `https://pachisiav11.github.io/JLTG-Hide-and-Seek/`
+it. The WebView should load `https://jltg-map-companion.onrender.com/`
 and behave exactly like the PWA.
 
 ### App icon + name
