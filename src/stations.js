@@ -14,7 +14,6 @@
 
 import * as db from "./db.js";
 import { boardBbox } from "./lines.js";
-import { metresBetween } from "./geo.js";
 
 // Rail geometry TTL is 30 days; stations move even less often, but the same reasoning
 // applies — a month-old station list beats an empty list outdoors on a phone with no
@@ -336,26 +335,22 @@ export function countStationsInEliminated(eliminated, stations) {
   return { inside, total };
 }
 
-// Phase 31 (req #1): the station nearest a map point. Backs "Select on map" —
-// a tap near the tiny station dot snaps to the actual station, so a player
-// doesn't have to hit a 5-pixel target. Pure and Maps-free (haversine via
-// metresBetween), so the snapping is unit-tested directly.
-//
-// Stations with non-finite coordinates are skipped rather than sorted to the
-// front by a NaN comparison. Returns null for an empty/garbage list or point so
-// the caller can no-op instead of opening a chooser for nothing.
-export function nearestStation(list, point) {
-  if (!Array.isArray(list) || !list.length) return null;
+// "Add stations (tap map)": a manually-placed station pin, no network source and no
+// name prompt. The old "Select on map" snapped the tap to the NEAREST already-known
+// station — which broke exactly when OSM/Places hadn't surfaced the real station in
+// the first place, the one case the button exists for. This just drops a pin at the
+// exact tapped point. `seq` (the station's 1-based position in the list once added)
+// names it "Station N" purely so the panel has something to show — it is not a real
+// stop name and nothing downstream (line/range elimination, counters) reads it as one.
+export function makeManualStation(point, seq) {
   if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
-  let best = null;
-  let bestD = Infinity;
-  for (const s of list) {
-    if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) continue;
-    const d = metresBetween(point, { lat: s.lat, lng: s.lng });
-    if (!Number.isFinite(d)) continue;
-    if (d < bestD) { bestD = d; best = s; }
-  }
-  return best;
+  return {
+    id: `manual:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+    name: `Station ${seq}`,
+    lat: point.lat,
+    lng: point.lng,
+    kind: "manual",
+  };
 }
 
 // Turn a game + a source pick into the station list the game should lock in. Board

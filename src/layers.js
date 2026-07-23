@@ -124,6 +124,12 @@ export class Layers {
     this.boundaries = boundaries || null; // for the admin-division tracing helper (DDS)
     this.lines = lines || null; // the 🚄 rail panel, so a refused line card can open it (P4)
     this.overlays = [];
+    // Holds the CANCEL function for whichever map-tap flow (pick / _drawShape /
+    // pickMulti) currently owns the map click, or null when none is armed. A new flow
+    // claiming the map (see the jltg:mapclaim listener below) cancels whatever this
+    // pointed to first — without it, selecting a second question/tool while the first
+    // was still waiting for a tap left BOTH click listeners attached, and one real tap
+    // silently fed points into both flows at once.
     this._pick = null;
     this.failedSteps = new Set(); // step ids whose geometry failed on the last render
   }
@@ -138,6 +144,11 @@ export class Layers {
     // Live-restyle every overlay when the colour palette toggles (Phase 7),
     // without re-fetching anything.
     window.addEventListener("jltg:palette", () => this.render());
+    // A newer map-tap flow (from this module OR zones.js, both broadcast the same
+    // event on _claimMapClicks/startDraw) cancels whatever this one was still waiting
+    // on. Fires on every claim, including this module's own next pick() — which is
+    // exactly how selecting a second question mid-tap tears down the first.
+    window.addEventListener("jltg:mapclaim", () => this._pick?.());
   }
 
   // ---- History operations ----
@@ -477,13 +488,20 @@ export class Layers {
       bar.innerHTML = `<span class="draw-count">${hintText}</span><button class="btn btn-ghost btn-sm" data-cancel>Cancel</button>`;
       document.body.appendChild(bar);
 
+      let cancelThis;
       const cleanup = () => {
+        if (this._pick === cancelThis) this._pick = null;
         release();
         google.maps.event.removeListener(listener);
         markers.forEach((m) => m.setMap(null));
         bar.remove();
         this.map.setOptions({ draggableCursor: null });
       };
+      // Registered AFTER _claimMapClicks() has already broadcast this flow's own claim
+      // (which cancels whatever _pick pointed to before) — so this becomes the new
+      // target for the NEXT claim, never cancelling itself.
+      cancelThis = () => { cleanup(); resolve(null); };
+      this._pick = cancelThis;
       const listener = this.map.addListener("click", (e) => {
         const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
         if (constrainToArea) {
@@ -530,7 +548,9 @@ export class Layers {
         if (preview) { preview.setMap(null); preview = null; }
         if (pts.length >= 2) preview = new google.maps.Polyline({ path: pts, strokeColor: "#38bdf8", strokeWeight: 3, map: this.map, clickable: false });
       };
+      let cancelThis;
       const cleanup = () => {
+        if (this._pick === cancelThis) this._pick = null;
         release();
         google.maps.event.removeListener(listener);
         if (preview) preview.setMap(null);
@@ -538,6 +558,8 @@ export class Layers {
         bar.remove();
         this.map.setOptions({ draggableCursor: null });
       };
+      cancelThis = () => { cleanup(); resolve(null); };
+      this._pick = cancelThis;
       const listener = this.map.addListener("click", (e) => {
         pts.push({ lat: e.latLng.lat(), lng: e.latLng.lng() });
         markers.push(new google.maps.Marker({ position: e.latLng, label: `${pts.length}`, map: this.map }));
@@ -563,6 +585,69 @@ export class Layers {
         }
         cleanup(); resolve(pts.slice());
       };
+      this.map.setOptions({ draggableCursor: "crosshair" });
+    });
+  }
+
+  // Drop an unlimited number of pins by tapping the map, one at a time, until the
+  // user taps Done. Unlike pick(count, …) there's no target count and unlike
+  // _drawShape there's no shape (no preview line, no ring/self-cross checks) — each
+  // tap is an independent point. Built for "Add stations (tap map)": the old
+  // nearest-station snap broke exactly when the real station hadn't been sourced
+  // from OSM/Places in the first place, so this just places a pin where the user
+  // actually tapped. Resolves to the array of points (possibly empty) on Done, or
+  // null on Cancel.
+  pickMulti(hintText, { constrainToArea = false } = {}) {
+    return new Promise((resolve) => {
+      closeSheet();
+      const release = this._claimMapClicks();
+      const pts = [];
+      const markers = [];
+      const pal = getPalette();
+      const bar = document.createElement("div");
+      bar.className = "draw-bar";
+      bar.innerHTML = `<span class="draw-count">${escapeHtml(hintText)} · 0</span>
+        <button class="btn btn-ghost btn-sm" data-undo>Undo</button>
+        <button class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+        <button class="btn btn-primary btn-sm" data-done>Done</button>`;
+      document.body.appendChild(bar);
+
+      const setCount = () => { const c = bar.querySelector(".draw-count"); if (c) c.textContent = `${hintText} · ${pts.length}`; };
+      let cancelThis;
+      const cleanup = () => {
+        if (this._pick === cancelThis) this._pick = null;
+        release();
+        google.maps.event.removeListener(listener);
+        markers.forEach((m) => m.setMap(null));
+        bar.remove();
+        this.map.setOptions({ draggableCursor: null });
+      };
+      cancelThis = () => { cleanup(); resolve(null); };
+      this._pick = cancelThis;
+      const listener = this.map.addListener("click", (e) => {
+        const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        if (constrainToArea) {
+          const area = store.getCurrent()?.gameArea;
+          if (area && window.turf && !this._inArea(p, area)) { toast("Tap inside the play area."); return; }
+        }
+        pts.push(p);
+        markers.push(new google.maps.Marker({
+          position: e.latLng,
+          map: this.map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 6,
+            fillColor: pal?.active || "#34d399",
+            fillOpacity: 0.9,
+            strokeColor: "#04252a",
+            strokeWeight: 1.5,
+          },
+        }));
+        setCount();
+      });
+      bar.querySelector("[data-undo]").onclick = () => { pts.pop(); const m = markers.pop(); if (m) m.setMap(null); setCount(); };
+      bar.querySelector("[data-cancel]").onclick = () => { cleanup(); resolve(null); };
+      bar.querySelector("[data-done]").onclick = () => { cleanup(); resolve(pts.slice()); };
       this.map.setOptions({ draggableCursor: "crosshair" });
     });
   }
@@ -824,6 +909,12 @@ export class Layers {
 
   // ---- Panel ----
   openPanel() {
+    // Every "cancelled/failed, go back to the list" fallback in this file routes through
+    // here. If a map-tap flow already claimed the picker (this._pick truthy) by the time
+    // this runs, a NEWER question/tool selection superseded whatever just got cancelled —
+    // reopening the list now would pop it up over that newer flow's own draw-bar. Only the
+    // genuine "nothing else has started since" case (this._pick already cleared) proceeds.
+    if (this._pick) return;
     const g = store.getCurrent();
     const canRedo = this.canRedo();
     const rows = g.history.length

@@ -34,15 +34,23 @@ export class Zones {
     // second time at boot. See layers.js init().
     store.subscribe(() => this.render());
     window.addEventListener("jltg:palette", () => this.render());
+    // A question/tool selected elsewhere (layers.js pick / _drawShape / pickMulti) claims
+    // the map the same way we do below — cancel an in-progress zone draw so its listener
+    // doesn't keep consuming taps alongside the new flow's. Guarded by dispatch order in
+    // startDraw(): the claim we raise for OUR OWN draw fires before this._draw is set, so
+    // it never cancels itself.
+    window.addEventListener("jltg:mapclaim", () => { if (this._draw) this._endDraw(); });
   }
 
   // ---- Custom polygon drawing ----
   startDraw() {
     if (this._draw) return;
-    this._draw = { pts: [], preview: null, bar: null, listener: null };
     // Own the map click while drawing — measure mode listens on the same event, and both
-    // handlers fire on one tap (see layers.js _claimMapClicks / features.js init).
+    // handlers fire on one tap (see layers.js _claimMapClicks / features.js init). Claim
+    // BEFORE arming, so this cancels whatever tap-flow came before it (and, per the
+    // listener above, doesn't cancel itself).
     window.dispatchEvent(new CustomEvent("jltg:mapclaim"));
+    this._draw = { pts: [], preview: null, bar: null, listener: null };
     this.map.setOptions({ draggableCursor: "crosshair" });
     this._draw.listener = this.map.addListener("click", (e) => this._addVertex(e.latLng));
     this._draw.bar = this._makeDrawBar();

@@ -35,7 +35,7 @@ export const GUIDE_SECTIONS = [
       <p class="muted">Lock in the board's stations once (☰ menu ▸ 🚉 Stations, from OSM or Google Places); line-, range- and name-length questions all refer to that set.</p>
       <ul>
         <li><strong>Long-press a station</strong> (or right-click on desktop) for a chooser: 📝 add a note, or ❌ eliminate / ♻️ restore it. A plain tap does nothing, so you can't rule one out by accident.</li>
-        <li><strong>🎯 Select on map</strong> (in the Stations panel) snaps your next tap to the nearest station — easier than hitting the tiny dot.</li>
+        <li><strong>📍 Add stations (tap map)</strong> (in the Stations panel) drops a pin wherever you tap — keep tapping to add more, then Done. Use it when a real station doesn't show up from OSM/Places; no name needed.</li>
       </ul>`,
   },
   {
