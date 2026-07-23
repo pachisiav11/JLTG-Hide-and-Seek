@@ -49,10 +49,12 @@ test("the Socket.IO relay is back, but scoped to §C5's one-way seeker→hider l
   assert.ok(/from ["']socket\.io["']/.test(server), "server.js should import socket.io for §C5");
   assert.ok(/new\s+SocketIOServer/.test(server), "the relay must be constructed");
   assert.ok(/io\.on\(["']connection["']/.test(server), "a connection handler is required");
-  // Guard against scope creep: the only relayed events are the two §C5 defines.
-  // Any new topic here should be a conscious phase, not a quiet addition.
-  const relayEvents = [...server.matchAll(/\.on\(["']([a-z-]+)["']/g)].map((m) => m[1]).filter((e) => !["connection"].includes(e));
-  const allowed = new Set(["join-session", "share-location"]);
+  // Guard against scope creep: every relayed topic must be a conscious phase, not
+  // a quiet addition. §C5 defined join-session + share-location; Phase 43 (Track B
+  // 2/3) adds register-token (the hider's FCM token for locked-phone delivery).
+  // `disconnect` is a Socket.IO lifecycle event (token cleanup), not a game topic.
+  const relayEvents = [...server.matchAll(/\.on\(["']([a-z-]+)["']/g)].map((m) => m[1]).filter((e) => !["connection", "disconnect"].includes(e));
+  const allowed = new Set(["join-session", "share-location", "register-token"]);
   for (const e of relayEvents) assert.ok(allowed.has(e), `unexpected relay event "${e}" — add a phase or remove it`);
   const pkg = JSON.parse(read("package.json"));
   assert.ok(pkg.dependencies["socket.io"], "socket.io should be on the dependency list for §C5");

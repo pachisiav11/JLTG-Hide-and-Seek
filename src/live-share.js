@@ -105,7 +105,7 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, getPushToken = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
     this.transport = transport;
     // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
     // the geofence + self-dot). Production injects the singleton; a test injects
@@ -118,6 +118,11 @@ export class LiveShare {
     // 40). Null / off-device → the foreground path is used, unchanged.
     this.bgWatch = bgWatch;
     this._isNative = isNative;
+    // Phase 43 (Track B 2/3): () => Promise<string|null> yielding this device's
+    // FCM token. On the Android shell the hider registers it against the session
+    // code so the server can push seeker-close alerts to a LOCKED phone (Phase 44).
+    // Null / off-device → no registration, socket-only delivery, as before.
+    this._getPushToken = getPushToken;
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
     // Phase 37: (point|null) => void — the app wires the red seeker dot to this.
@@ -216,6 +221,20 @@ export class LiveShare {
     this.transport?.on?.("location", this._locationHandler);
     this._ensurePill();
     this._writePill("Waiting for a seeker ping…");
+    this._registerHiderToken(code);
+  }
+
+  // Phase 43: on the Android shell, mint this device's FCM token and register it
+  // against the session code so the server can push seeker-close alerts to a
+  // locked phone (Phase 44). Guarded so a token that resolves after the hider has
+  // switched/stopped sessions is not emitted to the wrong (or a dead) room.
+  _registerHiderToken(code) {
+    if (!this._getPushToken || !this._isNative()) return;
+    Promise.resolve(this._getPushToken()).then((token) => {
+      if (token && this.role === "hider" && this.code === code) {
+        this.transport?.emit?.("register-token", { code, token });
+      }
+    }).catch((e) => console.warn("live-share: hider token registration failed", e));
   }
 
   _onSeekerPing(payload) {

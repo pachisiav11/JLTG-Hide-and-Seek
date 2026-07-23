@@ -18,6 +18,8 @@ import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js"
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
 import { isValidLocationPayload, allowShareLocation } from "./share-location.js";
+import { HiderTokenRegistry } from "./hider-tokens.js";
+import { createFcm } from "./fcm.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -237,6 +239,23 @@ const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: { origin: ALLOW_ORIGIN, methods: ["GET", "POST"] },
 });
+
+// Phase 43 (Track B 2/3): native-push plumbing so a seeker-close alert can reach
+// a LOCKED hider (Phase 44 forwards each ping over FCM). Both pieces DEGRADE
+// GRACEFULLY — the Overpass proxy and the socket relay run identically whether or
+// not FCM is configured. firebase-admin is an optional heavy dependency: import it
+// lazily, and if it isn't installed the wrapper is simply disabled.
+let firebaseAdmin = null;
+try {
+  firebaseAdmin = (await import("firebase-admin")).default;
+} catch {
+  console.log("[fcm] firebase-admin not installed — native push disabled (run `npm i firebase-admin` + set FIREBASE_SERVICE_ACCOUNT to enable).");
+}
+const fcm = createFcm({ admin: firebaseAdmin });
+// sessionCode -> hider FCM token. No game state: a token is a delivery address,
+// not a location. Entries expire (see hider-tokens.js) and a swept-prune runs hourly.
+const hiderTokens = new HiderTokenRegistry();
+setInterval(() => hiderTokens.prune(), 60 * 60 * 1000).unref?.();
 io.on("connection", (socket) => {
   socket.data.room = null;
   socket.data.role = null;
@@ -249,6 +268,25 @@ io.on("connection", (socket) => {
     socket.data.role = role;
     socket.join(room);
     socket.emit("session-joined", { room, role });
+  });
+  // Phase 43: a hider registers its FCM token against the session so the server
+  // can push seeker-close alerts to it when locked. Accept only from a joined
+  // hider on its own room; store the token on the socket too, so a disconnect
+  // evicts exactly this token (never one a reconnected hider just refreshed).
+  socket.on("register-token", ({ code, token } = {}) => {
+    if (socket.data.role !== "hider" || !socket.data.room) return;
+    const room = typeof code === "string" ? code.trim().toLowerCase() : "";
+    if (room !== socket.data.room) return; // can only register for the room you joined
+    if (hiderTokens.register(socket.data.room, token)) {
+      socket.data.hiderToken = String(token).trim();
+    }
+  });
+  socket.on("disconnect", () => {
+    // Drop this hider's token on a clean disconnect so the server stops trying to
+    // push to a session that has left.
+    if (socket.data.role === "hider" && socket.data.room && socket.data.hiderToken) {
+      hiderTokens.drop(socket.data.room, socket.data.hiderToken);
+    }
   });
   socket.on("share-location", (payload) => {
     // Only accept publish from a joined seeker; ignore anything else silently

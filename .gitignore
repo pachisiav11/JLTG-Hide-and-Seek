@@ -1,6 +1,15 @@
 # Local secrets — never commit the real Maps API key.
 config.js
 
+# Firebase secrets (Phase 43, native push). The service-account key lives ONLY in
+# the FIREBASE_SERVICE_ACCOUNT env var on Render — never in the repo. google-services.json
+# sits under the git-ignored android/ already, but pin it here too so a stray copy
+# anywhere in the tree can't be committed.
+google-services.json
+**/google-services.json
+firebase-service-account*.json
+serviceAccount*.json
+
 # Node / tooling
 node_modules/
 npm-debug.log*
