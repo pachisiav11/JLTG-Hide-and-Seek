@@ -138,6 +138,16 @@ export class Geofence {
     return Number(g?.settings?.geofenceMetres) || 0;
   }
 
+  // This feature is meaningful only for the Hider: a seeker using the Hider-zone
+  // panel to shade in a GUESS at where the hider might be must not get "you've
+  // left the zone" / "near the edge" alerts about their OWN position — that zone
+  // isn't one they're supposed to stay inside. Settings default to "seeker"
+  // (model.js) so a fresh game stays silent until the player explicitly marks
+  // themselves as Hider from the 🎯 Hider-zone panel.
+  _role() {
+    return store.getCurrent()?.settings?.role || "seeker";
+  }
+
   // Start / stop / restart from settings. Called at boot AND whenever the setting
   // toggles or a new game loads (store subscription).
   init() {
@@ -156,9 +166,12 @@ export class Geofence {
     const threshold = this._threshold();
     const g = store.getCurrent();
     const hasZone = !!(g?.focusZone?.point && g?.focusZone?.radius);
-    if (!threshold || !hasZone) {
-      // Feature turned off or the hider zone was removed. Stop watching AND
-      // dismiss any notification still sitting in the tray — otherwise the last
+    const isHider = this._role() === "hider";
+    if (!threshold || !hasZone || !isHider) {
+      // Feature turned off, the hider zone was removed, or this device's user
+      // is playing Seeker (the zone here is just their guess, not a zone they
+      // themselves are meant to stay inside). Stop watching AND dismiss any
+      // notification still sitting in the tray — otherwise the last
       // "near the edge" / "left the zone" alert lingers on the lock screen as if
       // the app were still watching a zone that no longer exists (Phase 31.5).
       const wasActive = this.watching || !!this.pillEl;

@@ -65,6 +65,19 @@ export class Focus {
     });
   }
 
+  // Which side of the game THIS device's user is playing. The edge-alert above
+  // only means something for the Hider — a seeker who sets a Hider-zone here is
+  // just shading in a guess, not marking a zone they themselves must stay
+  // inside. Writing settings.role re-triggers the same store-subscribed
+  // reconcile as setGeofenceThreshold, so the web + native geofence watchers
+  // start/stop immediately on the switch. Defaults to "seeker" (model.js).
+  setRole(role) {
+    const r = role === "hider" ? "hider" : "seeker";
+    store.update((g) => {
+      g.settings = { ...g.settings, role: r };
+    });
+  }
+
   render() {
     this._clear();
     const zone = this._zone();
@@ -123,8 +136,11 @@ export class Focus {
     const pt = zone.point;
     const units = store.getCurrent()?.settings?.units || "metric";
     const gm = Number(store.getCurrent()?.settings?.geofenceMetres) || 0;
+    const role = store.getCurrent()?.settings?.role || "seeker";
     const gfRadio = (value, label) =>
       `<label><input type="radio" name="f-geofence" value="${value}" ${gm === Number(value) ? "checked" : ""}/> ${label}</label>`;
+    const roleRadio = (value, label) =>
+      `<label><input type="radio" name="f-role" value="${value}" ${role === value ? "checked" : ""}/> ${label}</label>`;
     const s = openSheet({
       title: "Hider zone",
       bodyHTML: `
@@ -140,6 +156,11 @@ export class Focus {
           <button id="f-apply" class="btn btn-primary">Apply radius</button>
           <button id="f-noradius" class="btn">Marker only</button>
         </div>
+        <label class="fieldlbl">I am the</label>
+        <div class="seg">
+          ${roleRadio("seeker", "Seeker (guessing)")}
+          ${roleRadio("hider", "Hider (this is my zone)")}
+        </div>
         <label class="fieldlbl">Edge alert — warn me when I'm this close to the edge (or if I cross it)</label>
         <div class="seg">
           ${gfRadio("0", "Off")}
@@ -147,6 +168,7 @@ export class Focus {
           ${gfRadio("100", "100 m")}
           ${gfRadio("200", "200 m")}
         </div>
+        <p class="muted">Only fires for the <strong>Hider</strong> — as a Seeker this zone is just your guess, so it never alerts on your own position.</p>
         <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
         <div class="row">
           <button id="f-clear" class="btn btn-ghost" ${pt ? "" : "disabled"}>Clear zone</button>
@@ -157,6 +179,10 @@ export class Focus {
     s.qa('input[name="f-geofence"]').forEach((r) => (r.onchange = () => {
       this.setGeofenceThreshold(r.value);
       toast(Number(r.value) > 0 ? `Edge alert at ${r.value} m.` : "Edge alert off.");
+    }));
+    s.qa('input[name="f-role"]').forEach((r) => (r.onchange = () => {
+      this.setRole(r.value);
+      toast(r.value === "hider" ? "Set as Hider — edge alerts are armed." : "Set as Seeker — edge alerts stay off.");
     }));
     s.q("#f-tap").onclick = async () => {
       s.close();

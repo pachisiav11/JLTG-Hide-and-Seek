@@ -38,17 +38,23 @@ const gameWith = (over = {}) => ({
   settings: {
     geofenceMetres: over.geofenceMetres !== undefined ? over.geofenceMetres : THRESHOLD,
     geofenceAlertStyle: over.geofenceAlertStyle || "vibrate-tone",
+    // These tests exercise the Hider's own background alert path.
+    role: over.role !== undefined ? over.role : "hider",
   },
 });
 const at = (dLat, dLng = 0) => ({ latitude: ZONE.point.lat + dLat, longitude: ZONE.point.lng + dLng, time: Date.now() });
 
 // --- Pure helpers ----------------------------------------------------------
 
-test("wantsNativeGeofence gates on a placed zone AND a non-zero threshold", () => {
+test("wantsNativeGeofence gates on a placed zone AND a non-zero threshold AND the Hider role", () => {
   assert.equal(wantsNativeGeofence(gameWith()), true);
   assert.equal(wantsNativeGeofence(gameWith({ geofenceMetres: 0 })), false, "threshold 0 = off");
   assert.equal(wantsNativeGeofence(gameWith({ focusZone: { point: ZONE.point, radius: null } })), false, "marker-only = off");
   assert.equal(wantsNativeGeofence(gameWith({ focusZone: { point: null, radius: null } })), false);
+  assert.equal(wantsNativeGeofence(gameWith({ role: "seeker" })), false, "a seeker's Hider-zone is just a guess — no self-alerting");
+  const noRoleKey = gameWith();
+  delete noRoleKey.settings.role;
+  assert.equal(wantsNativeGeofence(noRoleKey), false, "a game predating this setting has no role key — defaults to seeker, same as off");
   assert.equal(wantsNativeGeofence(null), false);
 });
 
@@ -196,6 +202,33 @@ test("re-placing the zone resets the baseline — no spurious alert against old 
   fk.pushFix(at(0.0036)); // now far OUTSIDE the moved zone, but it's the new baseline
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(fk.scheduled.length, 0, "the first fix after a re-place re-establishes silently");
+});
+
+test("role seeker: the watcher never starts, even with a placed zone + threshold", async () => {
+  const store = fakeStore(gameWith({ role: "seeker" }));
+  const fk = fakePlugins();
+  const gf = makeBridge(store, fk);
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(gf.watching, false);
+  assert.equal(fk.started, false, "a seeker's Hider-zone is just a guess — no background watcher");
+});
+
+test("switching role from hider to seeker mid-game stops the watcher and cancels the posted alert", async () => {
+  const store = fakeStore(gameWith());
+  const fk = fakePlugins();
+  const gf = makeBridge(store, fk);
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  fk.pushFix(at(0.001));   // baseline
+  fk.pushFix(at(0.0036));  // approaching → one posted alert
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fk.scheduled.length, 1);
+
+  store.set(gameWith({ role: "seeker" }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(gf.watching, false, "role switch disarms it exactly like removing the zone");
+  assert.equal(fk.cancelled.length, 1, "the posted alert is cancelled off the tray");
 });
 
 test("removing the zone stops the watcher and cancels any posted alert", async () => {

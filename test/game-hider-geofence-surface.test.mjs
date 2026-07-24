@@ -28,6 +28,7 @@ const ZONE = { point: { lat: 19.176, lng: 72.8777 }, radius: 500 };
 function boot() {
   const g = createGame({ name: "Hider", gameArea: AREA, focusZone: ZONE });
   g.settings.geofenceMetres = 0; // start with the edge alert off
+  g.settings.role = "hider"; // these tests exercise the Hider's own edge-alert flow
   store.setCurrent(g);
   const gf = new Geofence({ Notification: { permission: "granted" }, geolocation: navigator.geolocation });
   gf.init(); // subscribes; no watch yet (threshold 0)
@@ -64,5 +65,29 @@ test("surface 3: junk/negative is treated as Off, never a bogus threshold", () =
   focus.setGeofenceThreshold(-50);
   assert.equal(store.getCurrent().settings.geofenceMetres, 0);
   assert.equal(gf.watching, false);
+  gf.destroy();
+});
+
+test("surface 4: role defaults to seeker, which keeps the watch off even with a threshold set", () => {
+  const { gf, focus } = boot();
+  store.update((g) => (g.settings = { ...g.settings, role: "seeker" }));
+  focus.setGeofenceThreshold(100);
+  assert.equal(store.getCurrent().settings.geofenceMetres, 100);
+  assert.equal(gf.watching, false, "a seeker's Hider-zone is just a guess — no self-alerting");
+  gf.destroy();
+});
+
+test("surface 5: switching role to hider arms an already-set threshold; back to seeker disarms it", () => {
+  const { gf, focus } = boot();
+  store.update((g) => (g.settings = { ...g.settings, role: "seeker" }));
+  focus.setGeofenceThreshold(100);
+  assert.equal(gf.watching, false);
+
+  focus.setRole("hider");
+  assert.equal(store.getCurrent().settings.role, "hider");
+  assert.equal(gf.watching, true, "switching to Hider starts the watch immediately");
+
+  focus.setRole("seeker");
+  assert.equal(gf.watching, false, "switching back to Seeker stops it again");
   gf.destroy();
 });

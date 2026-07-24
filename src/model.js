@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = {
   geofenceMetres: 0,             // Phase 3 (A1): warn the hider when this close to the zone edge (0 = off)
   geofenceAlertStyle: "vibrate-tone", // Phase 8 (§C3) + Phase 33 (req #10): governs BOTH the geofence-edge and seeker-close alerts. "off" | "silent" | "vibrate" | "vibrate-tone". off = no system notification and no buzz/tone (pill still updates); silent = notification only; vibrate = + buzz; vibrate-tone = + buzz + tone. The native local-notification path (Phase 41/44) reads this too.
   approachThresholdM: 2000,      // Phase 12 (§C5): fire seeker-close alert when a live-shared seeker gets within this many m of the hiding zone (0 = pin only, no alert)
+  role: "seeker",                // this device's role in THIS game: "seeker" | "hider". Gates the Hider-zone geofence (src/geofence.js, src/native-geofence.js) — a seeker using the Hider-zone panel to shade a GUESS must not get "you left the zone" alerts about their own position. Set from the 🎯 Hider-zone panel; defaults to seeker.
 };
 
 function uid(prefix) {

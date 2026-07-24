@@ -2,6 +2,24 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phase 46 — Hider/Seeker role gate on the geofence
+Bug: `src/geofence.js`'s edge-alert ("near the edge" / "you've left the zone") and its
+Android background twin (`src/native-geofence.js`) fired for **whoever had the app
+open**, keyed only on a placed Hider-zone + threshold. But the Hider-zone is also a
+seeker-side tool (`src/focus.js`) for shading in a *guess* at the hider's position — so a
+seeker using it got alerts about their own GPS crossing a zone they were never meant to
+stay inside.
+- New per-game setting `settings.role: "seeker" | "hider"` (`src/model.js`), defaulting
+  to `"seeker"`.
+- A 2-choice **"I am the"** toggle added to the 🎯 Hider-zone panel (`src/focus.js`,
+  `Focus.setRole`) — the only place it's surfaced, per design. Writing it reconciles the
+  store-subscribed watchers immediately, exactly like the existing threshold control.
+- Both `Geofence._reconcile` (web) and `wantsNativeGeofence` (Android background) now
+  gate on `role === "hider"`; switching away from Hider mid-game stops the watch/watcher
+  and dismisses any stale tray notification, the same path Phase 31.5 already used for
+  zone removal.
+- SW cache **v111 → v112**. **682** `node:test` tests pass (+8 for the role gate).
+
 ## Phases 41–45 — Android background notifications, Stage 6 of [`BUILD_PLAN_2026-07-21.md`](BUILD_PLAN_2026-07-21.md)
 The core of the Android track: real alerts on a **locked** phone. Phase 40's
 on-device Doze spike **PASSED** (`docs/PHASE40_RESULTS.md` — the free

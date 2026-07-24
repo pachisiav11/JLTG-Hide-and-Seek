@@ -45,13 +45,16 @@ export const CHANNEL_SILENT = "jltg-geofence-silent";
 // --- Pure helpers (headless-testable; no DOM, no Capacitor) ----------------
 
 // Should the background geofence be running for this game? Same gate as the web
-// path (src/geofence.js `_reconcile`): a placed hider zone (point + radius) AND a
-// non-zero edge threshold. Marker-only zones (no radius) and threshold 0 disable
-// it, exactly as evaluateGeofence itself no-ops on them.
+// path (src/geofence.js `_reconcile`): a placed hider zone (point + radius), a
+// non-zero edge threshold, AND this device's user playing Hider — a seeker's
+// Hider-zone is just their guess, not a zone they themselves must stay inside.
+// Marker-only zones (no radius) and threshold 0 disable it too, exactly as
+// evaluateGeofence itself no-ops on them. Role defaults to "seeker" (model.js).
 export function wantsNativeGeofence(game) {
   const z = game?.focusZone;
   const threshold = Number(game?.settings?.geofenceMetres) || 0;
-  return !!(z?.point && z.radius && threshold > 0);
+  const role = game?.settings?.role || "seeker";
+  return !!(z?.point && z.radius && threshold > 0 && role === "hider");
 }
 
 // A stable signature of the zone+threshold currently being watched. When it

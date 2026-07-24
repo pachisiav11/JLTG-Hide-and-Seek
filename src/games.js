@@ -713,6 +713,7 @@ export class Games {
         </div>
         <h3 class="sub">Hider geofence</h3>
         <p class="muted">While hiding, warn me when I'm this close to the edge of the Hider zone (or if I cross it). Also settable right in the 🎯 Hider-zone panel. Requires notification permission. Set to Off to disable.</p>
+        <p class="muted">Only fires when your role is set to <strong>Hider</strong> in the 🎯 Hider-zone panel (defaults to Seeker).</p>
         <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
         <div class="seg">
           ${radio("geofenceMetres", "0", String(st.geofenceMetres || 0), "Off")}

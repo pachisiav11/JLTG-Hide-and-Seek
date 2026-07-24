@@ -61,6 +61,7 @@ test("geofence 1: removing the hider zone dismisses the geofence notification", 
   // Active geofence: a zone with a radius + a threshold set.
   const g = createGame({ name: "Zone", gameArea: AREA, focusZone: ZONE });
   g.settings.geofenceMetres = 80;
+  g.settings.role = "hider";
   store.setCurrent(g);
 
   const gf = new Geofence({ Notification: { permission: "granted" }, geolocation: navigator.geolocation });
@@ -83,6 +84,7 @@ test("geofence 1: removing the hider zone dismisses the geofence notification", 
 test("geofence 2: a normal active reconcile does NOT clear (only stopping does)", () => {
   const g = createGame({ name: "Zone", gameArea: AREA, focusZone: ZONE });
   g.settings.geofenceMetres = 80;
+  g.settings.role = "hider";
   store.setCurrent(g);
 
   const gf = new Geofence({ Notification: { permission: "granted" }, geolocation: navigator.geolocation });
@@ -94,5 +96,26 @@ test("geofence 2: a normal active reconcile does NOT clear (only stopping does)"
   store.update((game) => { game.settings = { ...game.settings, units: "imperial" }; });
 
   assert.ok(!posted.some((m) => m.type === "CLEAR_NOTIFY"), "no clear while the zone is still active");
+  gf.destroy();
+});
+
+test("geofence 3: switching role away from Hider stops the watch and dismisses the tray alert, same as removing the zone", () => {
+  const g = createGame({ name: "Zone", gameArea: AREA, focusZone: ZONE });
+  g.settings.geofenceMetres = 80;
+  g.settings.role = "hider";
+  store.setCurrent(g);
+
+  const gf = new Geofence({ Notification: { permission: "granted" }, geolocation: navigator.geolocation });
+  gf.init();
+  assert.equal(gf.watching, true, "armed while role is hider");
+
+  posted.length = 0;
+  store.update((game) => { game.settings = { ...game.settings, role: "seeker" }; });
+
+  assert.equal(gf.watching, false, "a seeker is not watched against their own guess zone");
+  assert.ok(
+    posted.some((m) => m.type === "CLEAR_NOTIFY" && m.tag === "jltg-geofence"),
+    "role switch clears any stale tray alert too",
+  );
   gf.destroy();
 });
