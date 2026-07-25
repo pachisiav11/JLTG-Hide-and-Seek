@@ -25,25 +25,61 @@ export const NOTIFICATION_CHANNELS = [
   { id: SEEKER_CLOSE_CHANNEL_SILENT, name: "Seeker-close alerts (silent)", description: "Same as above, but without sound or vibration.", importance: 2, vibration: false },
 ];
 
-let _LN = null;
-async function loadLN() {
-  if (_LN) return _LN;
+let _lnBox = null;
+// Boxed in a plain object — NEVER return the bare plugin proxy from an async
+// function. Capacitor's registerPlugin() proxy has a catch-all `get` trap
+// (vendor/capacitor-core.js), so `proxy.then` resolves to a callable and the
+// JS engine treats a bare-returned proxy as a THENABLE: it calls
+// `proxy.then(resolve, reject)` itself, which asks native to run a method
+// literally named "then". That throws ("LocalNotifications.then() is not
+// implemented on android") into a promise nobody holds, and neither `resolve`
+// nor `reject` is ever invoked — the original caller's `await` hangs forever,
+// silently. This is exactly what broke channel creation on-device: confirmed
+// live (logcat + CDP) that `loadLN()`'s old `return _LN;` shape never settled,
+// so `ensureNotificationChannels()` never reached its create-channel loop —
+// every alert since Phase 41/44 was scheduled against a channel id Android had
+// never created, which it drops with total silence (no error, no crash).
+async function loadLNBox() {
+  if (_lnBox) return _lnBox;
   const { registerPlugin } = await import("../vendor/capacitor-core.js");
-  _LN = registerPlugin("LocalNotifications");
-  return _LN;
+  _lnBox = { LN: registerPlugin("LocalNotifications") };
+  return _lnBox;
 }
 
-// Create (or update) every channel this app's local notifications rely on.
-// Native-only; a no-op off-device. `plugins.LN` injectable for tests.
-export async function ensureNotificationChannels({ isNative = isNativeCapacitor, plugins = null } = {}) {
-  if (!isNative()) return;
-  const LN = plugins?.LN || (await loadLN());
-  if (!LN?.createChannel) return;
+async function _createChannels({ isNative, plugins }) {
+  if (!isNative()) return false;
+  let LN;
+  try {
+    LN = plugins?.LN || (await loadLNBox()).LN;
+  } catch (e) {
+    console.warn("native-channels: could not load LocalNotifications plugin", e);
+    return false;
+  }
+  if (!LN?.createChannel) return false;
+  let allOk = true;
   for (const ch of NOTIFICATION_CHANNELS) {
     try {
       await LN.createChannel({ id: ch.id, name: ch.name, description: ch.description, importance: ch.importance, vibration: ch.vibration, visibility: 1 });
     } catch (e) {
       console.warn(`native-channels: createChannel(${ch.id}) failed`, e);
+      allOk = false;
     }
   }
+  return allOk;
+}
+
+let _channelsReady = null;
+
+// Create (or update) every channel this app's local notifications rely on, and
+// report whether every one of them is actually ready to receive a post — the
+// alert-firing modules (native-geofence.js, native-local-notify.js) gate on
+// this rather than assuming boot-time creation already landed. Memoized once
+// per app session so every caller shares the same outcome instead of re-running
+// the loop, EXCEPT when a test injects `plugins` directly: that always runs
+// fresh so tests stay isolated from each other and from app boot's own call.
+// Native-only (resolves false off-device); never throws.
+export function ensureNotificationChannels({ isNative = isNativeCapacitor, plugins = null } = {}) {
+  if (plugins) return _createChannels({ isNative, plugins });
+  if (!_channelsReady) _channelsReady = _createChannels({ isNative, plugins: null });
+  return _channelsReady;
 }

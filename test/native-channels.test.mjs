@@ -53,3 +53,39 @@ test("a channel that fails to create does not stop the others (no throw)", async
   await assert.doesNotReject(ensureNotificationChannels({ isNative: () => true, plugins: { LN } }));
   assert.equal(calls.length, 3, "the other three channels still get created");
 });
+
+test("ensureNotificationChannels resolves true only when every channel is created", async () => {
+  const okLN = { LN: { createChannel: async () => {} } };
+  assert.equal(await ensureNotificationChannels({ isNative: () => true, plugins: okLN }), true);
+
+  const flakyLN = { LN: { createChannel: async (c) => { if (c.id === CHANNEL_ALERT) throw new Error("boom"); } } };
+  assert.equal(await ensureNotificationChannels({ isNative: () => true, plugins: flakyLN }), false);
+
+  assert.equal(await ensureNotificationChannels({ isNative: () => false, plugins: okLN }), false, "off-device is never ready");
+});
+
+// The device-confirmed root cause of the whole bug: async functions in this
+// codebase used to `return` the bare Capacitor plugin proxy directly. That
+// proxy (vendor/capacitor-core.js) answers EVERY property access, including
+// `.then`, with a callable — so the JS engine treats a bare-returned proxy as
+// a THENABLE and calls `proxy.then(resolve, reject)` itself. That throws into
+// a promise nobody holds, and neither `resolve` nor `reject` is ever called:
+// the loader's own promise hangs forever, with no error visible anywhere. This
+// silently starved every notification of a channel (native-channels.js's old
+// loadLN() had exactly this shape) — logcat + a live CDP repro on-device
+// confirmed a bare-returned proxy really does hang. This test pins the fix
+// (boxing the proxy in a plain object) against a hand-built stand-in for that
+// proxy, without needing the real vendor/capacitor-core.js or a device.
+test("boxing a thenable-trap proxy in a plain object prevents the hang; returning it bare reproduces it", async () => {
+  const trapProxy = new Proxy({}, { get: () => () => {} }); // answers .then with a callable, like the real plugin proxy
+  const settled = (p, ms) => Promise.race([
+    p.then(() => "settled").catch(() => "settled"),
+    new Promise((r) => setTimeout(() => r("hung"), ms)),
+  ]);
+
+  async function returnsBare() { return trapProxy; }
+  assert.equal(await settled(returnsBare(), 50), "hung", "sanity check: an unboxed proxy really does hang forever");
+
+  async function returnsBoxed() { return { LN: trapProxy }; }
+  assert.equal(await settled(returnsBoxed(), 50), "settled", "boxing the proxy must prevent the thenable trap");
+});

@@ -113,7 +113,7 @@ export class NativeGeofence {
   // Dependency-injected so a headless test can drive fixes through a fake plugin
   // and assert on scheduled notifications without a phone. Production defaults to
   // the real store, the real native check, and lazily-loaded Capacitor plugins.
-  constructor({ store = storeModule, isNative = isNativeCapacitor, plugins = null, onError = () => {} } = {}) {
+  constructor({ store = storeModule, isNative = isNativeCapacitor, plugins = null, onError = () => {}, ensureChannels = null } = {}) {
     this.store = store;
     this._isNative = isNative;
     this.BG = plugins?.BG || null;
@@ -128,6 +128,13 @@ export class NativeGeofence {
     this.liveIds = new Set();  // posted notification ids, so we can cancel on stop
     this._activeKey = null;    // zoneKey currently watched
     this._unsub = null;
+    // Test override; null in production, where start() dynamically imports the
+    // real ensureNotificationChannels() (see native-channels.js — a channel id
+    // Android never created gets a post silently dropped, no error anywhere).
+    this._ensureChannels = ensureChannels;
+    // Optimistic default so _fire() behaves exactly as before until start()'s
+    // real check resolves (or on the very first fix, if it hasn't yet).
+    this._channelsReady = true;
   }
 
   get watching() { return this.watcherId != null; }
@@ -179,6 +186,17 @@ export class NativeGeofence {
     try {
       await this._ensurePlugins();
       if (!this.BG) return;
+      // Make sure the channels every alert selects by id actually exist before
+      // arming the watcher — see native-channels.js for why boot-time creation
+      // could silently never land. _fire() falls back to no channelId (the
+      // plugin's own default channel) when this comes back false.
+      try {
+        this._channelsReady = this._ensureChannels
+          ? await this._ensureChannels()
+          : await import("./native-channels.js").then((m) => m.ensureNotificationChannels({ isNative: this._isNative }));
+      } catch {
+        this._channelsReady = false;
+      }
       // Request the notification permission BEFORE opening the watcher, and wait
       // for it to fully resolve first. addWatcher's own requestPermissions:true
       // option pops the location dialog; firing LocalNotifications.requestPermissions()
@@ -260,6 +278,10 @@ export class NativeGeofence {
     const id = ++this.notifyId;
     const payload = localNotificationForNotify(notify, id, style);
     if (!payload) return; // "Off" — suppress entirely (Phase 33).
+    // Channels not confirmed ready (creation failed, or hasn't resolved yet) —
+    // fall back to the plugin's own default channel rather than posting to an
+    // id that doesn't exist, which Android drops with total silence.
+    if (!this._channelsReady) delete payload.channelId;
     this.liveIds.add(id);
     // No `schedule.at`: the plugin posts immediately via notify() when `schedule`
     // is omitted. A future `at` — even the ~50ms this used to pass — instead
@@ -294,7 +316,7 @@ export class NativeGeofence {
 // Everything upstream of this (a placed zone, a crossed band) takes minutes to
 // re-trigger on a real walk; this answers "will an alert reach me at all" in
 // one tap. Native-only; `plugins.LN` injectable for tests.
-export async function postTestNotification({ plugins = null, isNative = isNativeCapacitor } = {}) {
+export async function postTestNotification({ plugins = null, isNative = isNativeCapacitor, ensureChannels = null } = {}) {
   if (!isNative()) return { ok: false, reason: "Not running in the Android app." };
   let LN = plugins?.LN;
   if (!LN) {
@@ -304,6 +326,18 @@ export async function postTestNotification({ plugins = null, isNative = isNative
     } catch (e) {
       return { ok: false, reason: e?.message || String(e) };
     }
+  }
+  // A test's whole purpose is revealing exactly this kind of problem, so unlike
+  // _fire()'s silent channelId-stripping fallback, be honest here: if the
+  // channels this alert would post to were never actually created (see
+  // native-channels.js), say so instead of reporting a false "sent".
+  // `ensureChannels` is a test override; production always does the real
+  // check when no `plugins` were injected (tests inject their own LN and skip
+  // it, matching how the rest of this module tests plugin-level behaviour).
+  const checkChannels = ensureChannels || (plugins ? null : () => import("./native-channels.js").then((m) => m.ensureNotificationChannels({ isNative })).catch(() => false));
+  if (checkChannels) {
+    const ready = await checkChannels();
+    if (!ready) return { ok: false, reason: "Notification channels aren't set up yet — close and reopen the app, then try again." };
   }
   // schedule() below does NOT reject when POST_NOTIFICATIONS is denied — it
   // resolves fine and posts nothing, which is exactly the "test says it worked

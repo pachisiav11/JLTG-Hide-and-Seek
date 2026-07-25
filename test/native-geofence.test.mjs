@@ -126,7 +126,7 @@ function fakePlugins() {
   };
 }
 
-const makeBridge = (store, fk) => new NativeGeofence({ store, isNative: () => true, plugins: fk.plugins });
+const makeBridge = (store, fk) => new NativeGeofence({ store, isNative: () => true, plugins: fk.plugins, ensureChannels: async () => true });
 
 test("init off-device is completely inert — no watcher, no plugin touch", async () => {
   const fk = fakePlugins();
@@ -164,6 +164,22 @@ test("fires exactly one notification per band transition, silent while parked", 
   // No `schedule` — posted immediately via notify(), not raced through
   // AlarmManager against a near-future `at` that Android can silently drop.
   assert.ok(fk.scheduled.every((n) => n.schedule === undefined));
+});
+
+test("channels not confirmed ready: _fire() strips channelId instead of posting to a nonexistent one", async () => {
+  const store = fakeStore(gameWith());
+  const fk = fakePlugins();
+  const gf = new NativeGeofence({ store, isNative: () => true, plugins: fk.plugins, ensureChannels: async () => false });
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(gf._channelsReady, false, "start() recorded the failed channel check");
+
+  fk.pushFix(at(0.001));   // baseline
+  fk.pushFix(at(0.0036));  // → near: tries to fire
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(fk.scheduled.length, 1);
+  assert.equal(fk.scheduled[0].channelId, undefined, "falls back to the plugin's own default channel");
 });
 
 test("honours Phase 33 'Off' — a crossing posts nothing", async () => {
@@ -284,6 +300,7 @@ test("onError is called on a fatal watcher error", async () => {
     isNative: () => true,
     plugins: fk.plugins,
     onError: (msg) => errors.push(msg),
+    ensureChannels: async () => true,
   });
   gf.init();
   await new Promise((r) => setTimeout(r, 0));
@@ -308,6 +325,7 @@ test("a rejected LN.schedule() calls onError instead of throwing/silently vanish
     isNative: () => true,
     plugins: fk.plugins,
     onError: (msg) => errors.push(msg),
+    ensureChannels: async () => true,
   });
   gf.init();
   await new Promise((r) => setTimeout(r, 0));
@@ -385,6 +403,35 @@ test("postTestNotification: not-yet-decided permission is requested, then procee
   };
   const result = await postTestNotification({ plugins: fk, isNative: () => true });
   assert.equal(requested, true);
+  assert.equal(result.ok, true);
+  assert.equal(scheduled.length, 1);
+});
+
+test("postTestNotification: channels not ready reports an honest failure instead of a false success", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  let scheduleCalled = false;
+  const fk = {
+    LN: {
+      checkPermissions: async () => ({ display: "granted" }),
+      schedule: async () => { scheduleCalled = true; },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true, ensureChannels: async () => false });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /channels/i);
+  assert.equal(scheduleCalled, false, "must not claim success against channels that don't exist");
+});
+
+test("postTestNotification: channels ready proceeds to schedule normally", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  const scheduled = [];
+  const fk = {
+    LN: {
+      checkPermissions: async () => ({ display: "granted" }),
+      schedule: async ({ notifications }) => { scheduled.push(...notifications); },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true, ensureChannels: async () => true });
   assert.equal(result.ok, true);
   assert.equal(scheduled.length, 1);
 });

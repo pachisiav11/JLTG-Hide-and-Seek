@@ -18,7 +18,7 @@ globalThis.window = Object.assign(globalThis.window || {}, noopEvents);
 globalThis.document = globalThis.document || { ...noopEvents, visibilityState: "visible" };
 Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true, writable: true });
 
-const { seekerCloseNotification, SEEKER_CLOSE_CHANNEL, SEEKER_CLOSE_CHANNEL_SILENT } = await import("../src/native-local-notify.js");
+const { seekerCloseNotification, postSeekerCloseNotification, SEEKER_CLOSE_CHANNEL, SEEKER_CLOSE_CHANNEL_SILENT } = await import("../src/native-local-notify.js");
 const { initHiderPushReceiver } = await import("../src/native-push.js");
 const { LiveShare } = await import("../src/live-share.js");
 const store = await import("../src/store.js");
@@ -34,6 +34,29 @@ test("seekerCloseNotification folds Phase 33 styles into channel / suppression",
   assert.equal(seekerCloseNotification(notify, 7, "silent").channelId, SEEKER_CLOSE_CHANNEL_SILENT);
   assert.equal(seekerCloseNotification(notify, 7, "off"), null, "Off suppresses");
   assert.equal(seekerCloseNotification(notify, 7).id, 7);
+});
+
+test("postSeekerCloseNotification schedules against the selected channel when channels are ready", async () => {
+  const scheduled = [];
+  const LN = { schedule: async ({ notifications }) => scheduled.push(...notifications) };
+  const id = await postSeekerCloseNotification(
+    { title: "Seeker close", body: "~500 m" },
+    { isNative: () => true, plugins: { LN }, ensureChannels: async () => true },
+  );
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].channelId, SEEKER_CLOSE_CHANNEL);
+  assert.equal(scheduled[0].id, id);
+});
+
+test("postSeekerCloseNotification falls back to no channelId when channels aren't confirmed ready", async () => {
+  const scheduled = [];
+  const LN = { schedule: async ({ notifications }) => scheduled.push(...notifications) };
+  await postSeekerCloseNotification(
+    { title: "Seeker close", body: "~500 m" },
+    { isNative: () => true, plugins: { LN }, ensureChannels: async () => false },
+  );
+  assert.equal(scheduled.length, 1, "still posts — just without a channel id Android never created");
+  assert.equal(scheduled[0].channelId, undefined);
 });
 
 // --- the push receiver ------------------------------------------------------

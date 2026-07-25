@@ -12,14 +12,23 @@
 
 import { isNativeCapacitor } from "./bg-spike.js";
 
-async function loadPushPlugin() {
+let _pnBox = null;
+// Boxed in a plain object, never returned bare from an async function — a bare
+// Capacitor plugin proxy makes the JS engine treat the returned value as a
+// thenable (its catch-all `get` trap answers `.then` with a callable), which
+// permanently hangs the async function's own promise. See native-channels.js's
+// loadLNBox() for the full mechanism — this is the identical bug, which meant
+// getHiderPushToken()/initHiderPushReceiver() below could never resolve.
+async function loadPushPluginBox() {
+  if (_pnBox) return _pnBox;
   try {
     const { registerPlugin } = await import("../vendor/capacitor-core.js");
-    return registerPlugin("PushNotifications");
+    _pnBox = { PN: registerPlugin("PushNotifications") };
   } catch (e) {
     console.warn("native-push: could not load PushNotifications plugin", e);
-    return null;
+    _pnBox = { PN: null };
   }
+  return _pnBox;
 }
 
 // Resolve the device's FCM registration token, or null if unavailable (not
@@ -27,7 +36,7 @@ async function loadPushPlugin() {
 // Injectable (`isNative`, `plugin`) so the flow is unit-testable without a phone.
 export async function getHiderPushToken({ isNative = isNativeCapacitor, plugin = null, timeoutMs = 8000 } = {}) {
   if (!isNative()) return null;
-  const PN = plugin || (await loadPushPlugin());
+  const PN = plugin || (await loadPushPluginBox()).PN;
   if (!PN) return null;
 
   // Ask for notification permission; a hard denial means no token. A plugin that
@@ -72,7 +81,7 @@ export async function getHiderPushToken({ isNative = isNativeCapacitor, plugin =
 // Returns an unsubscribe fn. Inert off-device (no FCM in a browser/PWA/node).
 export async function initHiderPushReceiver({ isNative = isNativeCapacitor, plugin = null, onSeekerCoords } = {}) {
   if (!isNative() || typeof onSeekerCoords !== "function") return () => {};
-  const PN = plugin || (await loadPushPlugin());
+  const PN = plugin || (await loadPushPluginBox()).PN;
   if (!PN) return () => {};
 
   const handle = (data) => {

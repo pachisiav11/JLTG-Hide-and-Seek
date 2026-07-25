@@ -33,30 +33,34 @@ export function seekerCloseNotification(notify, id, alertStyle = "vibrate-tone")
   };
 }
 
-let _LN = null;
-let _lnReady = null;
+let _lnBox = null;
 let _nextId = 3000; // distinct from the geofence band (2000+) and spike (1000+)
 
-async function loadLN() {
-  if (_LN) return _LN;
-  if (!_lnReady) {
-    _lnReady = import("../vendor/capacitor-core.js").then(({ registerPlugin }) => {
-      _LN = registerPlugin("LocalNotifications");
-    });
-  }
-  await _lnReady;
-  return _LN;
+// Boxed in a plain object, never returned bare from an async function — see
+// native-channels.js's loadLNBox() for why a bare-returned Capacitor plugin
+// proxy makes an async function's promise hang forever (it looks thenable).
+async function loadLNBox() {
+  if (_lnBox) return _lnBox;
+  const { registerPlugin } = await import("../vendor/capacitor-core.js");
+  _lnBox = { LN: registerPlugin("LocalNotifications") };
+  return _lnBox;
 }
 
 // Post a seeker-close local notification. Returns the posted id, or null if
 // suppressed ("Off"), off-device, or the plugin is unavailable. `plugins.LN` is
 // injectable so the flow is unit-tested without a phone.
-export async function postSeekerCloseNotification(notify, { alertStyle = "vibrate-tone", plugins = null, isNative = isNativeCapacitor } = {}) {
+export async function postSeekerCloseNotification(notify, { alertStyle = "vibrate-tone", plugins = null, isNative = isNativeCapacitor, ensureChannels = null } = {}) {
   if (!isNative()) return null;
   const payload = seekerCloseNotification(notify, ++_nextId, alertStyle);
   if (!payload) return null;
-  const LN = plugins?.LN || (await loadLN());
+  const LN = plugins?.LN || (await loadLNBox()).LN;
   if (!LN) return null;
+  // Fall back to the plugin's own default channel (rather than silently
+  // vanishing) if this app's channels were never actually created — see
+  // native-channels.js. Test override via `ensureChannels`; production only
+  // runs the real check when no `plugins` were injected.
+  const checkChannels = ensureChannels || (plugins ? null : () => import("./native-channels.js").then((m) => m.ensureNotificationChannels({ isNative })).catch(() => false));
+  if (checkChannels && !(await checkChannels())) delete payload.channelId;
   try {
     // No `schedule.at` — see native-geofence.js's _fire() for why: omitting it
     // posts immediately via notify() instead of racing a near-future AlarmManager
