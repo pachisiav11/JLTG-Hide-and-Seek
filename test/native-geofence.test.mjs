@@ -104,10 +104,11 @@ function fakePlugins() {
   let cb = null;
   const scheduled = [];
   const cancelled = [];
+  let watcherCalls = 0;
   return {
     plugins: {
       BG: {
-        addWatcher: async (_opts, callback) => { cb = callback; return "watcher-1"; },
+        addWatcher: async (_opts, callback) => { watcherCalls++; cb = callback; return `watcher-${watcherCalls}`; },
         removeWatcher: async () => { cb = null; },
       },
       LN: {
@@ -121,6 +122,7 @@ function fakePlugins() {
     scheduled,
     cancelled,
     get started() { return cb != null; },
+    get watcherCalls() { return watcherCalls; },
   };
 }
 
@@ -156,10 +158,12 @@ test("fires exactly one notification per band transition, silent while parked", 
   assert.match(titles[0], /edge/i);        // approaching
   assert.match(titles[1], /left/i);         // crossed-out
   assert.match(titles[2], /[Bb]ack inside/); // back-in
-  // Ids are distinct ints in the geofence band, and each carries a live schedule.
+  // Ids are distinct ints in the geofence band.
   const ids = fk.scheduled.map((n) => n.id);
   assert.equal(new Set(ids).size, ids.length);
-  assert.ok(fk.scheduled.every((n) => n.schedule?.at instanceof Date));
+  // No `schedule` — posted immediately via notify(), not raced through
+  // AlarmManager against a near-future `at` that Android can silently drop.
+  assert.ok(fk.scheduled.every((n) => n.schedule === undefined));
 });
 
 test("honours Phase 33 'Off' — a crossing posts nothing", async () => {
@@ -248,4 +252,104 @@ test("removing the zone stops the watcher and cancels any posted alert", async (
   assert.equal(gf.watching, false, "no zone → watcher stopped");
   assert.equal(fk.cancelled.length, 1, "the posted alert is cancelled off the tray");
   assert.equal(fk.cancelled[0].id, fk.scheduled[0].id);
+});
+
+test("a fatal watcher error clears state so the feature can retry, instead of wedging forever", async () => {
+  const store = fakeStore(gameWith());
+  const fk = fakePlugins();
+  const gf = makeBridge(store, fk);
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fk.started, true, "a placed zone starts the watcher");
+  assert.equal(fk.watcherCalls, 1, "first watcher call");
+
+  fk.pushError({ message: "Location services disabled." });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(gf.watching, false, "error clears watcherId, so watching is false");
+  assert.equal(gf._activeKey, null, "activeKey is also cleared");
+
+  // Trigger a retry by re-emitting the store. This should start a fresh watcher.
+  store.set(gameWith());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fk.watcherCalls, 2, "a fresh addWatcher call happened after the retry");
+  assert.equal(gf.watching, true, "the new watcher is now active");
+});
+
+test("onError is called on a fatal watcher error", async () => {
+  const errors = [];
+  const store = fakeStore(gameWith());
+  const fk = fakePlugins();
+  const gf = new NativeGeofence({
+    store,
+    isNative: () => true,
+    plugins: fk.plugins,
+    onError: (msg) => errors.push(msg),
+  });
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fk.started, true);
+
+  fk.pushError({ message: "Permission denied." });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(errors.length, 1, "onError was called once");
+  assert.match(errors[0], /Permission denied/, "error message is passed through");
+});
+
+test("a rejected LN.schedule() calls onError instead of throwing/silently vanishing", async () => {
+  const errors = [];
+  const store = fakeStore(gameWith());
+  const fk = fakePlugins();
+  // Override LN.schedule to reject
+  fk.plugins.LN.schedule = async () => {
+    throw new Error("Notifications not enabled on this device");
+  };
+  const gf = new NativeGeofence({
+    store,
+    isNative: () => true,
+    plugins: fk.plugins,
+    onError: (msg) => errors.push(msg),
+  });
+  gf.init();
+  await new Promise((r) => setTimeout(r, 0));
+  fk.pushFix(at(0.001));   // baseline
+  fk.pushFix(at(0.0036));  // approaching → tries to fire a notification
+  // Give the async schedule().catch time to run
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(errors.length, 1, "onError was called once");
+  assert.match(errors[0], /notification|Notifications/, "error mentions the notification failure");
+});
+
+test("postTestNotification: off-device returns not-running error", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  const result = await postTestNotification({ isNative: () => false });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /Android app/);
+});
+
+test("postTestNotification: on-device success", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  const scheduled = [];
+  const fk = {
+    LN: {
+      schedule: async ({ notifications }) => { scheduled.push(...notifications); },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true });
+  assert.equal(result.ok, true);
+  assert.equal(scheduled.length, 1);
+  assert.match(scheduled[0].title, /[Tt]est/);
+});
+
+test("postTestNotification: LN.schedule rejection returns error", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  const fk = {
+    LN: {
+      schedule: async () => {
+        throw new Error("Permission denied by the OS");
+      },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /Permission denied/);
 });

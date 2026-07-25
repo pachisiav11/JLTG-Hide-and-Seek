@@ -58,7 +58,11 @@ export async function postSeekerCloseNotification(notify, { alertStyle = "vibrat
   const LN = plugins?.LN || (await loadLN());
   if (!LN) return null;
   try {
-    await LN.schedule({ notifications: [{ ...payload, schedule: { at: new Date(Date.now() + 50) } }] });
+    // No `schedule.at` — see native-geofence.js's _fire() for why: omitting it
+    // posts immediately via notify() instead of racing a near-future AlarmManager
+    // fire that Android can silently drop if the `at` instant has already passed
+    // by the time the native side processes the call.
+    await LN.schedule({ notifications: [payload] });
     return payload.id;
   } catch (e) {
     console.warn("native-local-notify: schedule failed", e);

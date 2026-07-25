@@ -9,7 +9,7 @@ import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from
 import * as places from "./places.js";
 import { guideBodyHTML } from "./guide.js";
 import { isNativeCapacitor } from "./bg-spike.js";
-import { queryGrants, wizardHTML, openSettingsFor } from "./native-permissions.js";
+import { queryGrants, wizardHTML, openSettingsFor, alertsReachCopy, mountReadinessNote } from "./native-permissions.js";
 
 export class Games {
   constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null, layers = null } = {}) {
@@ -714,7 +714,8 @@ export class Games {
         <h3 class="sub">Hider geofence</h3>
         <p class="muted">While hiding, warn me when I'm this close to the edge of the Hider zone (or if I cross it). Also settable right in the 🎯 Hider-zone panel. Requires notification permission. Set to Off to disable.</p>
         <p class="muted">Only fires when your role is set to <strong>Hider</strong> in the 🎯 Hider-zone panel (defaults to Seeker).</p>
-        <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
+        <p class="muted">${alertsReachCopy(isNativeCapacitor())}</p>
+        <div id="st-perm-note"></div>
         <div class="seg">
           ${radio("geofenceMetres", "0", String(st.geofenceMetres || 0), "Off")}
           ${radio("geofenceMetres", "50", String(st.geofenceMetres || 0), "50 m")}
@@ -745,6 +746,9 @@ export class Games {
     });
     s.q("#st-help").onclick = () => { s.close(); this.openInstructions(); };
     s.q("#st-guide").onclick = () => { s.close(); this.openGuide(); };
+    // Same compact readiness note as the Hider-zone panel — see native-permissions.js
+    // mountReadinessNote for why this lives in one shared place, not duplicated here.
+    mountReadinessNote(s.q("#st-perm-note"), { onOpenGuide: () => { s.close(); this.openGuide(); } });
     // Palette applies live on selection (no re-fetch); Cancel restores the prior one.
     s.qa('input[name="palette"]').forEach((r) => (r.onchange = () => setPalette(r.value)));
     // Map style also applies live via the jltg:mapstyle event.

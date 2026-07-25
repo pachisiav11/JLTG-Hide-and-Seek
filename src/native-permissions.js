@@ -28,6 +28,7 @@ export const PERMISSION_STEPS = [
     id: "location",
     title: "Location: “Allow all the time”",
     why: "Background alerts read your position while the phone is locked. “While using the app” isn’t enough — Android stops sharing location the moment the screen goes off.",
+    fix: "Set location to “Allow all the time” in the app's Android settings.",
     grantedWhen: (g) => g.location === "always",
     blockedWhen: (g) => g.location === "denied",
   },
@@ -35,6 +36,7 @@ export const PERMISSION_STEPS = [
     id: "notifications",
     title: "Notifications: allowed",
     why: "The edge and seeker-close alerts are posted as notifications. Without this they fire silently into nothing.",
+    fix: "Allow notifications for this app in Android settings.",
     grantedWhen: (g) => g.notifications === "granted",
     blockedWhen: (g) => g.notifications === "denied",
   },
@@ -42,6 +44,7 @@ export const PERMISSION_STEPS = [
     id: "battery",
     title: "Battery: don’t optimise this app",
     why: "Aggressive battery managers can suspend the alert service in deep sleep. Exempting the app keeps it alive in your pocket.",
+    fix: "Turn off battery optimisation for this app in Android settings.",
     grantedWhen: (g) => g.battery === "exempt",
     blockedWhen: (g) => false, // battery is never a hard "denied"; it's exempt or not
   },
@@ -84,6 +87,29 @@ export function grantSummary(grant = unknownGrants()) {
   return { done, total: steps.length, ready: permissionsReady(grant) };
 }
 
+// Steps we KNOW are blocking (denied, or a confirmed "action" state) — these are
+// worth an assertive toast/red note the moment the user enables the feature.
+// Distinct from `blockingSteps` (which also counts "unknown"): crying wolf about
+// battery on every single radio tap (it can never be verified without a native
+// shim, see queryGrants) would train the user to ignore the warning entirely.
+export function hardBlockers(grant = unknownGrants()) {
+  return wizardSteps(grant).filter((s) => s.status === "action");
+}
+
+// Steps we simply CAN'T verify from JS (currently: location "always" vs
+// "while-in-use" are indistinguishable, and there is no battery-optimisation API
+// on this plugin — see queryGrants). Surfaced as a neutral nudge, never an alarm.
+export function unverifiable(grant = unknownGrants()) {
+  return wizardSteps(grant).filter((s) => s.status === "unknown");
+}
+
+// The short toast for the FIRST known blocker, or null if there isn't one. Uses
+// `fix` (one clause) rather than `why` (two sentences) — a toast has ~5 seconds.
+export function blockingToastText(grant = unknownGrants()) {
+  const [first] = hardBlockers(grant);
+  return first ? `${first.title} — ${first.fix}` : null;
+}
+
 // --- HTML (pure string; games.js drops it into the Guide's Android section) ---
 
 const STATUS_BADGE = { granted: "✅", action: "⚠️", unknown: "❔" };
@@ -106,6 +132,31 @@ export function wizardHTML(grant = unknownGrants()) {
   }).join("");
   return `${banner}<ul class="perm-wizard">${rows}</ul>
     <p class="muted">After changing a setting, come back and reopen this Guide to re-check.</p>`;
+}
+
+// The one-line "how do alerts reach me" sentence, native vs web — replaces the
+// Phase 3-era copy in focus.js/games.js that flatly said "alerts only fire while
+// the app is open" (true in a browser, false in the Android app since Phase 41).
+export function alertsReachCopy(isNative) {
+  return isNative
+    ? "In the Android app these alerts also fire with the screen off — but only once Android's location, notification and battery permissions below are granted."
+    : "Alerts fire only while the app is open in a browser. Install the Android app for background alerts.";
+}
+
+// A compact inline note for the Settings sheet and Hider-zone panel — NOT the
+// full wizard (that stays in the Guide). Names only the KNOWN blockers assertively;
+// unverifiable steps get a neutral "can't auto-check, go verify" nudge instead of
+// a standing false alarm; an all-clear reads as calm confirmation.
+export function readinessNoteHTML(grant = unknownGrants()) {
+  const hard = hardBlockers(grant);
+  if (hard.length) {
+    const names = hard.map((s) => s.title.replace(/^([^:]+):.*/, "$1")).join(", ");
+    return `<p class="warn-note">⚠️ Background alerts won't arrive yet — ${names}. <button class="btn btn-small" data-perm-guide>Fix permissions</button></p>`;
+  }
+  if (unverifiable(grant).length) {
+    return `<p class="muted">Android can't auto-check every grant. <button class="btn btn-small" data-perm-guide>Verify permissions</button> to confirm background alerts will work.</p>`;
+  }
+  return `<p class="ok-note">✅ Background alerts are set up.</p>`;
 }
 
 // --- Native queries + deep-links (need the device) -------------------------
@@ -134,21 +185,32 @@ export async function queryGrants({ isNative = isNativeCapacitor, plugins = null
   const grant = unknownGrants();
   if (!p) return grant;
 
-  // Location "all the time" — the community plugin exposes the coarse/precise
-  // grant; "always"/"background" both mean the all-the-time grant we need.
+  // Location "all the time". IMPORTANT: @capacitor-community/background-geolocation
+  // declares only ONE permission alias ("location", covering ACCESS_FINE/COARSE) — it
+  // never requests or reports ACCESS_BACKGROUND_LOCATION. So checkPermissions()
+  // returning "granted" means only "while using the app" was granted; it CANNOT tell
+  // us the all-the-time grant is in place. Reporting that as "always" was a false ✅
+  // that told a hider background alerts were armed when they might not be — worse
+  // than staying honestly unknown. "denied" is still reliable (the OS refused even
+  // foreground location), so that stays a hard blocker.
   try {
     const loc = await p.BG?.checkPermissions?.();
     const v = loc?.location || loc?.background;
-    if (v === "granted" || v === "always" || v === "background") grant.location = "always";
-    else if (v === "denied") grant.location = "denied";
-    else if (v) grant.location = "whileInUse";
+    if (v === "denied") grant.location = "denied";
+    // else: "granted" is ambiguous (while-in-use vs always) on this plugin — leave unknown.
   } catch { /* leave unknown */ }
 
-  // Notifications (Android 13+ runtime grant).
+  // Notifications (Android 13+ runtime grant). checkPermissions() alone misses the
+  // case where the OS-level POST_NOTIFICATIONS prompt was auto-denied (e.g. by the
+  // permission-request race in native-geofence.js) but no explicit "denied" was ever
+  // recorded; areNotificationsEnabled()/areEnabled() is the same check schedule()
+  // itself relies on, so it's a more reliable "will a post actually show" signal.
   try {
     const ln = await p.LN?.checkPermissions?.();
     if (ln?.display === "granted") grant.notifications = "granted";
     else if (ln?.display === "denied") grant.notifications = "denied";
+    const en = await p.LN?.areEnabled?.();
+    if (en && en.value === false) grant.notifications = "denied";
   } catch { /* leave unknown */ }
 
   // Battery-optimization exemption. No standard Capacitor API — a custom native
@@ -180,4 +242,21 @@ export async function openSettingsFor(stepId, { isNative = isNativeCapacitor, pl
     console.warn("native-permissions: openSettings failed", e);
   }
   return false;
+}
+
+// The ONE place that checks grants and renders the compact note — both the
+// Settings sheet and the Hider-zone panel call this instead of each rolling
+// their own query-and-render, so the "what does the user see when they turn
+// this on" logic lives in one tested spot. No-ops off-device (leaves
+// `container` untouched — the caller's own native-vs-web copy covers that
+// case). `queryFn` is injectable for tests; production defaults to the real
+// device query.
+export async function mountReadinessNote(container, { onOpenGuide = () => {}, isNative = isNativeCapacitor, queryFn = queryGrants } = {}) {
+  if (!container || !isNative()) return;
+  let grant;
+  try { grant = await queryFn(); }
+  catch (e) { console.warn("native-permissions: readiness query failed", e); return; }
+  container.innerHTML = readinessNoteHTML(grant);
+  const btn = container.querySelector?.("button[data-perm-guide]");
+  if (btn) btn.onclick = () => onOpenGuide();
 }

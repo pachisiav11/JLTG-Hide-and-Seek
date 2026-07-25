@@ -7,6 +7,9 @@
 import * as store from "./store.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { openSheet, toast, distanceFieldHTML, readDistanceMeters } from "./ui.js";
+import { isNativeCapacitor } from "./bg-spike.js";
+import { alertsReachCopy, mountReadinessNote, queryGrants, blockingToastText } from "./native-permissions.js";
+import { postTestNotification } from "./native-geofence.js";
 
 const MASK_STYLE = { strokeOpacity: 0, fillColor: "#020a0c", fillOpacity: 0.5, clickable: false };
 const ZONE_STYLE = { strokeColor: "#a78bfa", strokeOpacity: 0.95, strokeWeight: 2, fillOpacity: 0, clickable: false };
@@ -78,6 +81,21 @@ export class Focus {
     });
   }
 
+  // A one-shot, native-only nudge fired right when the hider ARMS the feature
+  // (threshold > 0, or switching role to hider): if a grant we can actually
+  // confirm is missing, say so immediately instead of leaving the user to
+  // discover it only when a real crossing silently produces nothing. Never
+  // warns about the unverifiable steps (see native-permissions.js) — those get
+  // the neutral note in the panel, not an alarm on every tap. Best-effort:
+  // swallows its own errors so a plugin hiccup here never blocks the UI change
+  // that already happened.
+  _nudgeIfBlocked() {
+    queryGrants().then((g) => {
+      const t = blockingToastText(g);
+      if (t) toast(t, 5000);
+    }).catch(() => {});
+  }
+
   render() {
     this._clear();
     const zone = this._zone();
@@ -131,12 +149,13 @@ export class Focus {
     this.overlays = [];
   }
 
-  openPanel(layers) {
+  openPanel(layers, { onOpenGuide = null } = {}) {
     const zone = this._zone() || {};
     const pt = zone.point;
     const units = store.getCurrent()?.settings?.units || "metric";
     const gm = Number(store.getCurrent()?.settings?.geofenceMetres) || 0;
     const role = store.getCurrent()?.settings?.role || "seeker";
+    const native = isNativeCapacitor();
     const gfRadio = (value, label) =>
       `<label><input type="radio" name="f-geofence" value="${value}" ${gm === Number(value) ? "checked" : ""}/> ${label}</label>`;
     const roleRadio = (value, label) =>
@@ -169,20 +188,40 @@ export class Focus {
           ${gfRadio("200", "200 m")}
         </div>
         <p class="muted">Only fires for the <strong>Hider</strong> — as a Seeker this zone is just your guess, so it never alerts on your own position.</p>
-        <p class="warn-note">⚠️ Alerts only fire while the app is open. Install the Android app for background alerts.</p>
+        <p class="muted">${alertsReachCopy(native)}</p>
+        <div id="f-perm-note"></div>
+        ${native ? `<div class="row"><button id="f-test-alert" class="btn">🔔 Test alert now</button></div>` : ""}
         <div class="row">
           <button id="f-clear" class="btn btn-ghost" ${pt ? "" : "disabled"}>Clear zone</button>
         </div>`,
     });
+    // Phase 45/46-follow-up: show whether the Android grants background alerts
+    // actually need are in place RIGHT HERE, where the hider turns the feature on
+    // — not only in the separate Guide sheet, which nothing links to from this
+    // flow. mountReadinessNote no-ops off-device.
+    const refreshReadiness = () => mountReadinessNote(s.q("#f-perm-note"), {
+      onOpenGuide: () => { s.close(); onOpenGuide?.(); },
+    });
+    refreshReadiness();
+    if (native) {
+      s.q("#f-test-alert").onclick = async () => {
+        const r = await postTestNotification();
+        toast(r.ok ? "Test alert sent — check your notification shade." : `Test alert failed: ${r.reason}`, 4000);
+      };
+    }
     // Apply the edge-alert threshold live on selection (the Geofence watcher
     // reconciles off the store change) — no separate save step in this flow.
     s.qa('input[name="f-geofence"]').forEach((r) => (r.onchange = () => {
       this.setGeofenceThreshold(r.value);
       toast(Number(r.value) > 0 ? `Edge alert at ${r.value} m.` : "Edge alert off.");
+      if (native && Number(r.value) > 0) this._nudgeIfBlocked();
+      refreshReadiness();
     }));
     s.qa('input[name="f-role"]').forEach((r) => (r.onchange = () => {
       this.setRole(r.value);
       toast(r.value === "hider" ? "Set as Hider — edge alerts are armed." : "Set as Seeker — edge alerts stay off.");
+      if (native && r.value === "hider") this._nudgeIfBlocked();
+      refreshReadiness();
     }));
     s.q("#f-tap").onclick = async () => {
       s.close();

@@ -113,15 +113,17 @@ export class NativeGeofence {
   // Dependency-injected so a headless test can drive fixes through a fake plugin
   // and assert on scheduled notifications without a phone. Production defaults to
   // the real store, the real native check, and lazily-loaded Capacitor plugins.
-  constructor({ store = storeModule, isNative = isNativeCapacitor, plugins = null } = {}) {
+  constructor({ store = storeModule, isNative = isNativeCapacitor, plugins = null, onError = () => {} } = {}) {
     this.store = store;
     this._isNative = isNative;
     this.BG = plugins?.BG || null;
     this.LN = plugins?.LN || null;
     this._pluginsInjected = !!plugins;
     this._pluginsReady = null;
+    this.onError = onError;    // surfaces fatal start/notify failures (app.js wires this to toast())
     this.state = null;         // evaluateGeofence prior band state
     this.watcherId = null;
+    this._starting = false;    // guards against a second addWatcher while one is still in flight
     this.notifyId = NOTIFY_ID_BASE;
     this.liveIds = new Set();  // posted notification ids, so we can cancel on stop
     this._activeKey = null;    // zoneKey currently watched
@@ -165,23 +167,57 @@ export class NativeGeofence {
     // it silently instead of firing a transition against the old geometry.
     this.state = null;
     this._activeKey = key;
-    this.start();
+    // _reconcile is sync and start() is not awaited here (a store subscriber
+    // can't be async) — start() already catches everything internally, but
+    // .catch is belt-and-braces against an unhandled rejection escaping it.
+    this.start().catch(() => {});
   }
 
   async start() {
-    if (this.watching) return;
-    await this._ensurePlugins();
-    if (!this.BG) return;
+    if (this.watching || this._starting) return;
+    this._starting = true;
     try {
+      await this._ensurePlugins();
+      if (!this.BG) return;
+      // Request the notification permission BEFORE opening the watcher, and wait
+      // for it to fully resolve first. addWatcher's own requestPermissions:true
+      // option pops the location dialog; firing LocalNotifications.requestPermissions()
+      // concurrently with that (as this used to, right after addWatcher) risks two
+      // overlapping Android permission dialogs — the second one commonly comes back
+      // auto-denied with no prompt at all, permanently losing that grant for the
+      // session with no error anywhere.
+      try {
+        const perm = await this.LN?.checkPermissions?.();
+        if (perm?.display !== "granted") await this.LN?.requestPermissions?.();
+      } catch { /* denied — _fire's schedule() call will surface it when it actually tries to post */ }
       this.watcherId = await this.BG.addWatcher(backgroundWatcherOptions(), (location, error) => {
-        if (error) { console.warn("native-geofence: watcher error", error); return; }
+        if (error) {
+          // Capacitor's callback-return bridge resolves addWatcher()'s PROMISE as
+          // soon as the native call registers a callback id — a native call.reject
+          // (permission denied, location services off, the plugin's service not yet
+          // bound) never rejects that promise; it arrives HERE instead, as the
+          // callback's error argument. Previously this only console.warn'd and left
+          // watcherId set, so `watching` stayed true and _reconcile's `if (this.watching
+          // && key === this._activeKey) return;` guard skipped retrying forever — the
+          // single most likely explanation for "toggled it on, nothing ever fired,
+          // still nothing after reopening the app". Clearing the watch state here lets
+          // the next store change (or a later _reconcile) start a fresh watcher instead
+          // of believing a dead one is still running.
+          console.warn("native-geofence: watcher error", error);
+          this.watcherId = null;
+          this._activeKey = null;
+          this.onError(`Hiding-zone background alerts stopped: ${error?.message || error?.code || "location error"}.`);
+          return;
+        }
         this._onFix(location);
       });
-      // Make sure a background tick can actually post a notification.
-      try { await this.LN?.requestPermissions?.(); } catch { /* denied → _fire no-ops */ }
     } catch (e) {
-      console.warn("native-geofence: addWatcher failed", e);
+      console.warn("native-geofence: start failed", e);
       this.watcherId = null;
+      this._pluginsReady = null; // don't keep replaying a cached rejection — let a retry re-import
+      this.onError("Hiding-zone background alerts failed to start.");
+    } finally {
+      this._starting = false;
     }
   }
 
@@ -224,14 +260,23 @@ export class NativeGeofence {
     const id = ++this.notifyId;
     const payload = localNotificationForNotify(notify, id, style);
     if (!payload) return; // "Off" — suppress entirely (Phase 33).
-    try {
-      this.LN?.schedule?.({
-        notifications: [{ ...payload, schedule: { at: new Date(Date.now() + 50) } }],
+    this.liveIds.add(id);
+    // No `schedule.at`: the plugin posts immediately via notify() when `schedule`
+    // is omitted. A future `at` — even the ~50ms this used to pass — instead
+    // routes through AlarmManager (inexact/non-wakeup without SCHEDULE_EXACT_ALARM,
+    // which this app doesn't request) AND is silently dropped outright if the
+    // native side processes the call after that instant has already passed,
+    // which a slow bridge hop can do. Immediate delivery has neither failure mode.
+    //
+    // schedule() returning a promise was previously fire-and-forgotten: a reject
+    // (e.g. "Notifications not enabled on this device" when POST_NOTIFICATIONS
+    // is off) became an unhandled rejection — silent everywhere. Catching it here
+    // is the only way a denied notification permission ever becomes visible.
+    Promise.resolve(this.LN?.schedule?.({ notifications: [payload] }))
+      .catch((e) => {
+        console.warn("native-geofence: notify failed", e);
+        this.onError("Hiding-zone alert couldn't be shown — check the app's notification permission.");
       });
-      this.liveIds.add(id);
-    } catch (e) {
-      console.warn("native-geofence: notify failed", e);
-    }
   }
 
   async _cancelPosted() {
@@ -239,5 +284,38 @@ export class NativeGeofence {
     const notifications = [...this.liveIds].map((id) => ({ id }));
     this.liveIds.clear();
     try { await this.LN?.cancel?.({ notifications }); } catch { /* nothing posted / plugin gone */ }
+  }
+}
+
+// A user-triggered "prove it works right now" tap — schedules ONE real
+// notification through the exact same channel/schedule-free path _fire() uses,
+// so a single button press confirms (or names) the failure end-to-end: channel
+// creation, the POST_NOTIFICATIONS grant, and the plugin's schedule() call.
+// Everything upstream of this (a placed zone, a crossed band) takes minutes to
+// re-trigger on a real walk; this answers "will an alert reach me at all" in
+// one tap. Native-only; `plugins.LN` injectable for tests.
+export async function postTestNotification({ plugins = null, isNative = isNativeCapacitor } = {}) {
+  if (!isNative()) return { ok: false, reason: "Not running in the Android app." };
+  let LN = plugins?.LN;
+  if (!LN) {
+    try {
+      const mod = await import("../vendor/capacitor-core.js");
+      LN = mod.registerPlugin("LocalNotifications");
+    } catch (e) {
+      return { ok: false, reason: e?.message || String(e) };
+    }
+  }
+  // Always audible/visible regardless of the current alert style — a test tap
+  // is meaningless if "Off" makes it suppress itself like a real alert would.
+  const payload = localNotificationForNotify(
+    { kind: "test", title: "Test alert", body: "If you can see this, hiding-zone alerts will reach you." },
+    NOTIFY_ID_BASE - 1,
+    "vibrate-tone",
+  );
+  try {
+    await LN.schedule({ notifications: [payload] });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e?.message || String(e) };
   }
 }

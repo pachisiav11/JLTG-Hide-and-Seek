@@ -242,7 +242,7 @@ async function main() {
     // notifications while the phone is locked in a pocket. Inert in the browser/PWA
     // (init() no-ops off-device), where the foreground `geofence` above is the only
     // alerter; when native, `geofence` keeps its pill but defers alerts to this.
-    const nativeGeofence = new NativeGeofence();
+    const nativeGeofence = new NativeGeofence({ onError: (msg) => toast(msg, 5000) });
     nativeGeofence.init();
     // Phase 36 (req #7a): the always-on blue self-dot + accuracy ring, riding the
     // same shared GeoWatch as the geofence and seeker (one OS watch for all three).
@@ -320,7 +320,7 @@ async function main() {
       db.setSetting("transitCaveatSeen", true);
     }).catch(() => { /* settings unavailable — the tooltip and the toggle still say it */ });
 
-    wireToolbar(zones, features, layers, focus, lines);
+    wireToolbar(zones, features, layers, focus, lines, games);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
     window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, seekerDot, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
@@ -337,7 +337,7 @@ function reflectGame(game) {
 }
 
 // Wire the floating toolbar to zone + feature actions.
-function wireToolbar(zones, features, layers, focus, lines) {
+function wireToolbar(zones, features, layers, focus, lines, games) {
   const bar = document.getElementById("toolbar");
   if (!bar) return;
   const setActive = (act, on) =>
@@ -349,7 +349,7 @@ function wireToolbar(zones, features, layers, focus, lines) {
     const act = btn.dataset.act;
     if (act === "zones") zones.openPanel();
     else if (act === "layers") layers.openPanel();
-    else if (act === "focus") focus.openPanel(layers);
+    else if (act === "focus") focus.openPanel(layers, { onOpenGuide: () => games.openGuide() });
     else if (act === "directions") features.openDirections(layers);
     else if (act === "transit") setActive("transit", features.toggleTransit());
     else if (act === "measure") setActive("measure", features.toggleMeasure());
