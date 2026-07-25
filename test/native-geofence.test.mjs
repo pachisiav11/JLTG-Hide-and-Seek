@@ -353,3 +353,38 @@ test("postTestNotification: LN.schedule rejection returns error", async () => {
   assert.equal(result.ok, false);
   assert.match(result.reason, /Permission denied/);
 });
+
+test("postTestNotification: denied notification permission is caught before schedule (no silent no-op)", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  let scheduleCalled = false;
+  const fk = {
+    LN: {
+      checkPermissions: async () => ({ display: "denied" }),
+      // Android won't reprompt once already denied — requestPermissions() just
+      // echoes the denial back with no dialog.
+      requestPermissions: async () => ({ display: "denied" }),
+      schedule: async () => { scheduleCalled = true; },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /Settings/);
+  assert.equal(scheduleCalled, false, "must not call schedule() against a known-denied grant");
+});
+
+test("postTestNotification: not-yet-decided permission is requested, then proceeds once granted", async () => {
+  const { postTestNotification } = await import("../src/native-geofence.js");
+  const scheduled = [];
+  let requested = false;
+  const fk = {
+    LN: {
+      checkPermissions: async () => ({ display: "prompt" }),
+      requestPermissions: async () => { requested = true; return { display: "granted" }; },
+      schedule: async ({ notifications }) => { scheduled.push(...notifications); },
+    },
+  };
+  const result = await postTestNotification({ plugins: fk, isNative: () => true });
+  assert.equal(requested, true);
+  assert.equal(result.ok, true);
+  assert.equal(scheduled.length, 1);
+});

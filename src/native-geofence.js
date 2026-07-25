@@ -305,6 +305,24 @@ export async function postTestNotification({ plugins = null, isNative = isNative
       return { ok: false, reason: e?.message || String(e) };
     }
   }
+  // schedule() below does NOT reject when POST_NOTIFICATIONS is denied — it
+  // resolves fine and posts nothing, which is exactly the "test says it worked
+  // but nothing showed" report this button exists to catch. Checking (and, if
+  // never decided, requesting) the grant FIRST turns that silent failure into
+  // an honest, actionable reason. If Android already auto-denied it once
+  // in-app, requestPermissions() won't reprompt — only Settings can fix it,
+  // hence the explicit pointer there rather than "try again".
+  try {
+    const perm = await LN.checkPermissions?.();
+    let display = perm?.display;
+    if (display !== "granted") {
+      const req = await LN.requestPermissions?.();
+      display = req?.display;
+    }
+    if (display && display !== "granted") {
+      return { ok: false, reason: "Notifications are off for this app. Enable them in Android Settings → Apps → JLTG → Notifications, then try again." };
+    }
+  } catch { /* couldn't check — fall through and let schedule() itself be the signal */ }
   // Always audible/visible regardless of the current alert style — a test tap
   // is meaningless if "Off" makes it suppress itself like a real alert would.
   const payload = localNotificationForNotify(
