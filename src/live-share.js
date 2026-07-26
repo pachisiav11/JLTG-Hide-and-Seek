@@ -91,6 +91,15 @@ export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, n
   return { state, notify: null };
 }
 
+// Phase 47 (playtest fix): "make it instantaneous" — a seeker's ping now goes
+// out as fast as the GPS produces fixes, not once a minute. The old 60 s
+// throttle (Phase 23) existed to spare the radio, not to protect the relay;
+// the relay already has its own token-bucket rate limit (share-location.js,
+// 4/s sustained / 6 burst) as the real safety net, so the client no longer
+// needs a redundant, much coarser cap of its own. 0 = "emit on every new fix";
+// tests still override this to pin the throttle MECHANISM itself.
+export const DEFAULT_EMIT_INTERVAL_MS = 0;
+
 // Session code generator — 4 digits, read aloud by the HIDER to the seeker (see
 // games.js's Live location share sheet for the generate/enter role split). Digits only,
 // so there's no letter-case or ambiguous-character (0/O, 1/I/L) problem to design around.
@@ -104,8 +113,10 @@ export function generateSessionCode() {
 // event bus without opening a socket. Production callers construct a
 // SocketIOTransport from the loaded socket.io-client global.
 export class LiveShare {
-  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, getPushToken = null, initPushReceiver = null, postLocalNotify = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = 60_000, now = () => Date.now() } = {}) {
-    this.transport = transport;
+  constructor({ transport, geolocation = (typeof navigator !== "undefined" ? navigator.geolocation : null), watch = null, bgWatch = null, isNative = isNativeCapacitor, getPushToken = null, initPushReceiver = null, postLocalNotify = null, Notification = (typeof window !== "undefined" ? window.Notification : null), onError = null, onSeekerPoint = null, emitIntervalMs = DEFAULT_EMIT_INTERVAL_MS, now = () => Date.now() } = {}) {
+    this.transport = null;
+    this._transportBound = null; // the transport instance we last attached connect/disconnect listeners to
+    this._connected = null;      // null = unknown (no transport yet), else true/false
     // Phase 36: the seeker rides the shared GeoWatch (one OS watch shared with
     // the geofence + self-dot). Production injects the singleton; a test injects
     // a private GeoWatch or a raw geolocation we wrap here.
@@ -152,6 +163,39 @@ export class LiveShare {
     this._emitIntervalMs = emitIntervalMs;
     this._now = now;
     this._lastEmitAt = null; // null = "never yet" so the first fix always fires
+    if (transport) this.setTransport(transport);
+  }
+
+  // Phase 47: attach (once) to the transport's own connect/disconnect events so
+  // a dropped relay connection is VISIBLE instead of leaving the last pill text
+  // sitting there looking current. Idempotent per transport instance — games.js
+  // creates the Socket.IO client once and reuses it across start/stop cycles, so
+  // this must not stack duplicate listeners on repeated setTransport(sameSocket)
+  // calls (e.g. re-opening the Live location share sheet).
+  setTransport(transport) {
+    this.transport = transport;
+    if (!transport || this._transportBound === transport) return;
+    this._transportBound = transport;
+    transport.on?.("connect", () => this._onTransportConnect());
+    transport.on?.("disconnect", () => this._onTransportDisconnect());
+    transport.on?.("connect_error", () => this._onTransportDisconnect());
+  }
+
+  _onTransportConnect() {
+    this._connected = true;
+    if (this.role === "seeker") this._writePill("📡 Connected · waiting for a GPS fix…");
+    else if (this.role === "hider") this._writePill("Connected · waiting for a seeker ping…");
+  }
+
+  // A dropped connection (network hiccup, the relay's free-tier dyno asleep,
+  // etc.) used to leave the pill frozen on stale text — indistinguishable from
+  // "nothing has moved" for a hider staring at a red dot that stopped updating.
+  // Socket.IO keeps retrying on its own (default: unlimited attempts with
+  // backoff); this just makes the outage visible while that happens instead of
+  // silently going stale.
+  _onTransportDisconnect() {
+    this._connected = false;
+    if (this.role) this._writePill("⚠️ Disconnected from relay — retrying…");
   }
 
   // Bind the session-error listener before anything else. Kept in one place so
@@ -180,7 +224,7 @@ export class LiveShare {
   }
 
   // Seeker side. Publishes GPS to the room named by `code`, throttled to at
-  // most once per `emitIntervalMs` (default 60 s).
+  // most once per `emitIntervalMs` (default 0 — every new fix, see Phase 47).
   //
   // Phase 23 (fix #11): switched from `setInterval` + `getCurrentPosition`
   // to `watchPosition` + client-side throttle. The old pattern woke the GPS
@@ -188,8 +232,8 @@ export class LiveShare {
   // battery); watchPosition keeps a single subscription and rides whatever
   // fixes the device already produces, so the marginal cost of THIS feature
   // is close to zero when the geofence is also on (they share the GPS).
-  // Emit cadence is capped by the throttle so the relay's rate limit
-  // (Phase 19) is never approached and the hider's pill is not spammed.
+  // Emit cadence is capped by the throttle (0 by default — see Phase 47) so a
+  // configured throttle still protects the relay's rate limit (Phase 19).
   startAsSeeker(code) {
     this._teardown();
     this.role = "seeker";
@@ -278,7 +322,7 @@ export class LiveShare {
     const out = evaluateApproach({ seekerPoint: this._lastSeekerPoint, zoneCentre: centre, thresholdM: threshold, prior: this.approachState });
     this.approachState = out.state;
     const d = out.state.distance;
-    this._writePill(`Seeker ${formatDistance(d)} from zone${threshold ? ` (alert < ${formatDistance(threshold)})` : ""}`);
+    this._writePill(`Seeker ${formatDistance(d)} from zone centre${threshold ? ` (alert < ${formatDistance(threshold)})` : ""}`);
     if (out.notify) this._fireNotification(out.notify);
   }
 

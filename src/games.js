@@ -558,7 +558,7 @@ export class Games {
           <input id="ls-code" class="field" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" spellcheck="false" autocomplete="off" value="${escapeHtml(shareState?.code || localStorage.getItem("jltg.liveShareCode") || "")}" placeholder="4-digit code"/>
           <button id="ls-gen" class="btn">🎲 Generate (as HIDER)</button>
         </div>
-        <label class="fieldlbl">Approach threshold (hider only) — alert when seeker within</label>
+        <label class="fieldlbl">Approach threshold (hider only) — alert when seeker is within this distance of your zone centre</label>
         <div class="seg">
           <label><input type="radio" name="ls-th" value="0" ${isPreset(0) ? "checked" : ""}/> Off (pin only)</label>
           <label><input type="radio" name="ls-th" value="500" ${isPreset(500) ? "checked" : ""}/> 500 m</label>
@@ -622,7 +622,7 @@ export class Games {
             document.head.appendChild(script);
           });
           const sock = window.io(proxy);
-          shareState.transport = sock; // Socket.IO client IS the EventEmitter API LiveShare expects
+          shareState.setTransport(sock); // Socket.IO client IS the EventEmitter API LiveShare expects; also arms connect/disconnect pill updates
         } catch (e) {
           console.warn("live-share transport init failed", e);
           hideLoading();

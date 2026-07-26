@@ -25,18 +25,26 @@
 
 import { normalizeLocation, isNativeCapacitor } from "./bg-spike.js";
 
-// Options for the seeker's background-location foreground service. A small
-// distanceFilter keeps the radio quiet while the seeker is stationary (no point
-// re-sending an unchanged position); LiveShare's own 60 s throttle (Phase 23)
-// still caps the OUTBOUND cadence so the relay's rate limit (Phase 19) is never
-// approached even when the seeker is moving fast and the plugin reports often.
+// Options for the seeker's background-location foreground service.
+//
+// Phase 47 (playtest fix): distanceFilter was 10 m, on the theory that it
+// spares the radio while the seeker is stationary. In practice that silently
+// starved the hider's red dot of every fix during exactly the kind of test
+// that surfaces this feature — two phones held near each other, not a live
+// 45-minute chase — because a plugin fix that doesn't clear the distance gate
+// is a fix that's simply never delivered, no error, nothing to see. 0 means
+// "report every fix the OS provides" (matching native-geofence.js's own
+// choice for the identical reason); LiveShare's emit throttle (default 0,
+// see Phase 47) and the relay's token-bucket rate limit (share-location.js)
+// are what actually guard the OUTBOUND cadence, so nothing here needs to
+// double as a rate limiter too.
 export function seekerWatcherOptions() {
   return {
     backgroundMessage: "Sharing your location with the hider so they get close-range alerts.",
     backgroundTitle: "JLTG is sharing your location",
     requestPermissions: true,
     stale: false,
-    distanceFilter: 10,
+    distanceFilter: 0,
   };
 }
 
