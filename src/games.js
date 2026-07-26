@@ -575,8 +575,18 @@ export class Games {
         </div>
         <div class="sheet-actions">
           <button id="ls-stop" class="btn btn-ghost">Stop / disconnect</button>
+          <button id="ls-save" class="btn btn-primary">💾 Save</button>
           <button id="ls-close" class="btn">Close</button>
         </div>`,
+      // Phase 49 (req #5): previously ONLY the Close button (and connecting)
+      // persisted a changed threshold — tapping the ✕ or the backdrop, the way
+      // every other sheet in the app is dismissed, silently discarded it. The
+      // hider had no way to tell a change "took" short of re-opening the sheet
+      // and checking, which read as "you have to leave and re-enter the game to
+      // save". Saving on EVERY dismissal path (plus the explicit Save button
+      // below, for a player who wants to confirm without closing) closes that
+      // gap without changing what gets saved.
+      onClose: () => { if (saveThreshold()) store.saveNow(); },
     });
     s.q("#ls-gen").onclick = () => { s.q("#ls-code").value = generateSessionCode(); };
     // Typing in the km box implies the Custom option — auto-select its radio so
@@ -637,7 +647,17 @@ export class Games {
     s.q("#ls-seeker").onclick = () => connect("seeker");
     s.q("#ls-hider").onclick = () => connect("hider");
     s.q("#ls-stop").onclick = () => { shareState?.stop?.(); toast("Live share stopped."); s.close(); };
-    s.q("#ls-close").onclick = () => { if (saveThreshold()) s.close(); };
+    // Explicit Save: persists immediately and stays open, so a hider mid-game who
+    // just wants to bump the threshold gets a direct confirmation without having
+    // to disconnect/reconnect or close the sheet to trust that it worked. Reads
+    // back from the store, since _onSeekerPing already re-reads settings on every
+    // ping — no reconnect needed for a saved threshold to take effect.
+    s.q("#ls-save").onclick = () => {
+      if (!saveThreshold()) return;
+      store.saveNow();
+      toast("Live-share settings saved.");
+    };
+    s.q("#ls-close").onclick = () => s.close(); // onClose (above) saves before the sheet actually closes
   }
 
   // ---- Copy MY location (§C2) ----
