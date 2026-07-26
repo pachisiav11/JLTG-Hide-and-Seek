@@ -2,6 +2,63 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
+A real-device playtest found the seeker's red dot not reaching the hider's map and no
+clear way to tell whether Live location share settings had actually saved. Investigated
+live against the real Render backend + a two-tab local session (not just headless tests)
+to separate genuine bugs from infra noise before touching code.
+
+- **Phase 47 — live-share mechanics** (`src/live-share.js`, `src/native-seeker-location.js`,
+  `src/games.js`, 6 new tests). Two real bugs: `NativeSeekerWatch`'s `distanceFilter: 10`
+  silently dropped every fix unless the seeker's phone had physically moved 10 m — exactly
+  what a same-room test looks like — now `0`, matching `native-geofence.js`'s own choice
+  and reasoning. And a dropped relay connection left the pill frozen on stale text with no
+  signal anything had failed; `LiveShare` now tracks transport connect/disconnect/
+  connect_error and surfaces it in both pills. The 60 s emit throttle default drops to `0`
+  (instantaneous — the relay's own token-bucket rate limit is the real safety net) per the
+  "make it instantaneous" ask. Also fixed the ambiguous "Seeker X from zone" pill text to
+  say "from zone centre". Verified end-to-end: connect/disconnect/reconnect all reflected
+  live in the pill against the real local relay; a ping reached the red dot with no delay.
+- **Phase 48 — hider geofence pill, plain green/red** (`src/geofence.js`, `src/pill-stack.js`,
+  `styles/main.css`, 4 new tests). The pill's colour used to come from regex-sniffing its
+  own text, so "comfortably safe, deep inside the zone" never went green — same neutral
+  gray as outside. `pill-stack`'s `setWarn(bool)` becomes `setTone("ok"|"warn"|null)`,
+  driven by `evaluateGeofence`'s own `inside` boolean. Verified live (post service-worker
+  cache-bust): `rgba(21,128,61)` inside, `rgba(220,38,38)` outside.
+- **Phase 49 — Live location share sheet actually saves** (`src/games.js`). Only the Close
+  button (and connecting) persisted a changed threshold — the header ✕ and the backdrop,
+  how every other sheet is dismissed, silently discarded it, with no feedback either way.
+  Added an `onClose` save on every dismissal path plus an explicit "💾 Save" button that
+  persists immediately (`store.saveNow`) and stays open with a confirmation toast. No
+  reconnect needed — `_onSeekerPing` already re-reads the threshold from the store on every
+  ping. Verified live: dismissing via the header ✕ after changing the radio now persists
+  `settings.approachThresholdM`.
+- **Phase 50 — build stamp in Instructions** (`src/build-info.js`, `scripts/build-config.js`,
+  `src/games.js`, 6 new tests). A quiet footer line — `Build <short-sha> · <UTC timestamp>`
+  — so a tester can confirm which push they're actually running. Render sets
+  `RENDER_GIT_COMMIT` on every build automatically; degrades to "Build dev · unknown build
+  time" locally, where `build-config.js` never runs.
+- **Phase 51 — server-computed seeker-close alert for a locked/killed hider** (`fcm.js`,
+  `hider-tokens.js`, `relay-forward.js`, `server.js`, `src/geo.js`, `src/live-share.js`,
+  `src/native-push.js`, 41 new/updated tests). Location *collection* while locked already
+  worked (the native background-location service for the seeker, the native background
+  geofence for the hider) — the gap was the seeker-close *alert*, which needed the hider's
+  own JS to run `evaluateApproach` after an FCM data message woke the app. Locked long
+  enough that Android kills the process, no JS runs and the alert silently never fires; a
+  data-only FCM message can't fix that, only a genuine FCM *notification* message can,
+  since Android's Play Services layer displays that from the system tray with zero app code
+  involved. Per the explicit go-ahead that cloud compute is fine for the locked case: a
+  native hider now registers zone centre + threshold + alert style with the relay
+  (`set-hider-zone`, `HiderTokenRegistry.registerZone`) on connect and on every relevant
+  settings change; the server runs the *exact same* `evaluateApproach` (moved to `geo.js`
+  so client and server share one definition) and sends a real FCM notification on a
+  crossing, honouring "Off" server-side too. The foreground socket path (app alive, any
+  platform) is unchanged — still decided on-device. A narrow, session-scoped, TTL'd
+  exception to the relay's "stays zone-blind" principle. Code-complete; still pending the
+  one-time Firebase setup already flagged from Phase 43 (degrades gracefully without it,
+  same as the existing FCM plumbing).
+- **756 tests pass** (was 709 at the start of this batch).
+
 ## Phase 46 — Hider/Seeker role gate on the geofence
 Bug: `src/geofence.js`'s edge-alert ("near the edge" / "you've left the zone") and its
 Android background twin (`src/native-geofence.js`) fired for **whoever had the app
