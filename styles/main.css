@@ -436,6 +436,10 @@ textarea.field { resize: vertical; }
 /* Phase 35 (req #5): the "Location on" status chip — a calm green, distinct from
    the alert-blue live-share pill and the warn-red geofence state. */
 .pill-gps { background: rgba(16, 122, 87, 0.92); }
+/* Phase 48 (req #2): tri-state tone override (see pill-stack.js setTone) — a
+   plain green/red read on "am I inside the hiding zone right now", the same
+   pill regardless of variant. Wins over the variant's own background. */
+.pill-ok { background: rgba(21, 128, 61, 0.92); }
 .pill-warn { background: rgba(220, 38, 38, 0.92); }
 
 /* B1 draft preview readout — the live "size · N of Y stations would be eliminated" line

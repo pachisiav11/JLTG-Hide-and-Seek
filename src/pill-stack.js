@@ -66,7 +66,15 @@ export function createPill({ id, variant, doc = (typeof document !== "undefined"
   return {
     el,
     setText(t) { text.textContent = t; },
-    setWarn(on) { el.classList.toggle("pill-warn", !!on); },
+    // Phase 48: a tri-state colour hint — "ok" (green, e.g. the hider is inside
+    // their zone), "warn" (red, e.g. outside it), or null/anything else for the
+    // neutral default. Replaces the old boolean setWarn(on) now that a pill needs
+    // more than "is something wrong" (a hider safely inside the zone is GOOD news,
+    // not merely "not warned").
+    setTone(tone) {
+      el.classList.toggle("pill-ok", tone === "ok");
+      el.classList.toggle("pill-warn", tone === "warn");
+    },
     // Re-show a previously dismissed pill (e.g. the feature was toggled off then
     // back on and the caller wants a fresh, visible indicator).
     show() { el.classList.remove("pill-hidden"); },

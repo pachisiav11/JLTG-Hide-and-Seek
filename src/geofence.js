@@ -210,7 +210,9 @@ export class Geofence {
     const threshold = this._threshold();
     const { state, notify, pill } = evaluateGeofence({ position, zone, thresholdMetres: threshold, prior: this.state });
     this.state = state;
-    if (pill) this._writePill(pill);
+    // Phase 48 (req #2): a plain colour signal — green while inside the zone
+    // (whether comfortably safe or near the edge — still in), red once outside.
+    if (pill) this._writePill(pill, state.inside ? "ok" : "warn");
     if (notify) this._fireNotification(notify);
   }
 
@@ -298,9 +300,9 @@ export class Geofence {
     this.pillEl?.remove();
     this.pillEl = null;
   }
-  _writePill(text) {
+  _writePill(text, tone = null) {
     if (!this.pillEl) return;
     this.pillEl.setText(text);
-    this.pillEl.setWarn(/^OUT|Still|Near|left|edge/.test(text));
+    this.pillEl.setTone(tone);
   }
 }
