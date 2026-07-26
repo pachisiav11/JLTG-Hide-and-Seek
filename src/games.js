@@ -8,6 +8,7 @@ import { formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
 import { guideBodyHTML } from "./guide.js";
+import { formatBuildStamp } from "./build-info.js";
 import { isNativeCapacitor } from "./bg-spike.js";
 import { queryGrants, wizardHTML, openSettingsFor, alertsReachCopy, mountReadinessNote } from "./native-permissions.js";
 
@@ -878,6 +879,8 @@ export class Games {
 
           <h3 class="sub">Games &amp; saving</h3>
           <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON, or <strong>🖨 Print / save map (PDF)</strong>). Distance mode, units, colour theme, <strong>map style</strong> (Map / Satellite / Dark), and an optional per-question <strong>timer</strong> all live in Settings.</p>
+
+          <p class="muted build-stamp">${escapeHtml(formatBuildStamp(window.JLTG_CONFIG || {}))}</p>
 
           <div class="sheet-actions">
             <button id="hlp-close" class="btn btn-primary">Got it</button>

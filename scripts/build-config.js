@@ -19,6 +19,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { shortCommit } from "../src/build-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, "..", "config.js");
@@ -30,6 +31,12 @@ const centerLng = process.env.DEFAULT_CENTER_LNG || "103.8590";
 const zoom = process.env.DEFAULT_ZOOM || "12";
 const overpassProxy = process.env.OVERPASS_PROXY_URL || "";
 const multiplayerUrl = process.env.MULTIPLAYER_URL || "";
+// Phase 50 (req #6): Render sets RENDER_GIT_COMMIT on every build automatically
+// (both Static Sites and Web Services) — no dashboard config needed. Falls back
+// to "dev" for a local build (this script doesn't even run for local dev's own
+// config.js, but keeps the helper honest for any other caller).
+const buildId = shortCommit(process.env.RENDER_GIT_COMMIT) || "dev";
+const builtAt = new Date().toISOString();
 
 if (!key) {
   console.warn(
@@ -57,8 +64,10 @@ window.JLTG_CONFIG = {
   DEFAULT_ZOOM: ${Number(zoom)},
   OVERPASS_PROXY_URL: ${JSON.stringify(overpassProxy)},
   MULTIPLAYER_URL: ${JSON.stringify(multiplayerUrl)},
+  BUILD_ID: ${JSON.stringify(buildId)},
+  BUILT_AT: ${JSON.stringify(builtAt)},
 };
 `;
 
 fs.writeFileSync(OUT, contents, "utf8");
-console.log(`[build-config] wrote ${OUT} (key ${key ? "present" : "EMPTY"}, mapId ${mapId ? "present" : "empty"}).`);
+console.log(`[build-config] wrote ${OUT} (key ${key ? "present" : "EMPTY"}, mapId ${mapId ? "present" : "empty"}, build ${buildId}).`);
