@@ -61,20 +61,14 @@ export function createFcm({ admin = null, serviceAccountRaw = process.env.FIREBA
     }
   }
 
-  async function sendData(token, data = {}) {
+  // Shared send path — both sendData and sendNotification funnel through this
+  // so the token-validity checks and the "dead token → tell the caller to
+  // evict it" mapping stay in exactly one place.
+  async function _send(token, message, logLabel) {
     if (!enabled) return { ok: false, reason: "disabled" };
     if (typeof token !== "string" || !token.trim()) return { ok: false, reason: "invalid-token" };
     try {
-      // Data-only, high priority: a data message with priority "high" wakes the
-      // app from Doze so native-push.js (Phase 44) can run evaluateApproach and
-      // post a LOCAL notification. All values must be strings (FCM data contract).
-      const stringData = {};
-      for (const [k, v] of Object.entries(data)) stringData[k] = String(v);
-      await admin.messaging(app).send({
-        token: token.trim(),
-        data: stringData,
-        android: { priority: "high" },
-      });
+      await admin.messaging(app).send({ token: token.trim(), ...message });
       return { ok: true };
     } catch (e) {
       const code = e?.code || e?.errorInfo?.code || "";
@@ -83,10 +77,40 @@ export function createFcm({ admin = null, serviceAccountRaw = process.env.FIREBA
       if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
         return { ok: false, reason: code, drop: true };
       }
-      logger.warn?.("[fcm] send failed:", e?.message || e);
+      logger.warn?.(`[fcm] ${logLabel} send failed:`, e?.message || e);
       return { ok: false, reason: code || "send-failed", error: e };
     }
   }
 
-  return { enabled, sendData };
+  async function sendData(token, data = {}) {
+    // Data-only, high priority: a data message with priority "high" wakes the
+    // app from Doze so native-push.js (Phase 44) can update the dot/pill. All
+    // values must be strings (FCM data contract).
+    const stringData = {};
+    for (const [k, v] of Object.entries(data)) stringData[k] = String(v);
+    return _send(token, { data: stringData, android: { priority: "high" } }, "data");
+  }
+
+  // Phase 51: a REAL notification message (title/body in `notification`, not
+  // just `data`) — Android's Play Services layer displays this from the
+  // system tray on its own, with NO app code required, even if the app
+  // process is fully dead. This is what makes the seeker-close alert reach a
+  // hider whose phone has been locked long enough for the OS to kill the
+  // WebView outright, which a data-only message (needs the JS bridge alive
+  // to react to it) cannot guarantee. `channelId` reuses the exact Android
+  // notification channel native-local-notify.js's own local alert would have
+  // used, so the sound/vibration policy (Off/silent/vibrate/vibrate-tone,
+  // already decided by the CALLER before choosing whether to send at all) is
+  // consistent regardless of which path actually delivered the alert.
+  async function sendNotification(token, { title, body, channelId, data = {} } = {}) {
+    const stringData = {};
+    for (const [k, v] of Object.entries(data)) stringData[k] = String(v);
+    return _send(token, {
+      notification: { title: String(title || ""), body: String(body || "") },
+      data: stringData,
+      android: { priority: "high", notification: channelId ? { channelId } : undefined },
+    }, "notification");
+  }
+
+  return { enabled, sendData, sendNotification };
 }

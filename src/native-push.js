@@ -71,34 +71,64 @@ export async function getHiderPushToken({ isNative = isNativeCapacitor, plugin =
   return token;
 }
 
-// Phase 44 (Track B 3/3): the RECEIVE half. Listen for the server's forwarded
-// seeker-location data message and hand the raw coords to `onSeekerCoords`. The
-// hider's app — woken even when locked — feeds these into the SAME evaluateApproach
-// path a foreground socket ping uses (src/live-share.js), so the local
-// notification, the pill, and the red dot are all reused. Server stays zone-blind:
-// it forwards coordinates; the distance decision happens here, on-device.
+// Phase 44 (Track B 3/3), extended by Phase 51: the RECEIVE half. Two message
+// shapes now arrive on this same listener, routed by `data.type`:
+//
+//   "seeker-location"   — raw coords (Phase 44, unchanged). Handed to
+//                          `onSeekerCoords` so the app, if it's alive enough to
+//                          receive this, keeps the pill/red dot current. Does
+//                          NOT decide whether to alert any more — see below.
+//   "seeker-close-alert"— Phase 51: the server has ALREADY decided a crossing
+//                          happened (relay-forward.js checkServerApproach, run
+//                          against the hider's zone the server was told about)
+//                          and sent a genuine FCM notification message. If the
+//                          app is alive to see this event at all, `onCloseAlert`
+//                          posts the SAME local notification a foreground alert
+//                          would, for a consistent look; if the app is fully
+//                          dead, Android already displayed the message's own
+//                          `notification` block with no app code involved,
+//                          which is the entire point of this design — a data
+//                          message alone can't reach a killed process.
+//
+// Deciding the crossing only once (server-side, for this path) rather than
+// twice avoids a duplicate alert racing the server's own when the app happens
+// to be alive to also compute it — see LiveShare._onSeekerPingSilent.
 //
 // Returns an unsubscribe fn. Inert off-device (no FCM in a browser/PWA/node).
-export async function initHiderPushReceiver({ isNative = isNativeCapacitor, plugin = null, onSeekerCoords } = {}) {
-  if (!isNative() || typeof onSeekerCoords !== "function") return () => {};
+export async function initHiderPushReceiver({ isNative = isNativeCapacitor, plugin = null, onSeekerCoords, onCloseAlert } = {}) {
+  if (!isNative() || (typeof onSeekerCoords !== "function" && typeof onCloseAlert !== "function")) return () => {};
   const PN = plugin || (await loadPushPluginBox()).PN;
   if (!PN) return () => {};
 
-  const handle = (data) => {
-    const d = data || {};
-    if (d.type && d.type !== "seeker-location") return; // not our message
-    const lat = Number(d.lat), lng = Number(d.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    try { onSeekerCoords({ lat, lng, at: Number(d.at) || Date.now() }); }
-    catch (e) { console.warn("native-push: onSeekerCoords threw", e); }
+  const handle = (n) => {
+    const d = n?.data || {};
+    const type = d.type || "seeker-location"; // untyped = the original Phase 44 shape
+    if (type === "seeker-location") {
+      if (typeof onSeekerCoords !== "function") return;
+      const lat = Number(d.lat), lng = Number(d.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      try { onSeekerCoords({ lat, lng, at: Number(d.at) || Date.now() }); }
+      catch (e) { console.warn("native-push: onSeekerCoords threw", e); }
+      return;
+    }
+    if (type === "seeker-close-alert") {
+      if (typeof onCloseAlert !== "function") return;
+      // The notification's title/body live at the top level of the event, not
+      // inside `data` (that's where FCM's `notification` block surfaces).
+      const title = n?.title || d.title;
+      if (!title) return;
+      try { onCloseAlert({ title, body: n?.body || d.body || "" }); }
+      catch (e) { console.warn("native-push: onCloseAlert threw", e); }
+    }
+    // Any other/foreign type is silently ignored — not our message.
   };
 
   const handles = [];
   try {
     // Foreground / woken delivery carries the data on the notification.
-    handles.push(await PN.addListener?.("pushNotificationReceived", (n) => handle(n?.data || n)));
+    handles.push(await PN.addListener?.("pushNotificationReceived", (n) => handle(n)));
     // A tap on a surfaced notification (if the OS showed one) carries it too.
-    handles.push(await PN.addListener?.("pushNotificationActionPerformed", (a) => handle(a?.notification?.data)));
+    handles.push(await PN.addListener?.("pushNotificationActionPerformed", (a) => handle(a?.notification)));
   } catch (e) {
     console.warn("native-push: could not attach receiver", e);
   }

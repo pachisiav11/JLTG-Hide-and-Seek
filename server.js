@@ -20,7 +20,7 @@ import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
 import { isValidLocationPayload, allowShareLocation } from "./share-location.js";
 import { HiderTokenRegistry } from "./hider-tokens.js";
 import { createFcm } from "./fcm.js";
-import { forwardPingToHider } from "./relay-forward.js";
+import { forwardPingToHider, checkServerApproach } from "./relay-forward.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -282,11 +282,26 @@ io.on("connection", (socket) => {
       socket.data.hiderToken = String(token).trim();
     }
   });
+  // Phase 51: a hider (native shell only — see live-share.js _registerHiderZone)
+  // registers their zone centre + threshold + alert style so the server can
+  // decide the seeker-close crossing itself and reach a hider whose app process
+  // is fully dead (checkServerApproach). Same room-ownership guard as the token
+  // registration above; re-sent whenever the hider's settings change, so this
+  // just overwrites the prior value.
+  socket.on("set-hider-zone", ({ code, point, thresholdM, alertStyle } = {}) => {
+    if (socket.data.role !== "hider" || !socket.data.room) return;
+    const room = typeof code === "string" ? code.trim().toLowerCase() : "";
+    if (room !== socket.data.room) return;
+    hiderTokens.registerZone(socket.data.room, { point, thresholdM, alertStyle });
+  });
   socket.on("disconnect", () => {
-    // Drop this hider's token on a clean disconnect so the server stops trying to
-    // push to a session that has left.
+    // Drop this hider's token (and zone, if any) on a clean disconnect so the
+    // server stops trying to push to a session that has left.
     if (socket.data.role === "hider" && socket.data.room && socket.data.hiderToken) {
       hiderTokens.drop(socket.data.room, socket.data.hiderToken);
+    }
+    if (socket.data.role === "hider" && socket.data.room) {
+      hiderTokens.dropZone(socket.data.room);
     }
   });
   socket.on("share-location", (payload) => {
@@ -302,11 +317,18 @@ io.on("connection", (socket) => {
     const ping = { lat: payload.lat, lng: payload.lng, at: Date.now() };
     // Foreground hiders on the socket get it immediately (Phase 12/37).
     socket.to(socket.data.room).emit("location", ping);
-    // Phase 44: ALSO forward over FCM so a LOCKED hider is woken. Server stays
-    // zone-blind — it sends raw coords; the hider's phone computes the alert.
+    // Phase 44: ALSO forward over FCM so a LOCKED-but-alive hider's app can
+    // update its own pill/dot and, if it's the one to notice the crossing
+    // first, alert. Server stays zone-blind for this path — raw coords only.
     // Fire-and-forget: a send failure must never disrupt the socket relay.
     forwardPingToHider({ registry: hiderTokens, fcm, code: socket.data.room, payload: ping })
       .catch((e) => console.warn("[fcm] forward failed:", e?.message || e));
+    // Phase 51: the server-side crossing check for a hider whose app process
+    // may be fully dead (a data message alone can't wake that; see
+    // relay-forward.js). No-ops instantly unless this room's hider registered
+    // a zone. Also fire-and-forget for the same reason.
+    checkServerApproach({ registry: hiderTokens, fcm, code: socket.data.room, payload: ping })
+      .catch((e) => console.warn("[fcm] server approach check failed:", e?.message || e));
   });
 });
 

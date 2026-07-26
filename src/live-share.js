@@ -15,29 +15,21 @@
 
 import * as store from "./store.js";
 import { notifyViaSwOrPage, clearNotification } from "./sw-notify.js";
-import { metresBetween } from "./geo.js";
+import { formatDistance, evaluateApproach } from "./geo.js";
 import { createPill } from "./pill-stack.js";
 import { geoWatch, GeoWatch } from "./geo-watch.js";
 import { isNativeCapacitor } from "./bg-spike.js";
 
+// Phase 51: formatDistance/evaluateApproach now LIVE in geo.js (pure, no
+// window/DOM) so the server can share the exact same seeker-close decision
+// instead of a second hand-written copy — see relay-forward.js. Re-exported
+// here unchanged so every existing caller (games.js, the test suite) keeps
+// importing them from live-share.js.
+export { formatDistance, evaluateApproach };
+
 // Notification tag — shared with the SW so a stale seeker-close alert can be
 // dismissed from the tray when sharing stops (Phase 31.5 bug).
 const SEEKER_CLOSE_TAG = "jltg-seeker-close";
-
-// Phase 24 (fix #12): compact distance formatter for the live-share pill.
-//
-// Under 1 km reads in metres (nearest metre). At 1 km and above, switch to km
-// with up to two decimals — but strip trailing zeros so a round threshold
-// like 2 km reads as "2 km", not "2.00 km" or (as it once did) "2000 m".
-// parseFloat does the trailing-zero strip: parseFloat("1.00") === 1,
-// parseFloat("2.50") === 2.5, parseFloat("1.23") === 1.23. Tested by
-// test/game-live-share-format-distance.test.mjs on every option the UI
-// offers plus the awkward-boundary cases.
-export function formatDistance(m) {
-  if (!Number.isFinite(m)) return "";
-  if (m < 1000) return `${Math.round(m)} m`;
-  return `${parseFloat((m / 1000).toFixed(2))} km`;
-}
 
 // Phase 28 (req #4): parse a user-typed "Custom" approach threshold in
 // kilometres into metres for storage in `settings.approachThresholdM`.
@@ -55,40 +47,6 @@ export function parseApproachKm(str) {
   if (!Number.isFinite(km) || km <= 0) return null;
   const clamped = Math.min(km, MAX_APPROACH_KM);
   return Math.round(clamped * 1000);
-}
-
-// Pure decision function: given a seeker point + a hider's zone centre +
-// threshold, decide whether a close-approach alert is due. Prior state carries
-// last-inside status so we only fire on the "outside → inside" transition —
-// once per crossing, not every 60 s while the seeker parks nearby (per user
-// 2026-07-20).
-//
-// Two guard layers on the way in, kept separate on purpose. A missing point
-// (`!seekerPoint || !zoneCentre`) is genuine "no signal" and returns a null-ish
-// state — the caller has nothing to render. But a `thresholdM <= 0` picks the
-// user-visible "Off (pin only)" mode from the live-share settings sheet: they
-// still want the distance in the pill, just no crossing alert. Bundling those
-// two guards used to null out the state either way, and `_onSeekerPing` then
-// dereferenced `out.state.distance` on the first pin-only ping and threw.
-export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, now = Date.now() }) {
-  if (!seekerPoint || !zoneCentre) return { state: prior || null, notify: null };
-  const d = metresBetween(seekerPoint, zoneCentre);
-  // Pin-only mode: return distance for the pill but never signal a crossing.
-  if (!(thresholdM > 0)) return { state: { inside: false, distance: d, at: now }, notify: null };
-  const inside = d < thresholdM;
-  const wasInside = !!prior?.inside;
-  const state = { inside, distance: d, at: now };
-  if (inside && !wasInside) {
-    return {
-      state,
-      notify: {
-        kind: "seeker-close",
-        title: "Seeker close",
-        body: `A seeker is ~${formatDistance(d)} from your hiding zone centre.`,
-      },
-    };
-  }
-  return { state, notify: null };
 }
 
 // Phase 47 (playtest fix): "make it instantaneous" — a seeker's ping now goes
@@ -142,6 +100,7 @@ export class LiveShare {
     this._initPushReceiver = initPushReceiver;
     this._postLocalNotify = postLocalNotify;
     this._pushUnsub = null;
+    this._settingsUnsub = null; // Phase 51: store subscription that keeps the relay's copy of the hider's zone fresh
     this.N = Notification;
     this.onError = onError; // (message: string) => void, for a toast the app can wire
     // Phase 37: (point|null) => void — the app wires the red seeker dot to this.
@@ -275,21 +234,55 @@ export class LiveShare {
     this._writePill("Waiting for a seeker ping…");
     this._registerHiderToken(code);
     this._startPushReceiver();
+    // Phase 51: keep the server's copy of the zone/threshold/alert-style fresh
+    // for as long as this device is the hider in this session, so the
+    // locked-device crossing check (relay-forward.js checkServerApproach) is
+    // never computing against a stale zone. Native-only — see _registerHiderZone.
+    // store.subscribe() calls back immediately with the current game, so this
+    // also covers the initial registration — no separate first call needed.
+    this._settingsUnsub = store.subscribe(() => this._registerHiderZone(code));
   }
 
   // Phase 44: on the Android shell, listen for the server's forwarded seeker
-  // coords (FCM data message) and route them through the SAME _onSeekerPing path
-  // a foreground socket ping uses — so a locked hider's alert, pill, and red dot
-  // are the identical, already-tested code. Off-device this is inert.
+  // coords (FCM data message) — updates the pill/red dot only (Phase 51: the
+  // crossing DECISION for this path is now made server-side, see
+  // _onSeekerPingSilent) — and, separately, a server-decided close alert. Off-
+  // device this is inert.
   _startPushReceiver() {
     if (!this._initPushReceiver || !this._isNative()) return;
-    Promise.resolve(this._initPushReceiver({ onSeekerCoords: (pt) => this._onSeekerPing(pt) }))
+    Promise.resolve(this._initPushReceiver({
+      onSeekerCoords: (pt) => this._onSeekerPingSilent(pt),
+      onCloseAlert: (payload) => this._onServerAlert(payload),
+    }))
       .then((unsub) => {
         // A stop() between kickoff and resolve → tear the fresh listener down now.
         if (this.role === "hider") this._pushUnsub = unsub;
         else { try { unsub?.(); } catch (_) {} }
       })
       .catch((e) => console.warn("live-share: push receiver init failed", e));
+  }
+
+  // Phase 51: tell the relay this hider's zone centre + threshold + alert
+  // style, so it can decide the seeker-close crossing itself and reach this
+  // device even if its app process has been fully killed by the OS — a data
+  // message alone needs the JS bridge alive to react to it, which "locked long
+  // enough" doesn't guarantee. Native-only: a web/PWA hider can't be woken in
+  // the background at all regardless, so there is nothing for the server-side
+  // path to buy them, and no reason to hand it their zone.
+  //
+  // Guarded on role/code matching the CURRENT session, the same pattern
+  // _registerHiderToken uses, so a stale store-subscription callback firing
+  // after a session switch can't leak this session's zone into the next one's
+  // room (or a dead one's).
+  _registerHiderZone(code) {
+    if (!this._isNative()) return;
+    if (this.role !== "hider" || this.code !== code) return;
+    const g = store.getCurrent();
+    const point = g?.focusZone?.point;
+    if (!point) return; // nothing to register yet — no zone placed
+    const thresholdM = Number(g?.settings?.approachThresholdM) || 0;
+    const alertStyle = g?.settings?.geofenceAlertStyle || "vibrate-tone";
+    this.transport?.emit?.("set-hider-zone", { code, point, thresholdM, alertStyle });
   }
 
   // Phase 43: on the Android shell, mint this device's FCM token and register it
@@ -324,6 +317,43 @@ export class LiveShare {
     const d = out.state.distance;
     this._writePill(`Seeker ${formatDistance(d)} from zone centre${threshold ? ` (alert < ${formatDistance(threshold)})` : ""}`);
     if (out.notify) this._fireNotification(out.notify);
+  }
+
+  // Phase 51: the FCM-forwarded twin of _onSeekerPing, for when this ping
+  // arrived because the relay woke a backgrounded app (not the live socket).
+  // Updates the dot + pill exactly the same way, but does NOT decide whether
+  // to alert — that decision is now made server-side, against the SAME zone,
+  // by relay-forward.js's checkServerApproach (see _registerHiderZone), and
+  // delivered separately via _onServerAlert. Computing it AGAIN here would
+  // risk a duplicate alert racing the server's own for a phone that happened
+  // to still be alive, for no benefit — the server already has everything it
+  // needs to decide correctly.
+  _onSeekerPingSilent(payload) {
+    if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
+    this._lastSeekerPoint = { lat: payload.lat, lng: payload.lng, at: payload.at || Date.now() };
+    try { this.onSeekerPoint?.(this._lastSeekerPoint); } catch (e) { console.warn("onSeekerPoint threw", e); }
+    const g = store.getCurrent();
+    const centre = g?.focusZone?.point;
+    if (!centre) {
+      this._writePill(`Seeker @ ${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)} · no hider zone`);
+      return;
+    }
+    const threshold = Number(g?.settings?.approachThresholdM) || 0;
+    // prior: null — this path never tracks a crossing baseline of its own; it
+    // only needs evaluateApproach for the distance number the pill shows.
+    const { state } = evaluateApproach({ seekerPoint: this._lastSeekerPoint, zoneCentre: centre, thresholdM: threshold, prior: null });
+    this._writePill(`Seeker ${formatDistance(state.distance)} from zone centre${threshold ? ` (alert < ${formatDistance(threshold)})` : ""}`);
+  }
+
+  // Phase 51: the server has already decided a seeker-close crossing happened
+  // (against the zone _registerHiderZone told it about) and this device is
+  // alive enough to receive the FCM message describing it. Reuses the exact
+  // same _fireNotification path a foreground crossing would — same alert-style
+  // read, same local-notify-vs-web-Notification choice — so the RESULT looks
+  // identical no matter which side made the call.
+  _onServerAlert({ title, body }) {
+    if (!title) return;
+    this._fireNotification({ kind: "seeker-close", title, body: body || "" });
   }
 
   _fireNotification(notify) {
@@ -364,6 +394,8 @@ export class LiveShare {
     if (this._sessionErrorHandler) { try { this.transport?.off?.("session-error", this._sessionErrorHandler); } catch (_) {} this._sessionErrorHandler = null; }
     // Phase 44: drop the FCM data-message listener when the session ends.
     if (this._pushUnsub) { try { this._pushUnsub(); } catch (_) {} this._pushUnsub = null; }
+    // Phase 51: stop pushing zone updates to the relay when the session ends.
+    if (this._settingsUnsub) { try { this._settingsUnsub(); } catch (_) {} this._settingsUnsub = null; }
     // Phase 37: the session is ending — clear the red seeker dot. Only signal a
     // removal if there was a point to remove, so a plain re-start doesn't churn.
     if (this._lastSeekerPoint) { try { this.onSeekerPoint?.(null); } catch (e) { console.warn("onSeekerPoint threw", e); } }

@@ -173,3 +173,118 @@ test("sendData with an empty token is rejected before hitting admin", async () =
   assert.equal((await fcm.sendData("")).reason, "invalid-token");
   assert.equal(admin.sent.length, 0);
 });
+
+// --- Phase 51: sendNotification — a REAL notification block ----------------
+//
+// Unlike sendData, this is what Android displays from the system tray with NO
+// app code running at all — the whole point of the locked/killed-device path
+// (see relay-forward.js checkServerApproach). Shares _send()'s token-validity
+// and dead-token-eviction handling with sendData; these tests pin the shape
+// of the message itself.
+
+test("sendNotification ENABLED sends a title/body notification block + a channelId", async () => {
+  const admin = fakeAdmin();
+  const fcm = createFcm({ admin, serviceAccountRaw: FAKE_ACCOUNT, logger: silentLogger() });
+  const res = await fcm.sendNotification(TOKEN, { title: "Seeker close", body: "~500 m from your zone.", channelId: "jltg-seeker-close", data: { type: "seeker-close-alert", code: "game-01" } });
+  assert.deepEqual(res, { ok: true });
+  assert.equal(admin.sent.length, 1);
+  const msg = admin.sent[0];
+  assert.equal(msg.token, TOKEN);
+  assert.deepEqual(msg.notification, { title: "Seeker close", body: "~500 m from your zone." });
+  assert.equal(msg.android.priority, "high");
+  assert.equal(msg.android.notification.channelId, "jltg-seeker-close");
+  assert.equal(msg.data.type, "seeker-close-alert", "data values are still coerced to strings alongside the notification block");
+});
+
+test("sendNotification omits android.notification entirely when no channelId is given", async () => {
+  const admin = fakeAdmin();
+  const fcm = createFcm({ admin, serviceAccountRaw: FAKE_ACCOUNT, logger: silentLogger() });
+  await fcm.sendNotification(TOKEN, { title: "t", body: "b" });
+  assert.equal(admin.sent[0].android.notification, undefined);
+});
+
+test("sendNotification is disabled/degrades exactly like sendData", async () => {
+  const fcm = createFcm({ admin: null, serviceAccountRaw: FAKE_ACCOUNT, logger: silentLogger() });
+  assert.deepEqual(await fcm.sendNotification(TOKEN, { title: "t" }), { ok: false, reason: "disabled" });
+});
+
+test("sendNotification reports a dead token so the caller can evict it, same as sendData", async () => {
+  const admin = fakeAdmin({ throwCode: "messaging/invalid-registration-token" });
+  const fcm = createFcm({ admin, serviceAccountRaw: FAKE_ACCOUNT, logger: silentLogger() });
+  const res = await fcm.sendNotification(TOKEN, { title: "t" });
+  assert.equal(res.ok, false);
+  assert.equal(res.drop, true);
+});
+
+// --- Phase 51: the registry's zone/threshold/alert-style + approach-state --
+//
+// The server-side half of the seeker-close alert needs the hider's zone to
+// compute a crossing at all, and needs to remember whether the seeker was
+// already inside so it fires ONCE per crossing (evaluateApproach's own
+// contract) rather than once per ping.
+
+const ZONE = { point: { lat: 19.076, lng: 72.877 }, thresholdM: 1000, alertStyle: "vibrate-tone" };
+
+test("registerZone then lookupZone round-trips point/threshold/alertStyle", () => {
+  const reg = new HiderTokenRegistry();
+  assert.equal(reg.registerZone("game-01", ZONE), true);
+  assert.deepEqual(reg.lookupZone("game-01"), ZONE);
+  assert.equal(reg.lookupZone("nope"), null);
+});
+
+test("registerZone rejects an invalid code, missing/out-of-range point, or bad threshold", () => {
+  const reg = new HiderTokenRegistry();
+  assert.equal(reg.registerZone("x", ZONE), false, "bad code");
+  assert.equal(reg.registerZone("game-01", { ...ZONE, point: null }), false, "no point");
+  assert.equal(reg.registerZone("game-01", { ...ZONE, point: { lat: 999, lng: 0 } }), false, "lat out of range");
+  assert.equal(reg.registerZone("game-01", { ...ZONE, thresholdM: -5 }), false, "negative threshold");
+  assert.equal(reg.registerZone("game-01", { ...ZONE, thresholdM: NaN }), false, "non-numeric threshold");
+  assert.equal(reg.lookupZone("game-01"), null, "nothing was stored by any of the rejected calls");
+});
+
+test("registerZone defaults alertStyle when the caller omits it", () => {
+  const reg = new HiderTokenRegistry();
+  reg.registerZone("game-01", { point: ZONE.point, thresholdM: 500 });
+  assert.equal(reg.lookupZone("game-01").alertStyle, "vibrate-tone");
+});
+
+test("a zone geometry CHANGE resets the crossing baseline; re-sending the SAME zone does not", () => {
+  const reg = new HiderTokenRegistry();
+  reg.registerZone("game-01", ZONE);
+  reg.setApproachState("game-01", { inside: true, distance: 200, at: 1 });
+  assert.ok(reg.getApproachState("game-01"), "baseline set");
+
+  reg.registerZone("game-01", ZONE); // identical point + threshold — no reason to forget the baseline
+  assert.ok(reg.getApproachState("game-01"), "unchanged geometry keeps the baseline");
+
+  reg.registerZone("game-01", { ...ZONE, thresholdM: 2000 }); // hider edited the threshold
+  assert.equal(reg.getApproachState("game-01"), null, "changed geometry resets the baseline silently");
+});
+
+test("dropZone removes both the zone and its crossing baseline", () => {
+  const reg = new HiderTokenRegistry();
+  reg.registerZone("game-01", ZONE);
+  reg.setApproachState("game-01", { inside: true, distance: 1, at: 1 });
+  assert.equal(reg.dropZone("game-01"), true);
+  assert.equal(reg.lookupZone("game-01"), null);
+  assert.equal(reg.getApproachState("game-01"), null);
+});
+
+test("zone entries expire on the same TTL as tokens", () => {
+  let clock = 0;
+  const reg = new HiderTokenRegistry({ ttlMs: 1000, now: () => clock });
+  reg.registerZone("game-01", ZONE);
+  clock = 1001;
+  assert.equal(reg.lookupZone("game-01"), null, "expired → dropped on read");
+});
+
+test("prune sweeps expired zones too, and their approach-state baselines", () => {
+  let clock = 0;
+  const reg = new HiderTokenRegistry({ ttlMs: 100, now: () => clock });
+  reg.registerZone("game-01", ZONE);
+  reg.setApproachState("game-01", { inside: true, distance: 1, at: 1 });
+  clock = 200;
+  assert.ok(reg.prune() >= 1);
+  assert.equal(reg.lookupZone("game-01"), null);
+  assert.equal(reg.getApproachState("game-01"), null);
+});

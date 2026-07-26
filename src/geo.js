@@ -232,3 +232,54 @@ function feat(g) {
   return g && g.type === "Feature" ? g : T().feature(g);
 }
 
+// Phase 51: moved here (from live-share.js) so the server can share the exact
+// same seeker-close decision the client has always used, instead of a second
+// hand-written copy drifting from it over time — the same reasoning fix #9
+// already applied to metresBetween above. Pure — no window/DOM — so it is
+// equally safe to import from a Node server process or a browser tab.
+// live-share.js re-exports both names unchanged for every existing caller.
+
+// Phase 24 (fix #12): compact distance formatter for the live-share pill.
+//
+// Under 1 km reads in metres (nearest metre). At 1 km and above, switch to km
+// with up to two decimals — but strip trailing zeros so a round threshold
+// like 2 km reads as "2 km", not "2.00 km" or (as it once did) "2000 m".
+// parseFloat does the trailing-zero strip: parseFloat("1.00") === 1,
+// parseFloat("2.50") === 2.5, parseFloat("1.23") === 1.23.
+export function formatDistance(m) {
+  if (!Number.isFinite(m)) return "";
+  if (m < 1000) return `${Math.round(m)} m`;
+  return `${parseFloat((m / 1000).toFixed(2))} km`;
+}
+
+// Pure decision function: given a seeker point + a hider's zone centre +
+// threshold, decide whether a close-approach alert is due. Prior state carries
+// last-inside status so we only fire on the "outside → inside" transition —
+// once per crossing, not every ping while the seeker parks nearby.
+//
+// Two guard layers on the way in, kept separate on purpose. A missing point
+// (`!seekerPoint || !zoneCentre`) is genuine "no signal" and returns a null-ish
+// state — the caller has nothing to render. But a `thresholdM <= 0` picks the
+// user-visible "Off (pin only)" mode from the live-share settings sheet: they
+// still want the distance in the pill, just no crossing alert.
+export function evaluateApproach({ seekerPoint, zoneCentre, thresholdM, prior, now = Date.now() }) {
+  if (!seekerPoint || !zoneCentre) return { state: prior || null, notify: null };
+  const d = metresBetween(seekerPoint, zoneCentre);
+  // Pin-only mode: return distance for the pill but never signal a crossing.
+  if (!(thresholdM > 0)) return { state: { inside: false, distance: d, at: now }, notify: null };
+  const inside = d < thresholdM;
+  const wasInside = !!prior?.inside;
+  const state = { inside, distance: d, at: now };
+  if (inside && !wasInside) {
+    return {
+      state,
+      notify: {
+        kind: "seeker-close",
+        title: "Seeker close",
+        body: `A seeker is ~${formatDistance(d)} from your hiding zone centre.`,
+      },
+    };
+  }
+  return { state, notify: null };
+}
+
