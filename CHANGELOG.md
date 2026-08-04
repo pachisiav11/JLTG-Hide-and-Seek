@@ -299,6 +299,64 @@ Suite: **854 → 868 tests, all passing.**
 
 Suite: **868 → 892 tests, all passing.**
 
+## v2 Phase 6 — Sharing and UX (§10.6 items U, V, W, X, Y)
+
+- **Item U — the whole game in a URL** (`src/share-link.js`, `src/games.js`, `src/app.js`,
+  `test/share-link.test.mjs`, 18 tests). `deflate` → base64url in a query parameter. No
+  accounts, no backend, no upload — for a game where players hand a phone around or coordinate
+  over chat, this is the highest value-per-line thing the reference mapper has.
+
+  **Deliberately not copied: its overflow path.** When its link exceeds ~2,000 characters the
+  reference POSTs the game to Pastebin through `cors-anywhere.com` — the user's API key *and*
+  their whole board through a third-party CORS proxy of unclear provenance (§7.7). An
+  oversized board here is told to use the JSON export it already has. A share button must
+  never be the reason data leaves the device by a route the player did not choose.
+
+  Two design decisions in the payload:
+  - **Notes are not shared.** They routinely carry private context, and a link goes to the
+    other team as often as to a teammate. The JSON export still carries them — that is a
+    deliberate, file-shaped action rather than a pasted link.
+  - **The station list is dropped, its eliminations are kept.** The list is re-sourceable from
+    the board and is what would blow the URL budget (400 stations still fit comfortably once
+    it is dropped); the eliminations are hand-made deductions that cannot be re-derived.
+
+  A share link is treated as **untrusted input**: truncated, edited, or future-version links
+  refuse with a specific reason rather than half-loading. A board that loads with some
+  questions silently missing is worse than one that refuses — the seeker cannot see what is
+  absent. The parameter is cleared after load either way, so a refresh cannot pile up
+  duplicates.
+
+- **Item W — boards can have holes** (`src/geo.js`, `src/zones.js`, `styles/main.css`,
+  `test/board-subtraction.test.mjs`, 10 tests). Zones were union-only, which cannot express a
+  board with an excluded area — and those are ordinary, not exotic: the bay in the middle of a
+  harbour city, the airfield nobody may enter, the borough the group agreed is out of play.
+  Without it a seeker either draws an awkward ring of zones around the hole or reasons about a
+  board they know is wrong.
+
+  New "✂️ Exclude an area" draws a subtracting zone. The fold unions all additions first, then
+  removes the union of the subtractions **once** — order-independent on purpose, because the
+  order zones happened to be drawn in is invisible in the UI and a board that depended on it
+  would be impossible to reason about. A subtraction that cannot be applied returns *no board*
+  rather than silently falling back to the un-subtracted one, which would compute every
+  elimination over ground the player deliberately excluded. Zones with no `mode` add, so no
+  saved board changes meaning and no migration is needed.
+
+### Already done, and one item declined
+
+- **Item X — the guide in-app** — already shipped in v1 Phase 38 (`src/guide.js`), including a
+  live permissions wizard on the native shell.
+- **Item Y — export the board** — JSON export/import already exists. A print/PDF path was not
+  added: this is a phone-first field app where the platform screenshot is both faster and what
+  players already use.
+- **Item V — auto-save toggle: considered and declined.** The reference's toggle exists because
+  a single recompute there can cost seconds. That problem is already solved here by the four
+  memo layers (`_elimCache`, `_activeMemo`, `_bufferCache`, `_clipCache`), which took a live
+  Mumbai coastline board from ~6,948 ms per drag to a cache hit. Adding a mode that suspends
+  saving would trade a solved performance problem for an unsolved data-loss one — in a field
+  app, on a phone, whose battery dies mid-game. Copying it here would be a regression.
+
+Suite: **892 → 920 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

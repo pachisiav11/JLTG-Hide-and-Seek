@@ -323,6 +323,11 @@ async function main() {
     wireToolbar(zones, features, layers, focus, lines, games);
     document.getElementById("menu-btn")?.addEventListener("click", () => games.openMenu());
     zones.fitToArea();
+    // v2 Phase 6 (item U): a game handed over in a URL. Runs AFTER the normal restore so a
+    // failed or absent link always leaves the player on their own last board rather than on
+    // nothing, and it clears the parameter either way so a refresh cannot re-import
+    // duplicates. Awaited-but-contained: a bad link must not take the rest of boot down.
+    games.loadFromShareLink().catch((e) => console.warn("share link load failed", e));
     window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, seekerDot, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);

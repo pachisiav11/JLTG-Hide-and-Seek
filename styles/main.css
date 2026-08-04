@@ -543,6 +543,16 @@ textarea.field { resize: vertical; }
   white-space: nowrap;
   margin-left: 0.4em;
 }
+/* v2 Phase 6 (item W). An excluded zone is CUT OUT of the board, so it has to be
+   distinguishable in the list — two identically-styled rows where one adds area and the
+   other removes it is exactly the kind of thing that gets misread mid-game. */
+.li-subtract {
+  color: var(--warn, #fbbf24);
+  font-weight: 600;
+  font-size: 0.85em;
+  white-space: nowrap;
+  margin-left: 0.4em;
+}
 .li-hidden {
   color: var(--muted, #94a3b8);
   font-weight: 600;

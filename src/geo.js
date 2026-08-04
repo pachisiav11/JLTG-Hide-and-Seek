@@ -233,6 +233,49 @@ export function unionRings(rings) {
   }
 }
 
+// Assemble a board from ADDED and SUBTRACTED zones (v2 Phase 6, item W).
+//
+// Zones were union-only, which cannot express a board with a hole in it — and holes are
+// ordinary, not exotic: the bay in the middle of a harbour city, the airfield nobody may
+// enter, the neighbouring municipality the group agreed is out of play. Without subtraction
+// the seeker either draws an awkward ring of add-zones around the hole, or leaves the hole in
+// and reasons about a board they know is wrong.
+//
+// A subtracted zone is `{ mode: "subtract" }`; anything else adds, so every zone ever saved
+// keeps its meaning with no migration.
+//
+// Order does not matter and that is deliberate: all adds union first, then the union of the
+// subtractions is removed once. Interleaving would make the board depend on the order the
+// zones happened to be drawn in, which is invisible in the UI and impossible to reason about.
+//
+// Returns null when the result has no area — which is a real outcome (subtracting everything)
+// and is reported as such rather than silently falling back to the un-subtracted board. A
+// board that quietly ignores a subtraction is exactly the class of quiet wrongness this
+// build has been removing.
+export function assembleBoard(zones) {
+  const list = Array.isArray(zones) ? zones : [];
+  const added = list.filter((z) => z?.mode !== "subtract").map((z) => z?.polygon);
+  const cut = list.filter((z) => z?.mode === "subtract").map((z) => z?.polygon);
+
+  const base = unionRings(added);
+  if (!base) return null;
+  if (!cut.length) return base;
+
+  const holes = unionRings(cut);
+  if (!holes) return base; // nothing usable to subtract — the board stands
+
+  try {
+    const d = T().difference(T().featureCollection([T().feature(base), T().feature(holes)]));
+    return d ? d.geometry : null;
+  } catch (e) {
+    // Do NOT fall back to `base`: that silently returns a board WITHOUT the hole the player
+    // asked for, and every elimination downstream would then be computed over ground they
+    // deliberately excluded. Null makes the caller refuse the change, which is recoverable.
+    console.warn("board subtraction failed", e);
+    return null;
+  }
+}
+
 // Parse pasted zone input: a GeoJSON Feature/FeatureCollection/geometry, OR a raw
 // coordinate list. Returns an array of { name, ring:[[lat,lng],...] }.
 export function parseZoneInput(text) {

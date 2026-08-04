@@ -4,7 +4,7 @@
 import * as store from "./store.js";
 import * as db from "./db.js";
 import { createZone } from "./model.js";
-import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections, ringCrossesAntimeridian } from "./geo.js";
+import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections, ringCrossesAntimeridian, assembleBoard } from "./geo.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 import { getPalette } from "./palette.js";
 
@@ -117,9 +117,17 @@ export class Zones {
       return;
     }
     this._endDraw();
+    const subtract = this._drawMode === "subtract";
+    this._drawMode = null;
     const name = await promptZoneName("");
     if (name === null) return; // cancelled
-    await this.addZone(name || `Zone ${store.getCurrent().zones.length + 1}`, ring, { toLibrary: true });
+    const fallback = subtract
+      ? `Excluded ${store.getCurrent().zones.length + 1}`
+      : `Zone ${store.getCurrent().zones.length + 1}`;
+    // A subtraction is not a reusable place, it is a decision about THIS board, so it does
+    // not go to the library — offering it there would invite re-adding a hole to a board
+    // that has no matching area to cut it from.
+    await this.addZone(name || fallback, ring, { toLibrary: !subtract, mode: subtract ? "subtract" : "add" });
   }
 
   _endDraw() {
@@ -155,20 +163,27 @@ export class Zones {
   // ok:false path that undoes their change and tells the player what happened in words; a
   // throw simply had no route to that path. The cause is still logged.
   static _fold(zones) {
-    const rings = (zones || []).map((z) => z.polygon);
-    if (!rings.length) return { ok: true, area: null };
+    const list = zones || [];
+    if (!list.length) return { ok: true, area: null };
+    // v2 Phase 6 (item W): the board is (union of added zones) minus (union of subtracted
+    // ones). `assembleBoard` handles both and is order-independent on purpose — see geo.js.
+    // A board made only of subtractions has no area, which is a refusal rather than a crash.
     let area = null;
     try {
-      area = unionRings(rings);
+      area = assembleBoard(list);
     } catch (e) {
-      console.warn("zone union threw — treating as a failed union", e);
+      console.warn("zone fold threw — treating as a failed union", e);
       return { ok: false, area: null };
     }
     return area ? { ok: true, area } : { ok: false, area: null };
   }
 
-  async addZone(name, ring, { toLibrary = false } = {}) {
+  async addZone(name, ring, { toLibrary = false, mode = "add" } = {}) {
     const zone = createZone({ name, polygon: ring });
+    // v2 Phase 6 (item W). Only recorded when it is a subtraction: a board full of zones
+    // tagged `mode: "add"` would differ byte-for-byte from every board saved before this
+    // existed, for no gain, and exports/diffs would be noisier for it.
+    if (mode === "subtract") zone.mode = "subtract";
     // Refuse the ZONE rather than lose the BOARD. A zone that cannot be folded in is one
     // shape; the alternative was discarding an assembled play area and every question
     // standing on it, for the same bad input.
@@ -259,7 +274,7 @@ export class Zones {
     const zonesHtml = g.zones.length
       ? g.zones.map((z) => `
           <li>
-            <span class="li-name">${escapeHtml(z.name)}</span>
+            <span class="li-name">${escapeHtml(z.name)}${z.mode === "subtract" ? ` <span class="li-subtract" title="Excluded: this area is cut OUT of the board.">✂️ excluded</span>` : ""}</span>
             <button class="btn btn-ghost btn-sm" data-del="${z.id}">Remove</button>
           </li>`).join("")
       : `<li class="muted">No zones yet — draw or import one.</li>`;
@@ -286,6 +301,9 @@ export class Zones {
           <button id="z-draw" class="btn">✎ Draw zone</button>
           <button id="z-import" class="btn">⇩ Import</button>
         </div>
+        <div class="row">
+          <button id="z-subtract" class="btn">✂️ Exclude an area</button>
+        </div>
         <h3 class="sub">In this game</h3>
         ${areaLine}
         <ul class="list">${zonesHtml}</ul>
@@ -294,7 +312,13 @@ export class Zones {
     });
 
     s.q("#z-region").onclick = () => this._openRegionSearch();
-    s.q("#z-draw").onclick = () => { s.close(); this.startDraw(); };
+    s.q("#z-draw").onclick = () => { s.close(); this._drawMode = "add"; this.startDraw(); };
+    s.q("#z-subtract").onclick = () => {
+      s.close();
+      this._drawMode = "subtract";
+      toast("Draw the area to EXCLUDE — the bay, the airfield, the borough you're not playing.");
+      this.startDraw();
+    };
     s.q("#z-import").onclick = () => this._openImport();
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.removeZone(b.dataset.del); s.close(); this.openPanel(); }));
     s.qa("[data-add]").forEach((b) => (b.onclick = async () => {

@@ -44,6 +44,7 @@ export class Games {
           <button id="mn-export" class="btn">⬇️ Export current (JSON)</button>
           <button id="mn-import" class="btn">⬆️ Import game</button>
           <button id="mn-print" class="btn">🖨 Print / save map (PDF)</button>
+          <button id="mn-share" class="btn">🔗 Share link</button>
           <button id="mn-settings" class="btn">⚙️ Settings</button>
         </div>`,
     });
@@ -59,6 +60,7 @@ export class Games {
     s.q("#mn-export").onclick = async () => { await this.exportCurrent(); };
     s.q("#mn-import").onclick = () => { s.close(); this.openImport(); };
     s.q("#mn-print").onclick = () => { s.close(); this.printMap(); };
+    s.q("#mn-share").onclick = () => { s.close(); this.shareCurrent(); };
     s.q("#mn-settings").onclick = () => { s.close(); this.openSettings(); };
   }
 
@@ -178,6 +180,97 @@ export class Games {
     a.remove();
     URL.revokeObjectURL(url);
     toast("Exported JSON.");
+  }
+
+  // v2 Phase 6, item U — put the whole game in a link.
+  //
+  // For a game where players hand a phone around or coordinate over chat, this is the
+  // highest value-per-line feature borrowed from the reference mapper: no accounts, no
+  // backend, no upload.
+  //
+  // NOT copied: the reference's overflow path, which POSTs an oversized game to Pastebin
+  // through `cors-anywhere.com` — the user's API key and their whole board through a
+  // third-party CORS proxy of unclear provenance. An oversized board is told to use the JSON
+  // export it already has. A share button must never be the reason data leaves the device by
+  // a route the player did not choose.
+  async shareCurrent() {
+    const cur = store.getCurrent();
+    if (!cur) return toast("Open a game first.");
+    let built;
+    try {
+      const { buildShareUrl } = await import("./share-link.js");
+      built = await buildShareUrl(cur, window.location.href);
+    } catch (e) {
+      return toast(e.message || "Couldn't build a share link.");
+    }
+
+    if (built.tooLong) {
+      return toast(`This board is too big for a link (${built.length} characters). Use Export JSON and send the file instead.`);
+    }
+
+    const s = openSheet({
+      title: "Share this game",
+      bodyHTML: `
+        <p class="muted">The whole board — zones, questions and answers — travels in this link. Nothing is uploaded anywhere.</p>
+        <p class="muted">Your <strong>notes are not included</strong>, and neither is the station list (it is re-sourced from the board on the other device; your station eliminations do travel).</p>
+        <textarea id="sh-url" class="field" rows="4" readonly>${escapeHtml(built.url)}</textarea>
+        <div class="sheet-actions">
+          <button id="sh-close" class="btn btn-ghost">Close</button>
+          <button id="sh-copy" class="btn btn-primary">Copy link</button>
+        </div>
+        <p id="sh-status" class="muted"></p>`,
+    });
+    s.q("#sh-close").onclick = () => s.close();
+    s.q("#sh-copy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(built.url);
+        s.q("#sh-status").textContent = "Copied.";
+      } catch {
+        // Clipboard is permission-gated and blocked outright in some in-app browsers.
+        // Selecting the text is the fallback that always works.
+        s.q("#sh-url").select();
+        s.q("#sh-status").textContent = "Couldn't copy automatically — the link is selected, copy it manually.";
+      }
+    };
+  }
+
+  // Load a game handed over in a URL. Called once at startup; a no-op without the parameter.
+  //
+  // The link is UNTRUSTED INPUT — it came from another device through a chat app that may
+  // have truncated it. `parseShareToken` validates rather than trusts, and anything malformed
+  // refuses with a reason instead of half-loading a board, because a board that loads with
+  // some questions silently missing is worse than one that refuses: the seeker cannot see
+  // what is absent.
+  async loadFromShareLink() {
+    let token;
+    try {
+      const { tokenFromUrl } = await import("./share-link.js");
+      token = tokenFromUrl(window.location.href);
+    } catch { return false; }
+    if (!token) return false;
+
+    try {
+      const { parseShareToken } = await import("./share-link.js");
+      const payload = await parseShareToken(token);
+      const g = await store.newGame({
+        name: payload.name ? `${payload.name} (shared)` : "Shared game",
+        zones: payload.zones || [],
+        focusZone: payload.focusZone || undefined,
+        history: payload.history || [],
+        railFilter: payload.railFilter || undefined,
+        settings: payload.settings || undefined,
+      });
+      await store.openGame(g.id);
+      this.zones?.fitToArea();
+      toast("Shared game loaded.");
+    } catch (e) {
+      toast(e.message || "That share link could not be read.");
+    } finally {
+      // Clear the parameter either way, so a refresh does not re-import the same board and
+      // leave the player with a pile of duplicates.
+      try { window.history.replaceState({}, "", window.location.pathname); } catch { /* non-browser */ }
+    }
+    return true;
   }
 
   openImport() {
