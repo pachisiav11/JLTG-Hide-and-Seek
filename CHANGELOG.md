@@ -176,8 +176,16 @@ A seeker does not want to reason about "3,200 km² of shading" — they want to 
   and disabled questions are correctly excluded; a zone that never overlapped the board
   reports `null`, not 0%.
 
-- **Item O — custom station lists** (`src/station-import.js`, CSV / GeoJSON / KML). The point
-  is not the file formats: a group who have already agreed a station set (a shared Google
+- **Item O — custom station lists** (`src/station-import.js`, CSV / GeoJSON / KML).
+
+  > ⚠️ **Correction.** As committed in this phase, item O shipped the **parser only**. Nothing
+  > in the app imported it, so the feature was not reachable by a player — 22 passing tests
+  > and no way to use it. The UI landed later, in *v2 audit* below. This entry originally read
+  > as though the feature were complete; it is left in place with this note rather than
+  > rewritten, because a changelog that quietly edits its own history is worth less than one
+  > that records being wrong.
+
+  The point is not the file formats: a group who have already agreed a station set (a shared Google
   MyMaps layer, a spreadsheet, a converted GTFS export) had to retype it or play with a
   different set from the one they agreed. KML is here because MyMaps exports it and MyMaps is
   what non-technical players use.
@@ -394,6 +402,39 @@ All 16 checks pass:
 | 6 | share round trip preserves zones and drops notes (518-char link); subtraction cuts a real hole and excludes its centre |
 
 Boot check: 16 modules wired, 0 unexpected console or page errors.
+
+### Recorded test counts, verified against the commits
+
+Because the audit found one claim in this changelog that did not hold, the numeric claims were
+re-checked rather than trusted. Every phase commit was checked out into a worktree and its
+suite run:
+
+| Commit | Recorded | Actual | |
+|---|---:|---:|---|
+| `v1.0-stable` (pre-v2) | 756 | **756** | ✅ |
+| Phase 1 `2fe1604` | 786 | **786** | ✅ |
+| Phase 2 `75ef982` | 810 | **810** | ✅ |
+| Phase 3 `f9fb176` | 854 | **854** | ✅ |
+| Phase 4 `4ccd7fe` | 868 | **868** | ✅ |
+| Phase 5 `23711ed` | 892 | **892** | ✅ |
+| Phase 6 `2a07712` | 920 | **920** | ✅ |
+| Audit `ffed11f` | 920 | **920** | ✅ |
+
+Zero failures at every commit. So no phase was pushed with a failing suite, and the numbers in
+this document are accurate. What was inaccurate was **narrative**, not arithmetic: the Phase 3
+entry described item O as a delivered feature when only its parser had landed. That entry now
+carries a correction in place rather than a rewrite.
+
+### The orphan check is now permanent
+
+`test/module-reachability.test.mjs` (4 tests) walks the real import graph from `src/app.js` —
+following both static `import` and the dynamic `await import()` the sheets use — and fails if
+any `src/` module is unreachable. `oracle.js` is allowlisted with a reason, and the allowlist
+itself is checked (an entry must name a module that still exists and carry a real reason).
+
+Verified to actually catch the bug it exists for: unwiring `station-import.js` makes it fail
+with *"station-import.js is orphaned — CSV / GeoJSON / KML station import would not exist for
+a player"*. A guard that passes vacuously would be worse than none.
 
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
