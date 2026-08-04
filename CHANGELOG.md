@@ -4,7 +4,7 @@ Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, push
 
 ---
 
-# v2 major build (in progress)
+# v2 major build (complete — all six phases)
 
 A rebuild driven by [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md) — a measured review of
 [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek), in which the
@@ -13,7 +13,9 @@ what it does well and where it is wrong. The improvement programme is §10 of th
 the phases below follow its §10.8 order.
 
 **The last stable v1 build (Phases 0–51) is the `v1-stable` branch.** Everything under this
-heading is newer than that and may be mid-change.
+heading is newer than that. All six phases are complete; the suite went 756 → 920 tests and
+the app has been boot- and UI-smoke-tested in a browser, but **it has not yet been playtested
+in a real game**.
 
 Scope was fixed up front by the constraints already recorded in `IMPROVEMENTS.md`: no stack
 rewrite, no migration off Google Maps, no reversion to forced auto-answer, no premature

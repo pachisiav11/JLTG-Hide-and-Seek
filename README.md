@@ -1,21 +1,21 @@
 # JLTG — Hide & Seek Map Companion
 
-> ## ⚠️ `main` is a **v2 major build in progress**
+> ## 🔶 `main` is the **v2 major build** — all six phases landed
 >
-> This branch is being rebuilt against the findings in
-> [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md) — a measured review of
-> [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek). It is
-> landing phase by phase and **may be mid-change at any commit**.
+> This branch was rebuilt against [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md), a measured
+> review of [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek). All
+> six phases of that document's §10 programme are complete and pushed. **920 tests pass**
+> (up from 756), and the app has been boot- and UI-smoke-tested in a browser.
 >
-> **The last stable, playtested build (Phases 0–51) is on the `v1-stable` branch:**
+> **It has NOT yet been playtested in a real game.** Until it has, the last stable,
+> field-tested build (v1, Phases 0–51) remains on the `v1-stable` branch:
 >
 > ```bash
 > git checkout v1-stable          # or: git checkout v1.0-stable (tag, local only)
 > ```
 >
-> Use `v1-stable` for anything you intend to actually play a game on until the v2 build
-> is marked complete here. See the **v2 major build** section of
-> [`CHANGELOG.md`](CHANGELOG.md) for what has landed so far.
+> See the **v2 major build** section of [`CHANGELOG.md`](CHANGELOG.md) for what changed and,
+> just as importantly, which of the reference's ideas were deliberately **not** copied.
 
 A mobile web app (PWA) that renders a full Google Map and layers on the deductive
 **elimination tools** needed to run a game of *Jet Lag: The Game*'s Hide and Seek.
