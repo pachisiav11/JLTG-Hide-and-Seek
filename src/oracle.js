@@ -112,8 +112,25 @@ export function truthfulAnswer(step, hider, gameArea) {
           if (!features?.length || prior.length == null) return null;
           const i = nearestFeatureIndex(hider, features);
           if (i < 0) return null;
-          // The seeker's own name-length stays; the hider only says whether theirs matches.
-          return { length: prior.length, match: features[i].len === prior.length };
+          const len = features[i].len;
+          // The seeker's own name-length stays; the hider only reports how theirs compares.
+          // v2 Phase 5 (item K): answer in the ternary form, since a truthful hider knows
+          // which way it differs and saying so costs them nothing. `match` is still emitted
+          // so an older reader of this answer keeps working.
+          const comparison = len === prior.length ? "same" : len < prior.length ? "shorter" : "longer";
+          return { length: prior.length, comparison, match: comparison === "same" };
+        }
+
+        // v2 Phase 5 (item J). Membership, not proximity: the hider's NEAREST STATION either
+        // is or is not one of the stations served by the seeker's line. Deliberately computed
+        // from the station list rather than from the zones, because that is the question the
+        // hider is actually answering — the zones are only how the answer becomes an area.
+        case "stationLine": {
+          const { stations, memberIds } = inputs;
+          if (!stations?.length || !Array.isArray(memberIds)) return null;
+          const i = nearestFeatureIndex(hider, stations);
+          if (i < 0) return null;
+          return { match: memberIds.includes(stations[i].id) };
         }
 
         case "nearestLine": {

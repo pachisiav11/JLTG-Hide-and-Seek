@@ -236,6 +236,69 @@ ones matters as much as the changes — they are the parts a later pass would ot
 
 Suite: **854 → 868 tests, all passing.**
 
+## v2 Phase 5 — New questions and accuracy (§10.5 items J, K, D, E)
+
+- **Item J — "Station's Line"** (`src/tools.js`, `src/data/questions.js`, `src/layers.js`,
+  `src/oracle.js`, `test/station-line.test.mjs`, 11 tests). *"Is your nearest station on the
+  same line as mine?"* — one of the strongest questions in the real game, and one Google
+  **cannot** answer: the Maps APIs expose no line membership at all. Answerable here only
+  because the board already sources real rail geometry from OSM.
+
+  Deliberately **not** a duplicate of the existing Transit Line card. That one asks which line
+  you are physically *closest to*; this asks about *membership*. A hider can stand much nearer
+  line B's track while their nearest station is on line A — a test pins exactly that case, so
+  the distinction stays real rather than becoming a refactor casualty.
+
+  This card only became possible because of Phase 3: the answer constrains the hider to "near
+  one of these stations", and the elimination is the union of those stations' **hiding zones**.
+
+  **It carries a precondition, and the code says so loudly.** The card is sound only while the
+  hider really is within the hiding radius of a station — i.e. only in a game actually played
+  by the hiding-zone rule. A hider 3 km from their nearest station can answer "same line"
+  truthfully and still sit outside every zone the answer keeps. That is the card's premise,
+  not a geometry bug, and the radius requirement is what enforces it. The test suite asserts
+  the survival property over positions that satisfy the premise **and pins the out-of-premise
+  case separately**, so the limit stays visible instead of becoming a mid-game surprise.
+
+  With no radius set the card refuses outright rather than eliminating nothing.
+
+- **Item K — ternary name-length answers** (`test/name-length-ternary.test.mjs`, 8 tests).
+  "Same length?" throws away most of what the hider just told you: they know whether theirs is
+  *shorter*, *the same*, or *longer*, and saying which costs them nothing. Measured on the test
+  fixture, a directional answer eliminates **1.5× as much ground** as "different" — and on a
+  real board the gap is larger, because exact name-length ties are rare, so the boolean
+  question is usually answered "no" and cuts very little.
+
+  Fully backwards compatible: steps saved in the old `{ match }` form keep meaning exactly what
+  they meant, pinned by three tests. A saved game that changes its answer when the app updates
+  mid-game would be worse than a missing feature.
+
+  One case only the ternary form reaches: the seeker holds the shortest name, so *nothing* is
+  shorter. That is a real and very strong answer — it rules out the whole board — and the
+  dangerous thing would have been `eliminated: null`, which reads as "ruled nothing out".
+
+- **Item E — bound the buffer error rather than trusting it**
+  (`test/buffer-accuracy.test.mjs`, 5 tests). MAPPER_ANALYSIS §3.4.1 measured the reference
+  mapper's coastline buffer over-including by up to **286% of the threshold**. We use the same
+  `turf.buffer`, so the question was not "is it exact" (it is not) but "how wrong is it here,
+  and in which direction".
+
+  Measured against a brute-force geodesic distance field over ~2,100 sample points: **>97%
+  agreement** on a deliberately crinkly reference at 500 m / 2 km / 6 km, and every
+  disagreement confined to a narrow band around the threshold — proving the buffer is the
+  right *shape*, not merely close. The tests pin both the magnitude and the direction, so a
+  future turf upgrade that changes buffering shows up as a diff instead of a subtly different
+  board.
+
+  We are materially better than the reference here for a structural reason, now asserted: our
+  references come from OSM at full resolution, where its coastline is Natural Earth 1:50m with
+  a **7.65 km median vertex spacing** — coarser than the thresholds being measured on it.
+
+- **Item D — coastline from OSM** — already done. `natural=coastline` via the Overpass proxy,
+  exactly as recommended, and the reason our buffer accuracy beats the reference's.
+
+Suite: **868 → 892 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

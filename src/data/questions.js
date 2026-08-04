@@ -60,6 +60,16 @@ export function findTentacle(id) {
 export const MATCHING = [
   { id: "airport", label: "Commercial Airport", mode: "nearest", type: "airport" },
   { id: "transit_line", label: "Transit Line", mode: "nearestLine", lineKind: "rail" },
+  // v2 Phase 5 (item J). NOT a duplicate of the card above. `nearestLine` asks which line you
+  // are physically CLOSEST to; this asks whether your nearest STATION is served by the same
+  // line as mine. A hider can stand much nearer line B's track while their nearest station is
+  // on line A, so the two cards genuinely differ and neither substitutes for the other.
+  //
+  // Google exposes no line membership at all (§G0), so this is only answerable because the
+  // board sources real rail geometry from OSM. It also needs the station set AND a hiding
+  // radius — the answer constrains the hider to "near one of these stations", and without a
+  // radius that region has no area. The flow refuses rather than eliminating nothing.
+  { id: "station_line", label: "Station's Line", mode: "stationLine", lineKind: "rail" },
   { id: "name_length", label: "Station's Name Length", mode: "nameLength", type: "transit_station" },
   { id: "street", label: "Street or Path", mode: "nearestLine" },
   { id: "admin1", label: "1st Admin. Division", mode: "region" },

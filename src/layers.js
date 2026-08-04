@@ -1459,6 +1459,7 @@ export class Layers {
       if (card.mode === "nearest") return this._matchNearest(card, s);
       if (card.mode === "nameLength") return this._matchNameLength(card, s);
       if (card.mode === "nearestLine") { s.close(); return this._matchNearestLine(card); }
+      if (card.mode === "stationLine") { s.close(); return this._matchStationLine(card); }
       if (card.mode === "region") { s.close(); return this._matchRegion(card); }
     };
   }
@@ -1575,10 +1576,13 @@ export class Layers {
       bodyHTML: `
         <p class="muted">Nearest-station regions grouped by name length. Pick <strong>your</strong> nearest-station name length.</p>
         <div class="seg">${list}</div>
-        <label class="fieldlbl">Did the hider answer the same length?</label>
+        <label class="fieldlbl">How does the hider's station name compare?</label>
+        <p class="muted">Ask for the direction, not just yes/no — the hider knows it and it costs them nothing to say. "Different" keeps every other length; "shorter" or "longer" keeps about half of them, so the same answer eliminates roughly twice as much.</p>
         <div class="seg" role="radiogroup">
-          <label><input type="radio" name="nl-match" value="yes" checked/> Yes — same (keep those regions)</label>
-          <label><input type="radio" name="nl-match" value="no"/> No — different (remove those regions)</label>
+          <label><input type="radio" name="nl-cmp" value="same" checked/> Same length</label>
+          <label><input type="radio" name="nl-cmp" value="shorter"/> Shorter than mine</label>
+          <label><input type="radio" name="nl-cmp" value="longer"/> Longer than mine</label>
+          <label><input type="radio" name="nl-cmp" value="different"/> Different, but they wouldn't say which</label>
         </div>
         <div class="sheet-actions"><button id="nl-cancel" class="btn btn-ghost">Cancel</button><button id="nl-add" class="btn btn-primary">Add question</button></div>`,
       onClose: () => temp.forEach((m) => m.setMap(null)),
@@ -1586,10 +1590,96 @@ export class Layers {
     s2.q("#nl-cancel").onclick = () => s2.close();
     s2.q("#nl-add").onclick = () => {
       const L = parseInt(s2.qa('input[name="nl"]').find((r) => r.checked)?.value ?? `${lengths[0]}`, 10);
-      const match = (s2.qa('input[name="nl-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
-      this.addStep("matching", { mode: "nameLength", category: card.id, categoryLabel: "station name length", features: feats }, { length: L, match });
+      const cmp = s2.qa('input[name="nl-cmp"]').find((r) => r.checked)?.value ?? "same";
+      // "Different" has no direction, so it stays in the legacy boolean form rather than
+      // being forced into a comparison it does not carry — the tool reads both.
+      const answer = cmp === "different"
+        ? { length: L, match: false }
+        : { length: L, comparison: cmp, match: cmp === "same" };
+      this.addStep("matching", { mode: "nameLength", category: card.id, categoryLabel: "station name length", features: feats }, answer);
       s2.close();
       toast("Matching question added.");
+    };
+  }
+
+  // v2 Phase 5, item J — "is your nearest station on the same line as mine?"
+  //
+  // Three hard requirements, each refused with its own reason rather than degrading into a
+  // question that looks answered and rules nothing out:
+  //   1. a station set  — the card is about stations, and there is nothing to test membership
+  //                       against without one.
+  //   2. a hiding radius — the answer constrains the hider to "near one of these stations";
+  //                        with no radius that region has no area (see matchingStationLine).
+  //   3. real line geometry — membership is not derivable from Google, only from OSM.
+  //
+  // `memberIds` is resolved NOW and stored on the step, so the elimination recomputes
+  // deterministically even if OSM retags the line next week — the same reasoning the other
+  // line cards use for storing their geometry.
+  async _matchStationLine(card) {
+    const g = store.getCurrent();
+    const stations = (g?.stations?.list || []).filter((st) => !st.eliminated);
+    if (stations.length < 2) {
+      toast("This card needs a station set — build one in Stations (☰ menu) first.");
+      return this.openPanel();
+    }
+    const radiusM = g?.settings?.hidingRadiusM || 0;
+    if (radiusM <= 0) {
+      toast("Set a hiding radius in Settings ▸ Hiding zones first — without one this question can't rule out any ground.");
+      return this.openPanel();
+    }
+
+    const hide = loadingToast("Finding lines…");
+    let lines = [];
+    try {
+      const { candidateLines } = await import("./lines.js");
+      // Board-wide, not reach-limited: membership is a property of the whole line.
+      const res = await candidateLines(card.lineKind, g.gameArea, null, Infinity, { game: g });
+      lines = res.lines || [];
+    } catch (e) {
+      console.warn("station-line sourcing failed", e);
+    } finally { hide(); }
+
+    if (!lines.length) {
+      toast("Couldn't load any lines for this board — check the Overpass proxy, or use the Transit Line card instead.");
+      return this.openPanel();
+    }
+
+    const list = lines.map((l, i) =>
+      `<label><input type="radio" name="sl-line" value="${i}" ${i === 0 ? "checked" : ""}/> ${escapeHtml(l.label)}</label>`).join("");
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Which line is <strong>your</strong> nearest station on? The hider answers whether theirs is on the same one.</p>
+        ${degeneracyHTML(lines.length, { kind: "lines" })}
+        <div class="seg">${list}</div>
+        <label class="fieldlbl">Did the hider answer the same?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="sl-match" value="yes" checked/> Yes — same line (keep those stations' zones)</label>
+          <label><input type="radio" name="sl-match" value="no"/> No — different line (remove them)</label>
+        </div>
+        <div class="sheet-actions"><button id="sl-cancel" class="btn btn-ghost">Cancel</button><button id="sl-add" class="btn btn-primary">Add question</button></div>`,
+    });
+    s.q("#sl-cancel").onclick = () => { s.close(); this.openPanel(); };
+    s.q("#sl-add").onclick = async () => {
+      const idx = parseInt(s.qa('input[name="sl-line"]').find((r) => r.checked)?.value ?? "0", 10);
+      const line = lines[idx];
+      if (!line) return toast("Pick a line first.");
+      const { stationsWithinLine } = await import("./stations.js");
+      const memberIds = [...stationsWithinLine(stations, line.paths || [])];
+      if (!memberIds.length) {
+        // Refuse rather than commit: "same line" about a line serving no station on this
+        // board eliminates the entire board, which is almost never what happened — it is
+        // nearly always a tolerance or sourcing mismatch.
+        return toast(`No station on this board sits on ${line.label}. Pick another line, or check the station set covers it.`);
+      }
+      const match = (s.qa('input[name="sl-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
+      this.addStep("matching", {
+        mode: "stationLine", category: card.id, categoryLabel: card.label,
+        stations: stations.map((st) => ({ id: st.id, name: st.name, lat: st.lat, lng: st.lng })),
+        memberIds, radiusM, lineLabel: line.label,
+      }, { match });
+      s.close();
+      toast(`Matching question added — ${memberIds.length} station${memberIds.length === 1 ? "" : "s"} on ${line.label}.`);
     };
   }
 

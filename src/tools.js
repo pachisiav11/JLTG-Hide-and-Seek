@@ -369,32 +369,152 @@ function densifyLine(coords, stepMeters) {
   return pts;
 }
 
-// --- Matching dispatch: nearest / nameLength / nearestLine / region -------
+// --- Matching dispatch: nearest / nameLength / nearestLine / stationLine / region ---
 function matching(step, gameArea) {
   switch (step.inputs?.mode) {
     case "nameLength": return matchingNameLength(step, gameArea);
     case "nearestLine": return matchingNearestLine(step, gameArea);
+    case "stationLine": return matchingStationLine(step, gameArea);
     case "region": return matchingRegion(step, gameArea);
     default: return voronoiTool(step, gameArea); // "nearest"
   }
+}
+
+// v2 Phase 5, item J — "is your nearest STATION on the same LINE as mine?"
+//
+// One of the strongest questions in the real game, and one that is IMPOSSIBLE on Google:
+// the Maps APIs expose no line membership at all (MAPPER_ANALYSIS §8.2). It is answerable
+// here only because the board already sources real rail geometry from OSM.
+//
+// This is NOT the existing "Transit Line" card. That one is `nearestLine` and asks which line
+// you are physically closest to — a Voronoi over line geometry. This asks about MEMBERSHIP:
+// the hider's nearest station either is or is not served by one of the lines serving mine.
+// A hider can be standing much closer to line B while their nearest station is on line A, so
+// the two cards genuinely differ and neither substitutes for the other.
+//
+// The elimination is a union of HIDING ZONES, not of points, which is why this card only
+// became possible in this build: the answer constrains the hider to "near one of these
+// stations", and "near" is exactly what a zone is. With no hiding radius set the union has no
+// area and the question cannot say anything, so the card refuses rather than silently
+// eliminating nothing — see the throw below.
+//
+// PRECONDITION, and it is a real one: this card is sound only while the hider is genuinely
+// within `radiusM` of some station — i.e. only in a game actually being played by the
+// hiding-zone rule. A hider standing 3 km from their nearest station can answer "yes, same
+// line" perfectly truthfully and still be outside every zone this keeps, and the question
+// would then eliminate their true position.
+//
+// That is not a defect in the geometry, it is the card's premise: "which line is your nearest
+// station on" only constrains WHERE you are if being near a station is a rule of the game.
+// The radius requirement below is what enforces the premise, which is why it refuses rather
+// than defaulting — and why the radius should be set to the rule the group is actually
+// playing, not to a guess. Set it too small and this card can eliminate the hider.
+//
+// The `hider-survival` sweep in test/station-line.test.mjs asserts the property only over
+// positions that satisfy the premise, and pins the out-of-premise case separately so the
+// limit stays visible rather than becoming a surprise mid-game.
+//
+// `memberIds` is resolved when the question is ASKED and stored on the step, so the
+// elimination recomputes deterministically even if OSM retags the line next week. That is the
+// same reasoning the line cards already use for storing their geometry.
+function matchingStationLine(step, gameArea) {
+  const { stations, memberIds, radiusM, lineLabel } = step.inputs || {};
+  const match = step.answer?.match !== false; // default true, as the other matching modes do
+  const guides = [];
+
+  if (!gameArea || !Array.isArray(stations) || !stations.length || !Array.isArray(memberIds)) {
+    return { eliminated: null, guides };
+  }
+
+  if (!Number.isFinite(radiusM) || radiusM <= 0) {
+    // Loud, not silent. Without a radius every zone is a point, the union has zero area, and
+    // the question would sit in the list looking answered while eliminating nothing — the
+    // exact failure this build has been removing everywhere else.
+    throw new Error(
+      `"Same line" needs a hiding radius: with none set, a station's zone is a single point ` +
+      `and the answer cannot rule out any ground. Set one in Settings ▸ Hiding zones.`,
+    );
+  }
+
+  const ids = new Set(memberIds);
+  const members = stations.filter((s) => ids.has(s.id) && Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  if (!members.length) {
+    // The line has no stations on this board. "Same line" is then a claim about nowhere, and
+    // answering "yes" rules the whole board out — which is correct and worth stating plainly.
+    return { eliminated: match ? gameArea : null, guides };
+  }
+
+  const zones = members.map((s) => {
+    try { return T().circle([s.lng, s.lat], radiusM / 1000, { units: "kilometers", steps: 32 }).geometry; }
+    catch (_) { return null; }
+  });
+  const union = unionAll(zones);
+  if (!union) return { eliminated: null, guides };
+
+  const clipped = safeIntersect(union, gameArea);
+  // Draw the zone outlines so the seeker can see which stations the answer refers to.
+  if (clipped) for (const ring of geojsonRings(clipped)) guides.push({ type: "outline", ring, bold: true });
+  if (!clipped) {
+    // The line's stations are all off-board. Same reasoning as the empty-members case.
+    return { eliminated: match ? gameArea : null, guides };
+  }
+  if (lineLabel) guides.push({ type: "label", text: lineLabel });
+
+  // Same line  -> the hider is in one of those zones: keep them.
+  // Not same    -> the hider is in none of them: remove them.
+  return { eliminated: match ? safeDiff(gameArea, clipped) : clipped, guides };
 }
 
 // Nearest transit station, grouped by station-name letter count. The SEEKER's
 // nearest-station name length is `length`; the hider answered whether theirs
 // matches (`match !== false`). Match → the hider shares one of those cells, so
 // keep their union; no-match → the hider is in NONE of them, so eliminate the union.
+// v2 Phase 5, item K — the answer is TERNARY, not boolean.
+//
+// "Is your station's name the same length as mine?" throws away most of what the hider just
+// told you. They know whether theirs is shorter, the same, or longer, and saying which costs
+// them nothing extra. A yes/no answer carries 1 bit; a three-way answer carries up to 1.58,
+// and in practice far more than that ratio suggests: "same length" is rare, so a boolean
+// question is usually answered "no" and eliminates almost nothing, while "shorter" and
+// "longer" each cut a real share of the candidates.
+//
+// Backwards compatible on purpose. Older steps carry `{ length, match: bool }` and no
+// `comparison`; they keep meaning exactly what they meant, because a saved board must not
+// change its answer when the app updates mid-game.
+function nameLengthPredicate(answer) {
+  const { comparison, match } = answer || {};
+  if (comparison === "shorter") return (len, seeker) => len < seeker;
+  if (comparison === "longer") return (len, seeker) => len > seeker;
+  if (comparison === "same") return (len, seeker) => len === seeker;
+  // Legacy boolean form. `match !== false` preserves the old default-true reading.
+  return match !== false
+    ? (len, seeker) => len === seeker
+    : (len, seeker) => len !== seeker;
+}
+
 function matchingNameLength(step, gameArea) {
   const { features } = step.inputs;
-  const { length, match } = step.answer || {};
-  const keepMatch = match !== false; // default true = backward-compat "same"
+  const answer = step.answer || {};
+  const { length } = answer;
   const guides = []; // candidate points don't persist (see voronoiTool)
   if (!gameArea || !features || features.length < 2 || length == null) return { eliminated: null, guides };
+
   const { cells } = voronoiCells(features, gameArea);
   for (const c of cells) if (c) for (const ring of geojsonRings(c)) guides.push({ type: "outline", ring });
-  const union = unionAll(cells.filter((c, i) => c && features[i].len === length));
-  if (!union) return { eliminated: null, guides };
-  // Match → keep those cells (remove the rest); no-match → remove those cells.
-  return { eliminated: keepMatch ? safeDiff(gameArea, union) : union, guides };
+
+  const matches = nameLengthPredicate(answer);
+  const union = unionAll(cells.filter((c, i) => c && matches(features[i].len, length)));
+
+  // Nothing on the board satisfies the answer. Under the legacy boolean form this could only
+  // happen for "same" with no equal-length station, but the ternary form reaches it whenever
+  // the seeker holds the extreme (nothing is shorter than the shortest name). That is a real
+  // and useful answer — it eliminates the entire board — but returning `eliminated: null`
+  // would report it as "this question rules nothing out", the exact silent-no-op this build
+  // has been removing. Eliminate everything and let the empty-area notice explain.
+  if (!union) return { eliminated: gameArea, guides };
+
+  // Keep the cells that satisfy the answer; remove everything else.
+  return { eliminated: safeDiff(gameArea, union), guides };
 }
 
 // A line's geometry as an array of paths of {lat,lng}.
@@ -1017,8 +1137,19 @@ export function describeStep(step) {
     const cat = step.inputs.categoryLabel || step.inputs.category || "feature";
     const mode = step.inputs.mode;
     const same = (m) => (m === false ? "differ" : "match");
-    if (mode === "nameLength") return `Matching · name length ${step.answer?.length} · ${same(step.answer?.match)}`;
+    if (mode === "nameLength") {
+      // v2 Phase 5 (item K): the ternary answer has to READ as ternary in the question list,
+      // or a "shorter" and a "longer" question look identical and the seeker cannot tell
+      // which way they cut.
+      const cmp = step.answer?.comparison;
+      const how = cmp === "shorter" ? "shorter" : cmp === "longer" ? "longer" : cmp === "same" ? "same" : same(step.answer?.match);
+      return `Matching · name length ${step.answer?.length} · ${how}`;
+    }
     if (mode === "region") return `Matching · ${cat} · ${step.answer?.inside === false ? "differ" : "match"}`;
+    if (mode === "stationLine") {
+      const n = (step.inputs?.memberIds || []).length;
+      return `Matching · same line as “${step.inputs?.lineLabel || "?"}” (${n} station${n === 1 ? "" : "s"}) · ${same(step.answer?.match)}`;
+    }
     if (mode === "nearestLine") {
       const ln = (step.inputs.lines || []).find((l) => l.id === step.answer?.lineId);
       return `Matching · ${cat} · “${ln?.label || "?"}” · ${same(step.answer?.match)}`;
