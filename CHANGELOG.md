@@ -436,6 +436,61 @@ Verified to actually catch the bug it exists for: unwiring `station-import.js` m
 with *"station-import.js is orphaned — CSV / GeoJSON / KML station import would not exist for
 a player"*. A guard that passes vacuously would be worse than none.
 
+## v2 completeness — §8.3's last two items, and a real playtest
+
+Pressed on whether *the whole* of MAPPER_ANALYSIS was done, not just its §10 programme. It
+was not: **§8.3 lists six data layers to source from OSM because Google cannot express them,
+and only four had been done.**
+
+- **§8.3 item 6 — peaks.** The Mountain card searched Google for the *keyword* `"mountain"`,
+  with OSM only as a fallback. Google has no peak category, so that is a **name match** — it
+  finds "Mountain View Hotel" as readily as a summit. `natural=peak` is exact.
+- **§8.3 item 5 — brand-exact chains.** Missing entirely. *"Are you closer to a McDonald's
+  than me?"* is a real Jet Lag question, and a Places name search picks up "McDonald's Farm
+  Supply". `brand:wikidata` is a stable entity id, so it is immune to McDonald's / McDonalds /
+  マクドナルド and to franchise naming.
+
+Both are now sourced **OSM-first** via a new `OSM_EXACT_CATEGORIES` set, with Google as the
+fallback — inverting the usual order. Deliberately separate from `DENSE_CATEGORIES`: that set
+exists because Google's 60-result cap decides the answer (a **volume** problem), this one
+because a name search answers a different question (a **correctness** problem). New McDonald's
+and 7-Eleven Measuring cards; `mcdonalds` / `seven_eleven` added to the server tag map and the
+client mirror. 7 tests, including one asserting the brand lookups never degrade to a `name=`
+match.
+
+This also retires the "N/A" verdict recorded against §10.4 item T in Phase 4 — there were no
+chain cards *then*; there are now, and they use `brand:wikidata` exactly as recommended.
+
+### Playtest — five full games through the running app
+
+`test/playtest-games.mjs` (not part of `npm test`; needs a browser and a served copy). Each
+game hides a player at a position the seeker logic never sees, plays a realistic question
+sequence, has the hider answer **truthfully via the oracle**, and after every turn asserts
+that the hider is still inside the surviving area, the board never grows, and surviving
+stations never come back.
+
+| Game | Turns | Board | Stations | Result |
+|---|---:|---|---:|---|
+| 1 — classic opening | 5 | 378.6 → 34.4 km² | 28 → 6 | ✅ |
+| 2 — hider in the far corner | 4 | 378.6 → 33.6 km² | 28 → 2 | ✅ |
+| 3 — draft two questions, then commit | 4 | 378.6 → 76.3 km² | 28 → 10 | ✅ |
+| 4 — Station's Line decides it | 3 | 378.6 → 154.7 km² | 28 → 12 | ✅ |
+| 5 — long game, eight questions | 8 | 378.6 → 5.3 km² | 28 → 2 | ✅ |
+
+**24 turns, hider retained in every one.** Drafts provably changed nothing until committed
+(game 3: 153.7 km² across two drafted turns, then 76.3 km² on commit). Plus a mid-game
+**handoff** — board shared to a link, rebuilt on the "other device" to an identical 193.7 km²
+with notes not leaked — and a mid-game **exclusion** cutting a bay out of play.
+
+One honest note on method: the handoff check failed on its first run, and the fault was the
+*test*, not the app — it hardcoded a `"hotter"` answer for a hider who was genuinely colder,
+so the app correctly eliminated them. Fixed by having the handoff use the oracle like the
+games do. Recorded because it is exactly the trap this whole build is about: a fabricated
+answer produces a confident, wrong, plausible-looking result.
+
+**This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
+real phone remain untested; `v1-stable` is still the field-tested branch.
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

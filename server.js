@@ -53,6 +53,15 @@ const CATEGORY_TAGS = {
   shopping_mall: [["shop", "mall"]],
   golf: [["leisure", "golf_course"]],
   mountain: [["natural", "peak"]],
+  // v2 (MAPPER_ANALYSIS §8.3 items 5-6). Google has no category for either of these, so its
+  // only option is a NAME search — which matches "Mountain View Hotel" and "McDonald's Farm
+  // Supply" as readily as the real thing. OSM has an exact tag for both.
+  //
+  // brand:wikidata rather than name= is the whole point: it is a stable entity id, so it is
+  // immune to "McDonald's" vs "McDonalds" vs "マクドナルド" and to franchise naming. Q38076 is
+  // McDonald's, Q259340 is 7-Eleven.
+  mcdonalds: [["brand:wikidata", "Q38076"]],
+  seven_eleven: [["brand:wikidata", "Q259340"]],
   consulate: [["office", "diplomatic"], ["amenity", "embassy"]],
 };
 

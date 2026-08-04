@@ -313,9 +313,24 @@ const DENSE_CATEGORIES = new Set([
 const OVERPASS_TYPES = new Set([
   "hospital", "park", "museum", "library", "movie_theater", "zoo", "aquarium",
   "amusement_park", "train_station", "subway_station", "bus_station", "transit_station",
+  "mcdonalds", "seven_eleven",
   "airport", "school", "place_of_worship", "tourist_attraction", "restaurant", "shopping_mall",
 ]);
-const KEYWORD_TO_OVERPASS = { mountain: "mountain", "golf course": "golf", consulate: "consulate" };
+const KEYWORD_TO_OVERPASS = {
+  mountain: "mountain", "golf course": "golf", consulate: "consulate",
+  "mcdonald's": "mcdonalds", mcdonalds: "mcdonalds", "7-eleven": "seven_eleven", "seven eleven": "seven_eleven",
+};
+
+// v2 (MAPPER_ANALYSIS §8.3 items 5-6). Cards where Google has NO matching category, so its
+// only option is a name search — and a name search is a different question. "mountain"
+// matches "Mountain View Hotel"; "McDonald's" matches "McDonald's Farm Supply". OSM has an
+// exact tag for each (natural=peak, brand:wikidata=...), so OSM is asked FIRST here and
+// Google is the fallback, inverting the usual order.
+//
+// Separate from DENSE_CATEGORIES, which is about VOLUME (Google's 60-result cap deciding the
+// answer). This set is about CORRECTNESS: even one result from a name search may be the wrong
+// kind of thing. A card can qualify for either reason, or both.
+const OSM_EXACT_CATEGORIES = new Set(["mountain", "mcdonalds", "seven_eleven"]);
 
 function deriveOverpassCategory({ type, keyword }) {
   if (type && OVERPASS_TYPES.has(type)) return type;
@@ -394,7 +409,7 @@ export async function searchCategoryResilient(map, { center, radius, type, keywo
   // ---- Dense cards: Overpass FIRST -------------------------------------------------
   // The whole point of B2. Google cannot answer "every station on this board" — its cap
   // decides the answer instead of the data.
-  if (canOverpass && DENSE_CATEGORIES.has(cat)) {
+  if (canOverpass && (DENSE_CATEGORIES.has(cat) || OSM_EXACT_CATEGORIES.has(cat))) {
     try {
       const osm = await askOverpass();
       if (osm.length) return { feats: osm, source: "overpass", reason: "primary" };

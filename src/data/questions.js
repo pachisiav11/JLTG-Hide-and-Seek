@@ -158,6 +158,16 @@ export const MEASURING = [
   { id: "water", label: "Body of Water", ref: "area" },
   { id: "coastline", label: "Coastline", ref: "line", lineKind: "coastline" },
   { id: "mountain", label: "Mountain", ref: "points", keyword: "mountain" },
+  // v2 (MAPPER_ANALYSIS §8.3 item 5). "Are you closer to a McDonald's than me?" is a real
+  // Jet Lag question and one Google answers badly: it has no chain category, so a Places
+  // search is a NAME match that picks up anything with the word in its title. OSM's
+  // brand:wikidata is a stable entity id — immune to McDonald's / McDonalds / マクドナルド and
+  // to franchise naming — so these cards are sourced OSM-first (see OSM_EXACT_CATEGORIES).
+  //
+  // They need the Overpass proxy. Without one the card falls back to Google's name search
+  // and says so, like every other OSM-sourced card here.
+  { id: "mcdonalds", label: "McDonald's", ref: "points", keyword: "McDonald's" },
+  { id: "seven_eleven", label: "7-Eleven", ref: "points", keyword: "7-Eleven" },
   { id: "park", label: "Park", ref: "points", type: "park" },
   { id: "amusement_park", label: "Amusement Park", ref: "points", type: "amusement_park" },
   { id: "zoo", label: "Zoo", ref: "points", type: "zoo" },
