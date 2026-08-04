@@ -54,7 +54,7 @@ await page.waitForFunction(() => !!window.__jltg, { timeout: 30000 });
 await page.evaluate(async () => {
   const { store } = window.__jltg;
   const tools = await import('/src/tools.js');
-  const oracle = await import('/src/oracle.js');
+  const oracle = await import('/test/oracle.js');
   const hz = await import('/src/hiding-zones.js');
   const turf = window.turf;
 

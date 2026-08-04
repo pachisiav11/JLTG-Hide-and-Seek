@@ -232,16 +232,22 @@ No hosting impact — client-side only.
   currently single-device/planning-oriented rather than live-timed).
   Reference: gelbh blocks new questions until the current one resolves and
   shows a countdown.
-- **[ADD]** **Optional computed-truth verification.** JLTG deliberately
-  removed auto-answer (README.md Phase 5 note) in favor of fully manual
-  answers — do **not** revert that. Instead, add an opt-in check: after the
-  hider manually answers, compute the geometrically correct answer (using the
-  same Turf.js primitives already in [src/tools.js](src/tools.js), plus an
-  elevation lookup only if/when Measuring's sea-level mode needs it) and flag
-  a disagreement ("your answer disagrees with computed geometry — double
-  check") without ever overriding the manual answer. Reference: gelbh's
-  `HiderTruthResult`, including its "truth unavailable, compute manually"
-  fallback for cases geometry can't resolve.
+- **[REJECTED — do not build]** ~~**Optional computed-truth verification.**~~ The original
+  proposal was an opt-in check: after the hider answers manually, compute the geometrically
+  correct answer and flag a disagreement without overriding. It was framed as a safe middle
+  ground between manual answers and auto-answer. **It is not, and it is now ruled out.**
+
+  A check that computes the answer has already done the thing being avoided — the app has
+  decided what the truth is, and the only question left is how loudly it says so. In practice
+  a "your answer disagrees with computed geometry" warning is not advisory: the player is on
+  a street with a phone, the app sounds certain, and they will defer to it. So the failure
+  mode is unchanged from full auto-answer — a mis-sourced coastline or a nearest station
+  kilometres away produces a confident contradiction of a human who is standing in the right
+  place — while the design *looks* conservative, which makes it worse rather than better.
+
+  The answer-deriving code exists once, in `test/oracle.js`, and runs only in the suite where
+  a wrong computation fails a test instead of misleading a player.
+  `test/no-auto-answer.test.mjs` fails if it becomes reachable from `src/`.
 
 **Commit + push.**
 
@@ -351,9 +357,16 @@ URL, not re-authored from scratch.
 - **Do not rewrite the stack** to React/Firebase or to a vanilla-JS/no-build
   clone of either reference project. JLTG's stack (GUIDE.md §2) is a
   deliberate, already-shipped decision. Borrow patterns, not stacks.
-- **Do not drop manual-answer-only in favor of full auto-answer.** GUIDE.md's
-  history shows auto-answer was tried and removed on purpose. Phase 11 above
-  is an optional *check*, never a reversion to forced auto-answer.
+- **The companion never answers its own questions — in any form.** Not full
+  auto-answer, not a suggestion, not a pre-filled answer, and not an opt-in
+  check that computes the answer and compares it to the player's. All of those
+  end with the app deciding what the truth was, and a computed answer is
+  confident, instant and indistinguishable from a correct one — so a subtly
+  wrong geometry eliminates the square the hider is standing in and is
+  believed. Auto-answer was built in Phase 5 and removed; the Phase 11 "check"
+  above is REJECTED for the same reason. The one copy of answer-deriving code
+  lives in `test/oracle.js` and is fenced off by
+  `test/no-auto-answer.test.mjs`, which has no allowlist.
 - **Do not migrate off Google Maps for the map/transit engine, and do not
   treat it as removable.** It's currently load-bearing (see §0's hard
   constraint) — transit timing accuracy is also a documented, deliberate

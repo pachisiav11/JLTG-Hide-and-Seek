@@ -23,12 +23,12 @@ const ENTRY = "app.js";
 // Modules allowed to be unreachable from the app, each with a reason. An allowlist rather
 // than a blanket skip: adding to it should feel like a decision, because "nothing imports
 // this" is normally a bug, not a design.
-const INTENTIONALLY_UNREACHABLE = {
-  // A test fixture and a future post-game debrief tool. Deliberately NOT wired into live
-  // answering — IMPROVEMENTS.md records that auto-answer was tried and removed on purpose,
-  // and MAPPER_ANALYSIS §10.6 keeps it that way.
-  "oracle.js": "test fixture / future debrief tool; must never be a live answering path",
-};
+//
+// It is currently EMPTY, and that is worth keeping. Its only entry was ever `oracle.js`,
+// held there as "unreachable on purpose" while the answer-computing engine still sat in
+// `src/`. That engine now lives in `test/`, so nothing in the app's source tree needs an
+// exemption — every module here is meant to be reachable, and any orphan is a bug.
+const INTENTIONALLY_UNREACHABLE = {};
 
 function listModules() {
   const out = [];

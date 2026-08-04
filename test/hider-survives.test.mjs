@@ -10,7 +10,7 @@
 // answered questions still contains the truth. Those are different properties, and it is the
 // second one a seeker actually relies on.
 //
-// Method: put a hider at a known point, let src/oracle.js derive the answer a truthful hider
+// Method: put a hider at a known point, let test/oracle.js derive the answer a truthful hider
 // would give to each question, fold the board, assert the hider is still inside the surviving
 // area. The oracle is the interesting half — it is written from the GAME's semantics ("hotter
 // means closer to B"), independently of how tools.js builds its polygons, so agreement between
@@ -22,7 +22,7 @@ import "./helpers/turf-env.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { turf, squareArea } from "./helpers/turf-env.mjs";
-import { verifyHiderRetained, truthfulAnswer } from "../src/oracle.js";
+import { verifyHiderRetained, truthfulAnswer } from "./oracle.js";
 import { computeActiveArea } from "../src/tools.js";
 
 const CENTRE = [72.8777, 19.076]; // Mumbai, matching the rest of the suite

@@ -73,7 +73,9 @@ On a new device it asks once for your Maps API key (stored only on that device).
 - **Phase 5 — Hiding zone** ✅
   - Set the hider's zone centre (tap or current location) and a per-game radius;
     everything outside the radius is shaded out. Persists with the game.
-  - (Auto-answer was later removed — all questions are answered manually.)
+  - (Auto-answer was later removed. **The app never answers its own questions** — every
+    answer is entered by a human. See [`GUIDE.md`](GUIDE.md) §6.1 for why, and
+    `test/no-auto-answer.test.mjs` for the guard that keeps it that way.)
 - **Phase 6 — History & polish** ✅
   - Game history browser (open / rename / duplicate / delete), export & import as JSON.
   - Settings: distance mode (straight-line / walking / transit) and units (metric / imperial).

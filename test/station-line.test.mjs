@@ -18,7 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { turf, squareArea } from "./helpers/turf-env.mjs";
 import { computeElimination, describeStep } from "../src/tools.js";
-import { truthfulAnswer, verifyHiderRetained } from "../src/oracle.js";
+import { truthfulAnswer, verifyHiderRetained } from "./oracle.js";
 
 const CENTRE = [72.8777, 19.076];
 const BOARD = () => squareArea(CENTRE, 0.4);

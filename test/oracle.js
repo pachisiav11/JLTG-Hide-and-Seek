@@ -1,25 +1,32 @@
-// Truthful-answer oracle (v2 Phase 1, item C).
+// Truthful-answer oracle — TEST HARNESS ONLY. Lives in test/ and must stay there.
 //
-// Given a step and a KNOWN hider position, derive the answer a truthful hider would
-// give. This is deliberately NOT a play feature — the app answers questions manually
-// and `IMPROVEMENTS.md` is explicit that auto-answer was tried and removed. What this
-// exists for is the property nobody was checking:
+// It was in `src/` until the auto-answer removal, and it is the reason this file now
+// carries a warning instead of a description. Given a step and a KNOWN hider position it
+// derives the answer a truthful hider would give, which makes it the one piece of code in
+// the repository capable of answering a question without a human. That capability is
+// exactly what the companion is not allowed to have.
+//
+// **This must never be imported by anything under `src/`.** Not as a live answer source,
+// not as a "suggestion", not as an opt-in check that computes the answer and compares it to
+// the player's — a check like that still ends with the app deciding what the truth was, and
+// the standing decision is that the app never decides that. `test/no-auto-answer.test.mjs`
+// enforces this by walking the import graph; it fails if this file becomes reachable from
+// the app, and there is no allowlist to add an exception to.
+//
+// What it legitimately exists for is the property nothing else asserts:
 //
 //     fold every truthfully-answered question and the hider must still be inside
 //     the surviving area.
 //
-// That is the one guarantee the whole app rests on, and until now nothing asserted it.
-// The reference mapper (taibeled/JetLagHideAndSeek) gets this for free because it ships
-// a hider mode; we get it as a test harness instead, which is the better trade — see
-// MAPPER_ANALYSIS §10.6.
-//
-// Secondary use: a POST-GAME debrief ("did we ever eliminate the square they were
-// actually standing in?"). Never wire this into live answering.
+// That is the guarantee the whole app rests on. The reference mapper
+// (taibeled/JetLagHideAndSeek) gets it for free because it ships a hider mode; this repo
+// gets it as a test fixture instead, which is the better trade — the property is checked
+// on every commit and the capability never reaches a player.
 //
 // Every function here is pure and DOM-free so `node --test` can drive it.
 
-import { distanceToGeometryM, distanceToLinePathsM, metresBetween } from "./geo.js";
-import { computeActiveArea, EMPTY_AREA, linePaths } from "./tools.js";
+import { distanceToGeometryM, distanceToLinePathsM, metresBetween } from "../src/geo.js";
+import { computeActiveArea, EMPTY_AREA, linePaths } from "../src/tools.js";
 
 function T() {
   if (!window.turf) throw new Error("Turf.js not loaded.");

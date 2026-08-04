@@ -466,12 +466,31 @@ not, clip in `normalize()`. Spike this before building §G1's render.
 
 ## 6. Game-Control Features
 
-### 6.1 Hider lock
-- Toggle to **lock a point/station as the hider's true centre**.
-- When locked, tools can auto-answer their own questions (great for the hider's device,
-  or for testing): e.g. Radar knows if the lock is inside the circle; Matching knows
-  which Voronoi cell the lock sits in.
-- Lock stores `{ point, stationName }` and persists with the game.
+### 6.1 Hiding zone (was: hider lock)
+
+> **Superseded.** This section originally specified a lock that let tools *auto-answer their
+> own questions* from a known hider point. That was built in Phase 5 and **removed**, and the
+> decision has been reaffirmed since: **the companion never answers its own questions.** The
+> spec is rewritten below rather than left standing, because as written it read as a feature
+> to implement.
+>
+> The reasoning is not squeamishness about automation. A computed answer arrives confident,
+> instant, and indistinguishable from a correct one — so when the underlying geometry is
+> subtly wrong (a mis-sourced coastline, a nearest station kilometres from the hider, an
+> elevation the map cannot know) the app eliminates the square the hider is standing in and
+> nobody doubts it. A human answering from where they actually are does not have that failure
+> mode. This extends to *checking* a human's answer against computed geometry: that still ends
+> with the app deciding what the truth was.
+>
+> The answer-deriving code exists exactly once, in `test/oracle.js`, where it proves the
+> hider is never falsely eliminated. `test/no-auto-answer.test.mjs` fails if it ever becomes
+> reachable from `src/`, and has no allowlist.
+
+- Toggle to mark a **hiding zone**: a centre point (tap or current location) and a per-game
+  radius. Everything outside it is shaded out.
+- Purely a display and reasoning aid — it narrows what the seeker looks at. It never
+  evaluates a question.
+- Stores `{ point, stationName, radius }` and persists with the game.
 
 ### 6.2 Backtracking (within a game)
 - `history` is an ordered stack of steps. Each step records: tool, inputs, computed

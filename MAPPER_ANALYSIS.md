@@ -927,6 +927,19 @@ check should look like. The reference's `hiderify*` functions are not a play mod
 actually standing in?" — which is the question you want answered in a *post-game review*, not
 during play. Ship it as a debrief tool and a test fixture, never as a live answer source.
 
+> ⚠️ **Decision (2026-08-04): the "debrief tool" half of this recommendation is rejected; the
+> test fixture stands.** The owner ruled out the app computing an answer in *any* form, and
+> that includes a post-game debrief and the Phase 11 check. This paragraph underrated how
+> thin the line is: a debrief tool is the same code, the same computation and the same claim
+> to know the truth, separated from live answering only by when someone opens it — and
+> nothing stops it being opened mid-game. The recommendation to keep it out of `src/` was
+> also too weak. `oracle.js` has been moved to `test/oracle.js`, and
+> `test/no-auto-answer.test.mjs` fails if any module under `src/` imports it, defines its own
+> answer-deriving function, or if it reappears in the app's source tree or offline shell.
+> There is no allowlist. The correctness property this section is really about — §10.1 item
+> A, "a truthfully-answered board always retains the hider" — is unaffected: it is asserted
+> on every commit by `test/hider-survives.test.mjs`.
+
 ### 10.7 Things to explicitly NOT copy
 
 1. **Do not adopt `d3-geo-voronoi`.** §4.1 — measured parity with your existing

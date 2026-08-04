@@ -495,6 +495,61 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — no auto-answering, enforced rather than intended
+
+The companion never answers its own questions. That has been the decision since Phase 5 built
+auto-answer and the next phase removed it, and it was reaffirmed again here. What had not
+happened is anyone making it *structurally true* — so this closes the gap between the policy
+and the code.
+
+Nothing in the shipped app was auto-answering. The problem was everything sitting one small
+step away from it:
+
+- **`src/oracle.js` → `test/oracle.js`.** The one piece of code in the repo that can answer a
+  question without a human was living in the app's source tree, held back only by an entry in
+  an allowlist saying "unreachable on purpose". That is a comment, not a boundary: it shipped
+  to every device as a fetchable module, it is what a refactor reaches for first, and it reads
+  as app code to anyone opening the folder. In `test/` it is out of the companion entirely.
+  The hider-survival property it exists for (§10.1 item A) is untouched and still asserted on
+  every commit.
+- **The reachability allowlist is now empty.** Its only entry was ever the oracle. Every
+  module under `src/` is expected to be reachable from the app, and an orphan is a bug again
+  rather than a category with an exception in it.
+- **GUIDE.md §6.1 rewritten.** It still specified the hider lock as a thing that lets "tools
+  auto-answer their own questions", in the present tense, in the spec section — three years of
+  removals had not touched the document that would tell the next person to build it. It now
+  describes the hiding zone as what it is (a display aid) and records why the rest is gone.
+- **IMPROVEMENTS.md Phase 11's "optional computed-truth verification" is REJECTED.** It had
+  been sitting on the roadmap as an `[ADD]`, framed as the safe middle ground: let the human
+  answer, compute the correct answer, warn on disagreement, never override. It is not a middle
+  ground. A check that computes the answer has already decided what the truth is, and the only
+  remaining question is how loudly it says so — and a player on a street, holding a phone that
+  sounds certain, defers. Same failure mode as full auto-answer, wearing a conservative
+  design. MAPPER_ANALYSIS §10.6's "ship it as a post-game debrief tool" is rejected for the
+  same reason, annotated in place: a debrief tool is the same code making the same claim to
+  know the truth, separated from live answering only by when someone opens it.
+
+**`test/no-auto-answer.test.mjs`** is what makes it stick, checking four things that fail
+independently: no module under `src/` imports the oracle; the oracle is not in `src/` at all;
+nothing under `src/` defines its own answer-deriving function (name-based — a tripwire for
+`truthfulAnswer`, `autoAnswer`, `deriveAnswer`, `computedTruth`, the reference mapper's
+`hiderify*` — and it ignores comments, so explaining the absence is not punished); and the
+service worker does not precache it. There is deliberately **no allowlist**; an exception
+would defeat the point.
+
+Each guard was verified by reintroducing the exact violation it targets and confirming the
+expected failure, then reverting: an app module importing the oracle, an app module defining
+`deriveAnswer`, and the oracle restored to `src/`.
+
+**One thing deliberately kept**, flagged because it is the closest call: the Measuring sheet's
+"📍 Measure from my location", which fills in **the seeker's own distance** to a reference from
+their own GPS. It computes nothing about the hider — the hider's answer is still the
+closer/farther choice a human enters — and it replaces a hand-typed number that is a pure
+error surface. Say the word and it goes.
+
+Suite 947 → 951, and the full playtest (5 games, 24 turns, handoff, exclusion) re-run clean
+with the oracle in its new home.
+
 ## v2 — build identity: telling which commit a phone is actually running
 
 Prompted by a real incident: the wrong APK was installed on the test phone and showed a
