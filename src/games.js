@@ -1069,7 +1069,8 @@ export class Games {
           <h3 class="sub">Games &amp; saving</h3>
           <p class="muted">Everything autosaves on your device (☰ menu → history, rename, duplicate, export/import as JSON, or <strong>🖨 Print / save map (PDF)</strong>). Distance mode, units, colour theme, <strong>map style</strong> (Map / Satellite / Dark), and an optional per-question <strong>timer</strong> all live in Settings.</p>
 
-          <p class="muted build-stamp">${escapeHtml(formatBuildStamp(window.JLTG_CONFIG || {}))}</p>
+          <p class="muted build-stamp">${escapeHtml(formatBuildStamp(window.JLTG_CONFIG || {}))}
+            &middot; <a href="version.html">check for updates</a></p>
 
           <div class="sheet-actions">
             <button id="hlp-close" class="btn btn-primary">Got it</button>

@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE_VERSION whenever shell assets change.
-const CACHE_VERSION = "jltg-shell-v113";
+const CACHE_VERSION = "jltg-shell-v114";
 
 // Local shell assets only. We deliberately never cache Google Maps / API
 // responses (they must stay live for transit times, Places, directions).
@@ -49,6 +49,7 @@ const SHELL_ASSETS = [
   "./src/sw-notify.js",
   "./src/lines.js",
   "./src/games.js",
+  "./src/version-check.js",
   "./icons/icon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -144,7 +145,12 @@ self.addEventListener("fetch", (event) => {
   // Never intercept Google/gstatic (maps, tiles, APIs) or our git-ignored config.
   const isGoogle = /(^|\.)google(apis)?\.com$/.test(url.hostname) || /gstatic\.com$/.test(url.hostname);
   const isConfig = url.pathname.endsWith("/config.js");
-  if (isGoogle || isConfig) return; // let the network handle it
+  // version.json is the app's "what is the origin serving right now" probe. If this worker
+  // ever answered it from the shell cache, a stale shell would cheerfully report its own
+  // build id as the deployed one and the check would agree with itself forever. The one
+  // request that must never be cached is the one asking whether the cache is out of date.
+  const isVersionProbe = url.pathname.endsWith("/version.json");
+  if (isGoogle || isConfig || isVersionProbe) return; // let the network handle it
 
   // Same-origin shell: NETWORK-FIRST so an online device always gets the latest
   // build (each pushed phase), updating the cache as it goes; fall back to the

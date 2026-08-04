@@ -495,6 +495,52 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — build identity: telling which commit a phone is actually running
+
+Prompted by a real incident: the wrong APK was installed on the test phone and showed a
+"No connection" screen, and there was no way to tell from the device which build it was.
+That turned out to be a wrong-APK problem, but it exposed a gap that survives fixing it —
+even with the right APK, the shell is a TWA that carries **no app code and no commit id**.
+It opens a URL. Whatever that URL served is the build, and it can be older than the deploy
+without any visible sign.
+
+So the question "am I on the right version" was made answerable from the device itself.
+
+- **`version.json`**, written by `scripts/build-config.js` beside `config.js` from Render's
+  `RENDER_GIT_COMMIT`. It must be a separate file from `config.js`, and that is the whole
+  mechanism: `config.js` is frozen at page load, so its `BUILD_ID` describes *the build the
+  page is made of*, while `version.json` re-fetched now describes *the build the origin has*.
+  One file could only ever report one of those, and comparing a value against itself always
+  says "fine".
+- **`src/version-check.js`** does the comparison. Caches are defeated three ways, because
+  they fail in different places: `no-store`, a timestamp query for caches that ignore it, and
+  a service-worker bypass (`render.yaml` adds the CDN header). A cached answer to "is my cache
+  stale" would be produced by the very cache under suspicion.
+- **A banner naming both commits** — `Running abc1234 — server has 9f8e7d6` — not "an update
+  is available". The point is to identify the build, and a generic message discards the only
+  information the check has. `Reload` calls `reg.update()` and activates a waiting worker
+  before reloading, so the reload has somewhere fresh to land.
+- **`version.html`**, a standalone diagnostic that imports *nothing*: no modules, no `src/`,
+  no Maps, no IndexedDB. It exists for when the app is too broken to ask, which is exactly
+  when the question is most urgent. It shows loaded vs served vs **backend** commit (the
+  backend is a separate Render service and drifts independently — `/health` now reports its
+  own commit and `startedAt`, which distinguishes a redeploy from a free-tier wake-up),
+  service-worker and cache state, and offers a clear-caches-and-reload. It duplicates one
+  string comparison from `version-check.js` on purpose; sharing the module would couple the
+  diagnostic to the thing being diagnosed.
+
+The design constraint throughout was that this must never make things worse. It runs 1.5s
+after `load`, off the critical path, and every failure — offline, 404 from a host deployed
+before this change, captive portal returning HTML, a request that never answers — resolves to
+"unknown" and shows nothing. A version check that can break the app is worse than no version
+check, and this one runs on devices whose network is the thing in doubt.
+
+16 unit tests for the comparison and every failure shape. `test/buildcheck-e2e.mjs` (20
+checks, real Chromium, not in `npm test`) drives the actual page: match shows no banner,
+mismatch names both commits and dismisses cleanly, a missing `version.json` still boots the
+app with no errors, and — the one that matters — `version.html` still returns a verdict with
+`src/app.js` forced to a 500. Suite 931 → 947.
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

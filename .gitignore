@@ -1,6 +1,12 @@
 # Local secrets — never commit the real Maps API key.
 config.js
 
+# Generated alongside config.js by scripts/build-config.js at deploy time. It holds no
+# secrets (a commit id and a timestamp) but it is a BUILD OUTPUT: a committed copy would
+# be a stale build id checked into git, which is precisely the confusion it exists to
+# resolve. Root-anchored so a version.json belonging to some other tool is unaffected.
+/version.json
+
 # Firebase secrets (Phase 43, native push). The service-account key lives ONLY in
 # the FIREBASE_SERVICE_ACCOUNT env var on Render — never in the repo. google-services.json
 # sits under the git-ignored android/ already, but pin it here too so a stray copy

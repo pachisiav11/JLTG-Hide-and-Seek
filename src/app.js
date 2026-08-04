@@ -418,6 +418,71 @@ function showUpdateBanner(worker) {
   bar.querySelector(".update-x").onclick = () => bar.remove();
 }
 
+// --- Build check: is this page actually the deployed build? ---------------
+//
+// The service-worker banner above only fires when a NEW worker installs, which needs the
+// browser to re-fetch service-worker.js and notice a byte difference. That covers the
+// common case and misses the one that stings: a phone that opens the app, is served an old
+// shell from cache or an HTTP cache in front of it, and never triggers an update event at
+// all. The app looks healthy and is simply a different commit than the one deployed — the
+// exact failure that is impossible to diagnose from a phone screen.
+//
+// So this asks the origin directly. It runs AFTER the app has booted (idle, deferred) and
+// cannot delay or break startup: every failure path in version-check.js returns "unknown",
+// which shows nothing.
+async function initBuildCheck() {
+  try {
+    const { checkDeployedBuild, describeBuildComparison } = await import("./version-check.js");
+    const result = await checkDeployedBuild({ config: window.JLTG_CONFIG || {} });
+
+    // Always leave the verdict in the console, including on "match". A developer checking
+    // which build a phone is on should be able to read it off remote debugging without
+    // having to provoke a banner, and "match" is a real answer worth being able to see.
+    console.info(`[build] ${describeBuildComparison(result)}`);
+    window.JLTG_BUILD_CHECK = result;
+
+    if (result.status === "differs") showBuildMismatchBanner(result);
+  } catch (e) {
+    console.warn("build check skipped:", e);
+  }
+}
+
+function showBuildMismatchBanner(result) {
+  // The SW banner is the better offer when both apply — it can activate the already
+  // downloaded worker, whereas this one can only ask for a reload. Don't stack two.
+  if (document.getElementById("update-banner") || document.getElementById("build-banner")) return;
+  const bar = document.createElement("div");
+  bar.id = "build-banner";
+  bar.className = "update-banner";
+  // Both commits are named on purpose: this banner exists to answer "which build am I on",
+  // and a generic "update available" would throw away the only information it has.
+  bar.innerHTML = `<span>Running <code>${result.loaded}</code> — server has <code>${result.deployed}</code>.</span>
+    <button class="btn btn-primary btn-sm" id="bb-reload">Reload</button>
+    <button class="update-x" aria-label="Dismiss">✕</button>`;
+  document.body.appendChild(bar);
+  bar.querySelector("#bb-reload").onclick = () => { bar.remove(); reloadToLatest(); };
+  bar.querySelector(".update-x").onclick = () => bar.remove();
+}
+
+// A plain location.reload() can be answered by the very caches that caused the mismatch.
+// Nudging the service worker to re-check first (and activating a waiting one) means the
+// reload has a fresh shell to land on. Best-effort throughout — if any of it fails, the
+// reload still happens, which is no worse than the button not existing.
+async function reloadToLatest() {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) {
+      await reg.update().catch(() => {});
+      if (reg.waiting) {
+        // controllerchange (wired in registerServiceWorker) reloads for us.
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        return;
+      }
+    }
+  } catch (_) { /* fall through to the plain reload */ }
+  window.location.reload();
+}
+
 function wireInstallPrompt() {
   const installBtn = document.getElementById("install-btn");
   let deferred = null;
@@ -440,6 +505,10 @@ function wireInstallPrompt() {
 
 registerServiceWorker();
 wireInstallPrompt();
+// Deferred so a slow or hanging network probe can never sit in front of the map. `load`
+// has already fired by the time this matters on a warm cache, hence the timeout fallback.
+if (document.readyState === "complete") setTimeout(initBuildCheck, 1500);
+else window.addEventListener("load", () => setTimeout(initBuildCheck, 1500));
 // Phase 40: the Doze spike overlay. Self-guards to the native shell + a
 // `#bgspike` URL hash, so it is a complete no-op on a normal web/PWA boot.
 initBgSpike();

@@ -39,6 +39,13 @@ services:
       - path: /config.js
         name: Cache-Control
         value: no-store    # the generated key file should never be cached
+      # The build-id probe (src/version-check.js). A cached copy of this file would report
+      # the build that was current when it was cached — i.e. it would answer "are you
+      # stale?" with a stale answer, and always say yes-you're-fine. The client already
+      # sends no-store and a cache-busting query; this closes the CDN side too.
+      - path: /version.json
+        name: Cache-Control
+        value: no-store
 
   # Backend Web Service (Phase 10): an Overpass proxy used only as a FALLBACK for
   # Places-category search. Free tier, no API key of its own. Kept as a SEPARATE

@@ -74,6 +74,27 @@ window.JLTG_CONFIG.OVERPASS_PROXY_URL   // should be the backend URL, not ""
 window.JLTG_CONFIG.BUILD_ID             // should be the short commit you just deployed
 ```
 
+### Confirming which build the phone has, without a console
+
+Remote-debugging a phone to read `BUILD_ID` is a lot of ceremony for one string, and it does
+not work at all when the app will not start. Open **`/version.html`** on the device instead
+(also linked from Settings ▸ Instructions as *check for updates*).
+
+It imports nothing — no modules, no Maps, no IndexedDB — so it answers even when the app is
+white-screening, and it shows the three things that actually distinguish the failures that
+look alike:
+
+| What it shows | What it rules out |
+|---|---|
+| loaded commit vs served commit | a stale cached shell (the app is old, the deploy is fine) |
+| backend `/health` commit | front end and backend on different deploys |
+| service-worker + cache buckets | something local to this device, cleared by its **Clear caches & reload** |
+
+If the served commit is blank or unreachable while the phone has signal, the *host* is the
+problem — which is the case where the APK's baked-in URL is worth re-checking against the
+table above. A wrong-host APK and a stale cache produce nearly the same screen; this is how
+to tell them apart.
+
 ### Toolchain note
 
 The APK cannot be built in the CI/agent sandbox: there is no Android SDK (`sdkmanager`,

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>JLTG — build check</title>
+<!--
+  A deliberately dumb page.
+
+  The app's own build banner is fine when the app runs. This page exists for when it
+  doesn't: a white screen, a boot error, a "No connection" shell — the moments when you
+  most need to know which commit the phone is actually on, and when every normal way of
+  asking has stopped working.
+
+  So it imports nothing. No ES modules, no src/, no Maps, no IndexedDB, no turf. The only
+  external file it touches is config.js, and only via a <script> tag that is allowed to
+  404. If this page cannot render, the problem is the network or the host, not the app —
+  which is itself a useful answer.
+
+  It duplicates a few lines of comparison logic from src/version-check.js on purpose.
+  Sharing that module would couple the diagnostic to the thing being diagnosed, and the
+  duplicated part is one string equality test; there is nothing here to drift.
+-->
+<style>
+  :root { color-scheme: dark light; }
+  body {
+    margin: 0; padding: 20px 16px 48px;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #12161c; color: #e6edf3;
+  }
+  @media (prefers-color-scheme: light) { body { background: #f6f8fa; color: #1f2328; } }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { opacity: .65; font-size: 13px; margin: 0 0 20px; }
+  .card { border: 1px solid #ffffff22; border-radius: 10px; padding: 14px; margin: 0 0 14px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid #ffffff11; }
+  .row:last-child { border-bottom: 0; }
+  .k { opacity: .7; flex: 0 0 auto; }
+  .v { text-align: right; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .verdict { font-size: 16px; font-weight: 600; padding: 12px 14px; border-radius: 10px; margin: 0 0 14px; }
+  .ok   { background: #1a7f3722; border: 1px solid #2ea04366; }
+  .bad  { background: #b6242422; border: 1px solid #f8514966; }
+  .meh  { background: #9a6a0022; border: 1px solid #d2992266; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; opacity: .6; margin: 0 0 8px; }
+  button {
+    font: inherit; padding: 9px 14px; margin: 0 8px 8px 0; border-radius: 8px;
+    border: 1px solid #ffffff33; background: #ffffff14; color: inherit; cursor: pointer;
+  }
+  button.primary { background: #2ea043; border-color: #2ea043; color: #fff; }
+  button.danger { border-color: #f8514966; }
+  a { color: #58a6ff; }
+</style>
+</head>
+<body>
+
+<h1>Build check</h1>
+<p class="sub">What this device is running, and what the server is serving.</p>
+
+<div id="verdict" class="verdict meh">Checking…</div>
+
+<div class="card">
+  <h2>This page</h2>
+  <div class="row"><span class="k">Commit</span><span class="v" id="loaded-commit">…</span></div>
+  <div class="row"><span class="k">Built</span><span class="v" id="loaded-built">…</span></div>
+  <div class="row"><span class="k">Origin</span><span class="v" id="origin">…</span></div>
+</div>
+
+<div class="card">
+  <h2>Server (version.json)</h2>
+  <div class="row"><span class="k">Commit</span><span class="v" id="dep-commit">…</span></div>
+  <div class="row"><span class="k">Full SHA</span><span class="v" id="dep-full">…</span></div>
+  <div class="row"><span class="k">Built</span><span class="v" id="dep-built">…</span></div>
+</div>
+
+<div class="card">
+  <h2>Backend</h2>
+  <div class="row"><span class="k">URL</span><span class="v" id="be-url">…</span></div>
+  <div class="row"><span class="k">Health</span><span class="v" id="be-health">…</span></div>
+  <div class="row"><span class="k">Commit</span><span class="v" id="be-commit">…</span></div>
+</div>
+
+<div class="card">
+  <h2>Caches</h2>
+  <div class="row"><span class="k">Service worker</span><span class="v" id="sw-state">…</span></div>
+  <div class="row"><span class="k">Cache buckets</span><span class="v" id="sw-caches">…</span></div>
+  <div class="row"><span class="k">Online</span><span class="v" id="net">…</span></div>
+</div>
+
+<div>
+  <button class="primary" id="recheck">Re-check</button>
+  <button id="copy">Copy report</button>
+  <button class="danger" id="nuke">Clear caches &amp; reload</button>
+</div>
+<p class="sub" style="margin-top:14px"><a href="./index.html">← back to the app</a></p>
+
+<!-- Allowed to 404: a checkout with no generated config.js is a normal local state. -->
+<script src="config.js" onerror="window.__configMissing=true"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var set = function (id, v) { $(id).textContent = (v === null || v === undefined || v === "") ? "—" : String(v); };
+  var report = {};
+
+  function real(id) {
+    // Same rule as normalizeBuildId() in src/version-check.js: "dev" and blank are not
+    // deploy identities, so they must not be compared as if they were.
+    var s = typeof id === "string" ? id.trim() : "";
+    return (!s || s === "dev" || s === "unknown") ? null : s;
+  }
+
+  function verdict(cls, text) {
+    $("verdict").className = "verdict " + cls;
+    $("verdict").textContent = text;
+    report.verdict = text;
+  }
+
+  async function run() {
+    verdict("meh", "Checking…");
+
+    var cfg = window.JLTG_CONFIG || {};
+    var loaded = real(cfg.BUILD_ID);
+    set("loaded-commit", cfg.BUILD_ID || (window.__configMissing ? "config.js missing" : "—"));
+    set("loaded-built", cfg.BUILT_AT);
+    set("origin", location.origin + location.pathname);
+    report.loaded = cfg.BUILD_ID || null;
+    report.builtAt = cfg.BUILT_AT || null;
+    report.origin = location.origin;
+
+    // --- what the origin serves right now -------------------------------------
+    var deployed = null;
+    try {
+      var r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+      if (r.ok) {
+        deployed = await r.json();
+        set("dep-commit", deployed.commit);
+        set("dep-full", deployed.fullCommit);
+        set("dep-built", deployed.builtAt);
+      } else {
+        set("dep-commit", "HTTP " + r.status);
+        set("dep-full", "—"); set("dep-built", "—");
+      }
+    } catch (e) {
+      set("dep-commit", "unreachable");
+      set("dep-full", "—"); set("dep-built", "—");
+    }
+    report.deployed = deployed ? deployed.commit : null;
+
+    // --- backend, which deploys independently and can be a different commit ----
+    var be = (cfg.OVERPASS_PROXY_URL || "").replace(/\/+$/, "");
+    set("be-url", be || "not configured");
+    report.backendUrl = be || null;
+    if (be) {
+      try {
+        var h = await fetch(be + "/health?t=" + Date.now(), { cache: "no-store" });
+        var j = h.ok ? await h.json() : null;
+        set("be-health", h.ok ? "ok" : "HTTP " + h.status);
+        set("be-commit", j && j.commit ? j.commit : "—");
+        report.backendCommit = j && j.commit ? j.commit : null;
+      } catch (e) {
+        set("be-health", "unreachable");
+        set("be-commit", "—");
+        report.backendCommit = null;
+      }
+    } else {
+      set("be-health", "—"); set("be-commit", "—");
+    }
+
+    // --- the machinery that actually causes staleness --------------------------
+    try {
+      var regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+      set("sw-state", regs.length
+        ? regs.map(function (g) {
+            return g.active ? (g.waiting ? "active + update waiting" : "active") : "installing";
+          }).join(", ")
+        : "none registered");
+      report.sw = regs.length;
+    } catch (e) { set("sw-state", "unavailable"); }
+
+    try {
+      var keys = window.caches ? await caches.keys() : [];
+      set("sw-caches", keys.length ? keys.join(", ") : "none");
+      report.caches = keys;
+    } catch (e) { set("sw-caches", "unavailable"); }
+
+    set("net", navigator.onLine ? "yes" : "no");
+
+    // --- verdict ---------------------------------------------------------------
+    var dep = deployed ? real(deployed.commit) : null;
+    if (!loaded && !dep) verdict("meh", "No build stamps — local or unbuilt copy.");
+    else if (!dep) verdict("meh", "Running " + loaded + " — could not reach the server to compare.");
+    else if (!loaded) verdict("bad", "This page has no build stamp; the server is serving " + dep + ".");
+    else if (loaded === dep) verdict("ok", "Up to date — running the deployed build (" + loaded + ").");
+    else verdict("bad", "OUT OF DATE — running " + loaded + ", server has " + dep + ".");
+  }
+
+  $("recheck").onclick = run;
+
+  $("copy").onclick = function () {
+    var text = JSON.stringify(report, null, 2);
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(
+      function () { $("copy").textContent = "Copied"; },
+      function () { window.prompt("Copy:", text); });
+    else window.prompt("Copy:", text);
+  };
+
+  // The blunt instrument, and the reason this page is worth having on a phone: unregister
+  // every worker and delete every cache bucket, so the next load has nothing local to be
+  // served from and must go to the network. This is the manual version of what the app's
+  // Reload button attempts, for when the app is too broken to offer it.
+  $("nuke").onclick = async function () {
+    if (!window.confirm("Unregister the service worker and delete all cached app files?\n\nSaved games are NOT affected — they live in IndexedDB, which this does not touch.")) return;
+    $("nuke").textContent = "Clearing…";
+    try {
+      var regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+      await Promise.all(regs.map(function (g) { return g.unregister(); }));
+    } catch (e) { /* keep going: clearing caches alone still helps */ }
+    try {
+      var keys = window.caches ? await caches.keys() : [];
+      await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+    } catch (e) { /* ditto */ }
+    location.replace("./index.html?fresh=" + Date.now());
+  };
+
+  run();
+})();
+</script>
+</body>
+</html>

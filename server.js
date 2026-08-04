@@ -18,6 +18,7 @@ import { runOverpass, OVERPASS_ENDPOINTS, OVERPASS_PASSES } from "./overpass.js"
 import { buildLinesQuery, normalizeLines, bboxIsValid, LINE_KINDS, DEFAULT_BORDER_LEVEL, buildCountryQuery, countryNameFromQuery, COUNTRY_DIVISION_LEVELS } from "./overpass-lines.js";
 import { buildStationsQuery, normalizeStations } from "./overpass-stations.js";
 import { isValidLocationPayload, allowShareLocation } from "./share-location.js";
+import { shortCommit } from "./src/build-info.js";
 import { HiderTokenRegistry } from "./hider-tokens.js";
 import { createFcm } from "./fcm.js";
 import { forwardPingToHider, checkServerApproach } from "./relay-forward.js";
@@ -76,7 +77,22 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// The backend is a SEPARATE Render service from the static site, so the two deploy
+// independently and can sit on different commits — a state that is invisible from the
+// map UI and produces the confusing kind of bug (front end expects a route the deployed
+// backend does not have yet). Reporting the commit here makes that checkable in one
+// request, and version.html shows it beside the front end's own.
+//
+// `startedAt` distinguishes "redeployed" from "restarted": Render's free tier spins the
+// service down when idle, so a fresh startedAt with an unchanged commit means it woke up,
+// not that it shipped.
+const STARTED_AT = new Date().toISOString();
+app.get("/health", (_req, res) => res.json({
+  ok: true,
+  commit: shortCommit(process.env.RENDER_GIT_COMMIT),
+  fullCommit: process.env.RENDER_GIT_COMMIT || null,
+  startedAt: STARTED_AT,
+}));
 
 // GET /overpass?category=hospital&bbox=S,W,N,E   (bbox = south,west,north,east)
 // Optional &keyword=foo to name-filter results. Returns { source, features:[{name,lat,lng}] }.

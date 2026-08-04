@@ -23,6 +23,7 @@ import { shortCommit } from "../src/build-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, "..", "config.js");
+const VERSION_OUT = path.join(__dirname, "..", "version.json");
 
 const key = process.env.GOOGLE_MAPS_API_KEY || "";
 const mapId = process.env.MAP_ID || "";
@@ -36,6 +37,7 @@ const multiplayerUrl = process.env.MULTIPLAYER_URL || "";
 // to "dev" for a local build (this script doesn't even run for local dev's own
 // config.js, but keeps the helper honest for any other caller).
 const buildId = shortCommit(process.env.RENDER_GIT_COMMIT) || "dev";
+const fullCommit = (process.env.RENDER_GIT_COMMIT || "").trim();
 const builtAt = new Date().toISOString();
 
 if (!key) {
@@ -87,3 +89,24 @@ window.JLTG_CONFIG = {
 
 fs.writeFileSync(OUT, contents, "utf8");
 console.log(`[build-config] wrote ${OUT} (key ${key ? "present" : "EMPTY"}, mapId ${mapId ? "present" : "empty"}, build ${buildId}).`);
+
+// The same build id again, as a tiny JSON file the running app can re-fetch at any time.
+//
+// It has to be a SEPARATE file from config.js, and that is the entire trick. config.js is
+// loaded once when the page loads, so its BUILD_ID is frozen at whatever served the page —
+// which is exactly the value in question when a stale shell is suspected. version.json is
+// fetched fresh, so comparing the two compares "the build I am made of" against "the build
+// the origin has now". A single file could not tell those apart, because it would only ever
+// report one of them. See src/version-check.js.
+//
+// It carries no secrets — a public commit id and a timestamp — so unlike config.js it is
+// safe to serve to anyone, and it is written unconditionally (config.js above refuses to
+// overwrite a local one; there is nothing here worth protecting).
+const versionJson = JSON.stringify({
+  commit: buildId,
+  fullCommit: fullCommit || null,
+  builtAt,
+}, null, 2) + "\n";
+
+fs.writeFileSync(VERSION_OUT, versionJson, "utf8");
+console.log(`[build-config] wrote ${VERSION_OUT} (commit ${buildId}).`);

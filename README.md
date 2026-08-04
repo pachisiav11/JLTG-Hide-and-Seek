@@ -197,6 +197,33 @@ the Maps key is injected from an environment variable at build time by
    **Without this, Maps requests are silently rejected in production even though local
    dev still works.**
 
+### Which build am I actually running?
+
+The APK is a [TWA](APK_REBUILD.md) shell with **no app code in it** — it opens a URL. So
+there is no commit id inside the APK to look up; the commit that matters belongs to the page
+the URL served, and that page can be older than the deploy (a cached service-worker shell, an
+HTTP cache in front of it, a phone that never reloaded). The app then looks perfectly healthy
+and is simply the wrong version, which is the hardest thing to diagnose from a phone.
+
+Three ways to check, cheapest first:
+
+1. **Settings ▸ Instructions** shows `Build <commit> · <time> UTC`. Compare with
+   `git log --oneline -1`.
+2. **The app checks itself.** A few seconds after boot it fetches `version.json` (written by
+   `scripts/build-config.js` from Render's `RENDER_GIT_COMMIT`) with caching defeated, and
+   compares it to the `BUILD_ID` baked into the page it is running. Different → a banner
+   naming *both* commits, with a Reload that pokes the service worker first. It logs
+   `[build] …` to the console either way, so remote debugging can read the verdict without
+   waiting for a banner. Every failure — offline, 404, captive portal — is silent: it reports
+   "cannot compare", never "out of date".
+3. **[`version.html`](version.html)** — a standalone diagnostic that imports nothing at all,
+   so it still works when the app itself is white-screening. It shows the loaded commit, the
+   served commit, the **backend's** commit (`/health` — it deploys separately and can drift),
+   service-worker and cache state, and has a **Clear caches & reload** button. Saved games
+   live in IndexedDB and are not touched by it. Linked from Settings ▸ Instructions.
+
+Run `node test/buildcheck-e2e.mjs` (needs Playwright) to exercise all of it in a real browser.
+
 ### Backend (optional) — Overpass proxy
 
 Phase 10 adds an optional **Overpass proxy** ([`server.js`](server.js)) used only as a
