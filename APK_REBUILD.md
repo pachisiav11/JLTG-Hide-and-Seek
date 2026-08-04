@@ -31,6 +31,59 @@ re-point, not a redesign.
 
 ---
 
+## v2 — do you actually need to rebuild? (2026-08-04)
+
+**Usually no.** The APK is a *thin TWA wrapper*: it contains **no app code**, it just opens
+`https://jltg-map-companion.onrender.com` in an installed shell. So a Render deploy is picked
+up by the **existing** APK the next time it launches — the v2 build reaches the phone without
+any APK work at all. The service worker handles the shell update, and the app shows its
+"New version available — Reload" banner.
+
+A rebuild is needed **only** when one of these changes:
+
+| Change | Rebuild? | Why |
+|---|---|---|
+| New code deployed to Render | **No** | the TWA loads it live |
+| The Render **host** changed | **Yes** | the host is baked into the TWA manifest |
+| App name / icons / theme colour | Yes | baked into the APK |
+| `packageId` or signing key | Yes | and testers must uninstall first |
+
+So before rebuilding, check the host. The repo currently references three, and only the first
+is the live app:
+
+- `jltg-map-companion.onrender.com` — what the shipped APK points at
+- `jltg-hide-and-seek.onrender.com` — the `render.yaml` service *name*, used as an example in docs
+- `jltg-backend.onrender.com` — the backend, never a TWA target
+
+**If the host is still `jltg-map-companion.onrender.com`, there is nothing to rebuild.**
+
+### The thing that DOES need checking after a deploy
+
+Far more likely to break the app on a phone than the APK: the static site's
+`OVERPASS_PROXY_URL`. It is read by `scripts/build-config.js` and defaults to `""`. Until v2 it
+was not even declared in `render.yaml`, so a deploy could ship with **no OpenStreetMap access**
+— 🚄 Rail drawing nothing, coastline/borders unsourceable, the Station's Line card refusing,
+and the peak/brand cards silently falling back to Google's name search.
+
+It is now declared in `render.yaml` (`sync: false`, so set it in the dashboard) and
+`build-config.js` prints a loud warning in the Render **build log** when it is missing on a
+deploy. After any deploy, confirm in the browser console:
+
+```js
+window.JLTG_CONFIG.OVERPASS_PROXY_URL   // should be the backend URL, not ""
+window.JLTG_CONFIG.BUILD_ID             // should be the short commit you just deployed
+```
+
+### Toolchain note
+
+The APK cannot be built in the CI/agent sandbox: there is no Android SDK (`sdkmanager`,
+`apksigner`, `adb` all absent), Bubblewrap cannot fetch one because outbound network is
+restricted, and — decisively — **the signing keystore is not in this repo and must never be**.
+It lives on the developer's machine (see the status note above). Building with any other key
+produces an APK that will not install over the existing one and whose fingerprint no longer
+matches `.well-known/assetlinks.json`, so the TWA would fall back to showing a browser address
+bar. Rebuilds are a developer-machine task by design.
+
 ## Prerequisites
 
 1. The app is deployed and reachable, e.g. `https://jltg-hide-and-seek.onrender.com`

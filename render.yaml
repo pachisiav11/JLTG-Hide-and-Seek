@@ -21,6 +21,20 @@ services:
         sync: false        # set in the Render dashboard; never committed
       - key: MAP_ID
         sync: false        # optional: vector Map ID for exact DDS region boundaries
+      # v2: these were NOT declared here, and build-config.js defaults them to "". A deploy
+      # with OVERPASS_PROXY_URL unset silently ships an app with NO OpenStreetMap access —
+      # 🚄 Rail draws nothing, Coastline / borders / high-speed-rail cannot be sourced, the
+      # Station's Line card refuses, and the peak and brand:wikidata cards fall back to
+      # Google's name search. Everything still "works", which is exactly the problem: the
+      # app degrades to a weaker set of answers with no error.
+      #
+      # Set this to the BACKEND service's URL (e.g. https://jltg-backend.onrender.com).
+      - key: OVERPASS_PROXY_URL
+        sync: false
+      # Optional: live multiplayer relay. Blank falls back to OVERPASS_PROXY_URL; blank both
+      # disables multiplayer.
+      - key: MULTIPLAYER_URL
+        sync: false
     headers:
       - path: /config.js
         name: Cache-Control

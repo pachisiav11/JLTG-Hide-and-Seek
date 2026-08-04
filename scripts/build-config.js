@@ -46,6 +46,22 @@ if (!key) {
   );
 }
 
+// v2: the same courtesy the Maps key gets. A build with no proxy produces an app that runs
+// but quietly answers a weaker set of questions — no 🚄 Rail, no sourced coastline or
+// borders, the Station's Line card refusing, and the peak / brand:wikidata cards falling back
+// to a Google NAME search that matches "Mountain View Hotel" as readily as a summit.
+//
+// Only warned about on a real deploy: locally an empty proxy is the normal, expected state.
+if (!overpassProxy && process.env.RENDER) {
+  console.warn(
+    "[build-config] OVERPASS_PROXY_URL is not set — this deploy will have NO OpenStreetMap " +
+    "access. Rail geometry, sourced coastline/borders, the Station's Line card and the " +
+    "exact peak/brand lookups will all be unavailable or degraded to Google's name search. " +
+    "Set it to the backend service's URL (e.g. https://jltg-backend.onrender.com) in the " +
+    "Render dashboard for the STATIC SITE."
+  );
+}
+
 if (fs.existsSync(OUT) && process.env.FORCE_CONFIG !== "1" && !process.env.RENDER) {
   console.error(
     "[build-config] config.js already exists and neither RENDER nor FORCE_CONFIG=1 is set. " +
