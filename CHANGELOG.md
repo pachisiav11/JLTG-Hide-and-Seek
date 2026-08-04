@@ -13,9 +13,13 @@ what it does well and where it is wrong. The improvement programme is §10 of th
 the phases below follow its §10.8 order.
 
 **The last stable v1 build (Phases 0–51) is the `v1-stable` branch.** Everything under this
-heading is newer than that. All six phases are complete; the suite went 756 → 920 tests and
-the app has been boot- and UI-smoke-tested in a browser, but **it has not yet been playtested
-in a real game**.
+heading is newer than that. All six phases are complete, plus the two §8.3 data-sourcing items
+found outstanding in the completeness audit. The suite went 756 → 931 tests, the app boots and
+its panels work in a browser, and five full games have been played through it end to end
+(hider retained across all 24 turns).
+
+**What has NOT happened is field play**: real GPS drift, real Overpass latency, a real phone in
+a real city. Until that happens `v1-stable` remains the branch to actually play on.
 
 Scope was fixed up front by the constraints already recorded in `IMPROVEMENTS.md`: no stack
 rewrite, no migration off Google Maps, no reversion to forced auto-answer, no premature

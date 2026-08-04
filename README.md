@@ -4,11 +4,13 @@
 >
 > This branch was rebuilt against [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md), a measured
 > review of [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek). All
-> six phases of that document's §10 programme are complete and pushed. **920 tests pass**
-> (up from 756), and the app has been boot- and UI-smoke-tested in a browser.
+> six phases of that document's §10 programme are complete and pushed, plus the two §8.3
+> data-sourcing items found outstanding in a later completeness audit. **931 tests pass** (up
+> from 756), and five full games have been played through the running app end to end — the
+> hider was retained on all 24 turns (`test/playtest-games.mjs`).
 >
-> **It has NOT yet been playtested in a real game.** Until it has, the last stable,
-> field-tested build (v1, Phases 0–51) remains on the `v1-stable` branch:
+> **What has NOT happened is field play** — real GPS, real Overpass latency, a real phone.
+> Until it has, the last field-tested build (v1, Phases 0–51) remains on `v1-stable`:
 >
 > ```bash
 > git checkout v1-stable          # or: git checkout v1.0-stable (tag, local only)
