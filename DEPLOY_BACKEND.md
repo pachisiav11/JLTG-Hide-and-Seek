@@ -113,6 +113,40 @@ Setting **either** one to the backend origin is enough for multiplayer; set
 
 ---
 
+## v2 deploy status (2026-08-04)
+
+Both Render services are defined in [`render.yaml`](render.yaml) and neither sets
+`autoDeploy: false`, so **Render's default applies: both auto-deploy on a push to the
+connected branch.** The v2 build was pushed to `main`, so both should already have picked it
+up — no manual action is normally needed.
+
+If a deploy needs forcing (a failed build, a service pointed at a different branch), it has to
+be done from the Render dashboard: **Manual Deploy ▸ Deploy latest commit** on each service, or
+via a Deploy Hook URL. There is no Render API key or deploy hook in this repo, and none should
+be committed.
+
+### What was verified locally at the v2 head commit
+
+Both services' Render commands were run against this commit before it was pushed, because a
+build or start failure only shows up as a red deploy otherwise:
+
+| Service | Render command | Result |
+|---|---|---|
+| `jltg-hide-and-seek` (static) | `node scripts/build-config.js` | ✅ wrote `config.js` (key + mapId present) |
+| `jltg-backend` (node) | `npm install` | ✅ 349 packages, exit 0 |
+| `jltg-backend` | `npm start` | ✅ listening; `[fcm]` degrades gracefully with no service account |
+| `jltg-backend` | `GET /health` (Render's `healthCheckPath`) | ✅ `{"ok":true}` |
+
+The `/overpass` category endpoint was also exercised, since v2 edited its tag map. `park`,
+`mountain`, `mcdonalds` and `seven_eleven` are all **accepted** (they reach the upstream fetch),
+while `bogus_category` is still rejected with `400 Unknown category` — so the two new
+`brand:wikidata` entries are wired correctly and validation still works. The server stayed up
+with nothing logged as an error.
+
+Upstream Overpass itself is unreachable from the build sandbox, so the accepted requests hang
+rather than returning data. That is the sandbox's network policy, not a service fault — and it
+is exactly why the client keeps a 30-day IndexedDB cache with a stale-cache fallback.
+
 ## Notes / gotchas
 
 - **WebSockets**: Render Web Services support WebSockets by default; no extra config. The
