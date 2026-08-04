@@ -1,5 +1,22 @@
 # JLTG — Hide & Seek Map Companion
 
+> ## ⚠️ `main` is a **v2 major build in progress**
+>
+> This branch is being rebuilt against the findings in
+> [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md) — a measured review of
+> [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek). It is
+> landing phase by phase and **may be mid-change at any commit**.
+>
+> **The last stable, playtested build (Phases 0–51) is on the `v1-stable` branch:**
+>
+> ```bash
+> git checkout v1-stable          # or: git checkout v1.0-stable (tag, local only)
+> ```
+>
+> Use `v1-stable` for anything you intend to actually play a game on until the v2 build
+> is marked complete here. See the **v2 major build** section of
+> [`CHANGELOG.md`](CHANGELOG.md) for what has landed so far.
+
 A mobile web app (PWA) that renders a full Google Map and layers on the deductive
 **elimination tools** needed to run a game of *Jet Lag: The Game*'s Hide and Seek.
 

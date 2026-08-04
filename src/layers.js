@@ -237,9 +237,25 @@ export class Layers {
     // elimination could not be folded in — those are invisible otherwise.
     this.failedSteps = new Set();
     let dropped = 0;
+    let uncomputed = 0;
     if (g.gameArea) {
+      // BOTH failure reasons must be recorded, and they are not the same thing:
+      //
+      //   "union"   — the step computed an elimination that could not be folded into the
+      //               mask. The board is missing a region a question genuinely ruled out.
+      //   "compute" — the step's geometry threw, so it produced no elimination at all.
+      //
+      // Only "union" was recorded here. "compute" was reported by computeActiveArea and
+      // dropped on the floor, and the step was flagged only because the guide loop further
+      // down happens to call computeElimination a second time and throws again. That is
+      // coincidence, not design: it holds only while the two paths compute the same thing,
+      // and it reports the failure as "failed to render" when what actually happened is
+      // "eliminated nothing". A seeker reading "failed to render" reasonably assumes the
+      // shading is fine and only the overlay is missing. It is not.
       const active = computeActiveArea(g.gameArea, g.history, (id, reason) => {
-        if (reason === "union") { this.failedSteps.add(id); dropped++; }
+        this.failedSteps.add(id);
+        if (reason === "union") dropped++;
+        else uncomputed++;
       });
       const isEmpty = active === EMPTY_AREA;
       // Shade the whole board when nothing survives. Falling back to `g.gameArea` here
@@ -284,7 +300,12 @@ export class Layers {
         const { guides } = computeElimination(s, g.gameArea);
         this._renderGuides(guides, s, color);
       } catch (e) {
-        failed++;
+        // A step whose geometry threw was already counted as "could not be computed" by the
+        // fold above, and it throws here for the same reason. Counting it again would raise
+        // two notices describing one failure — and the weaker of the two ("guides failed to
+        // draw — the shading is unaffected") directly contradicts the stronger one. Only
+        // count a guide failure that is genuinely guide-only.
+        if (!this.failedSteps.has(s.id)) failed++;
         this.failedSteps.add(s.id);
         console.error(`Guide render failed for step ${s.id} (${s.tool}); skipping it.`, e);
       }
@@ -297,7 +318,12 @@ export class Layers {
         notices.push(`${orphaned} question${orphaned === 1 ? "" : "s"} ${orphaned === 1 ? "is" : "are"} saved but can't be shown without a play area — add a zone (Zones ▸ Draw) to see ${orphaned === 1 ? "it" : "them"} again.`);
       }
     }
-    if (failed) notices.push(`${failed} question${failed === 1 ? "" : "s"} failed to render — try disabling ${failed === 1 ? "it" : "them"} in Questions.`);
+    // A question that could not be COMPUTED contributes no shading at all. That is the most
+    // consequential of the three and used to be reported as "failed to render", which
+    // understates it — a seeker told the overlay is missing will still trust the shading.
+    if (uncomputed) notices.push(`${uncomputed} question${uncomputed === 1 ? "" : "s"} could not be computed and ${uncomputed === 1 ? "is" : "are"} eliminating nothing — the map shows more area than your answers allow. Check ${uncomputed === 1 ? "it" : "them"} in Questions.`);
+    // Guides only: the shading is correct, just the reference overlay is missing.
+    if (failed) notices.push(`${failed} question${failed === 1 ? "'s" : "s'"} guides failed to draw — the shading is unaffected.`);
     // A dropped elimination is worse than a failed guide: the map looks healthy but is
     // missing a region a question ruled out, so say so explicitly rather than lumping it in.
     if (dropped) notices.push(`${dropped} question${dropped === 1 ? "'s" : "s'"} elimination could not be combined and ${dropped === 1 ? "is" : "are"} missing from the shading — the map may show area that is already ruled out.`);

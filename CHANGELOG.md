@@ -2,6 +2,75 @@
 
 Built phase-by-phase per [`GUIDE.md`](GUIDE.md). Each entry is a completed, pushed phase.
 
+---
+
+# v2 major build (in progress)
+
+A rebuild driven by [`MAPPER_ANALYSIS.md`](MAPPER_ANALYSIS.md) — a measured review of
+[taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek), in which the
+reference mapper was cloned, run, and driven through 40 scripted test games to establish
+what it does well and where it is wrong. The improvement programme is §10 of that document;
+the phases below follow its §10.8 order.
+
+**The last stable v1 build (Phases 0–51) is the `v1-stable` branch.** Everything under this
+heading is newer than that and may be mid-change.
+
+Scope was fixed up front by the constraints already recorded in `IMPROVEMENTS.md`: no stack
+rewrite, no migration off Google Maps, no reversion to forced auto-answer, no premature
+backend. These are patterns borrowed from the reference, not its architecture.
+
+## v2 Phase 1 — Correctness harness (§10.1 items A, B, C)
+
+The properties the app rests on, asserted for the first time. No behaviour change a player
+would notice; this phase exists so every later phase has something to break against.
+
+- **Item C — the hider-survival property** (`src/oracle.js`, `test/hider-survives.test.mjs`,
+  12 tests). New truthful-answer oracle: given a step and a KNOWN hider position, derive the
+  answer a truthful hider would give. Written from the game's semantics ("hotter means closer
+  to B"), independently of how `tools.js` builds its polygons, so agreement between the two is
+  evidence rather than tautology.
+
+  The harness then folds a board of truthfully-answered questions and asserts the hider is
+  still inside the surviving area — across a 7×7 interior grid, for every tool, at several
+  radii/distances/candidate sets, and for a compound seven-question board. **49 positions ×
+  every tool: none lost.** This is the one guarantee that matters (an under-elimination costs
+  a turn; a false elimination loses the game invisibly) and nothing checked it before.
+
+  Deliberately *not* wired into live answering — `IMPROVEMENTS.md` is explicit that
+  auto-answer was tried and removed. The oracle is a test fixture and a future post-game
+  debrief tool, per MAPPER_ANALYSIS §10.6.
+
+- **Item B — the partition invariant** (`test/partition-invariant.test.mjs`, 11 tests). For
+  every question, the region kept by "yes" and the region kept by "no" must together be the
+  whole board and must not overlap. One property, but it catches an entire family of bugs
+  (inverted side, asymmetric `keep` handling, difference-where-intersect-belonged), because
+  each shows up as a gap or an overlap. Extended to tentacles, which is not binary — every
+  candidate plus the miss must partition — and asserts the *intended* asymmetry for
+  nearest-LINE cells, which overlap on shared track by design.
+
+- **Item A — a failed question must never look like an applied one** (`src/layers.js`,
+  `src/tools.js`, `test/failure-reporting.test.mjs`, 7 tests). Two real gaps closed:
+
+  1. `computeActiveArea` reported failures with a reason (`"compute"` vs `"union"`), but
+     `layers.js` recorded only `"union"`. A step whose geometry threw was flagged solely
+     because the guide loop happens to recompute and throw again — coincidence, not design —
+     and was then reported as *"failed to render"*, which understates it badly: a seeker told
+     the overlay is missing will still trust the shading. The three cases now report
+     separately and accurately, and a compute failure is no longer double-counted as a guide
+     failure (the two notices contradicted each other).
+  2. **Tentacles could silently eliminate nothing.** When a candidate's Voronoi cell does not
+     reach the seeker's circle, the recorded answer describes no point on the board — and the
+     code returned `eliminated: null`, indistinguishable from a question that legitimately
+     rules nothing out. It now throws, routing to the same ⚠ badge a degenerate partition
+     already uses. Still under-eliminates rather than blanking the board (an impossible answer
+     is more often a stale candidate list than a contradictory hider) — the change is that it
+     is no longer silent.
+
+  The suite also pins two *non*-failures, because "this is hard to break" is worth keeping:
+  coincident candidates are rescued by `dejitter`, and exactly-collinear seeds still partition.
+
+Suite: **756 → 786 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

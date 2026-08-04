@@ -600,7 +600,28 @@ function tentacles(step, gameArea) {
       if (!cell) throw new Error(`No Voronoi cell for the selected candidate (index ${featureIndex}) — the partition degenerated.`);
     }
     const keep = safeIntersect(cell, seeker);
-    if (!keep) return { eliminated: null, guides };
+    // An empty keep region means the recorded answer is geometrically IMPOSSIBLE: no point
+    // on the board is both within the seeker's reach and closest to this candidate. That
+    // happens when a candidate outside the reach gets into the list (hand-added via
+    // `_assembleCandidates`, or carried in by an import), or when the seeker pin sits off
+    // the board entirely.
+    //
+    // Returning `eliminated: null` here was silent, and silence is the failure mode this
+    // whole class of bug lives in: nothing downstream distinguishes "this question rules
+    // nothing out" from "this question could not be computed", so the step stayed checked,
+    // enabled, and contributing zero shading with no way to tell. Throwing routes it to the
+    // same "⚠ failed" badge and banner that a degenerate partition already uses two lines
+    // above, which is what the seeker needs in order to act on it.
+    //
+    // Deliberately NOT eliminating everything: an impossible answer is far more often a
+    // stale candidate list than a genuinely contradictory hider, and blanking the board on
+    // bad data is the more destructive reading. Under-eliminate, but say so.
+    if (!keep) {
+      throw new Error(
+        `No ground is both within ${Math.round(R)} m of the seeker and closest to candidate ` +
+        `${featureIndex} — this answer is impossible on this board, so it eliminates nothing.`,
+      );
+    }
     return { eliminated: safeDiff(gameArea, keep), guides };
   }
 
