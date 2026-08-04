@@ -7,6 +7,7 @@ import { createStep } from "./model.js";
 import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian, distanceToGeometryM } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA, partitionDegeneracyNote } from "./tools.js";
 import { countStationsInEliminated } from "./stations.js";
+import { countStationsEliminatedByZone } from "./hiding-zones.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
@@ -466,9 +467,18 @@ export class Layers {
     const pal = getPalette();
     const PREVIEW_FILL = { strokeColor: pal.mask.fillColor || "#020a0c", strokeOpacity: 0.75, strokeWeight: 1.5, fillColor: pal.mask.fillColor || "#020a0c", fillOpacity: 0.28, clickable: false, zIndex: 6 };
     const clear = () => { state.overlays.forEach((o) => o.setMap(null)); state.overlays = []; };
+    // v2 Phase 3, item L. With a hiding radius set, a station counts as ruled out only when
+    // its WHOLE zone falls inside the proposed elimination — not merely its centre point.
+    // The point rule over-counts, and it over-counts in the dangerous direction: it reports a
+    // station as eliminated while the hider is standing in the part of its zone that
+    // survived. `hidingRadiusM` defaults to 0, which collapses the zone to the point and
+    // reproduces the old counter exactly, so no existing board changes under a seeker.
     const countStationsInside = (geom) => {
       const g = store.getCurrent();
-      return countStationsInEliminated(geom, g?.stations?.list || []);
+      const stations = g?.stations?.list || [];
+      const radiusM = g?.settings?.hidingRadiusM || 0;
+      if (radiusM > 0) return countStationsEliminatedByZone(geom, stations, radiusM);
+      return countStationsInEliminated(geom, stations);
     };
     const writeReadout = (size, count) => {
       if (!readoutEl) return;

@@ -133,6 +133,65 @@ them they close the biggest usability gap against the reference mapper.
 
 Suite: **786 → 810 tests, all passing.**
 
+## v2 Phase 3 — Hiding-zone engine (§10.3 items L, M, N, O)
+
+The reference mapper's best idea, and the one this codebase was already closest to having.
+A seeker does not want to reason about "3,200 km² of shading" — they want to reason about
+"nine stations left". New `src/hiding-zones.js` (pure, DOM-free) is the bridge.
+
+- **Item L — a station survives if ANY part of its zone survives, and this was a real bug.**
+  `countStationsInEliminated` decided a station was ruled out when its exact coordinate fell
+  inside the eliminated region. That is correct only if the hider is standing *precisely on*
+  the station. They are hiding **within a radius** of it — so a station whose point was
+  eliminated but whose surrounding ground was partly untouched got ruled out with the hider
+  standing in the part that survived. **A false elimination: the failure mode that loses a
+  game outright rather than costing a turn.**
+
+  The zone rule replaces it: a station counts as eliminated only when its *whole* zone is.
+  The test suite pins the exact geometry where the two rules disagree, and asserts that the
+  old rule over-counts there (it claims 2 of 2 stations; the zone rule correctly claims 1).
+
+  New `settings.hidingRadiusM` **defaults to 0**, which collapses the zone to the point and
+  reproduces the previous behaviour *exactly*. That is deliberate: a non-zero default would
+  silently change what every saved board says the moment it is reopened, possibly mid-game.
+  Settings offers Off / 400 m / 800 m / 1.6 km.
+
+  Undecidable stations (bad coordinates, geometry errors) resolve to **surviving**.
+  Under-eliminating costs a turn; over-eliminating is the bug being removed.
+
+- **Item M — four zone render styles** (`src/stations-layer.js`): circles, merged silhouette,
+  points only, or nothing. The silhouette is not just a readability aid on a dense board, it
+  is the more honest picture — separate overlapping circles imply more distinct places than
+  actually exist. Zones draw below the markers and are non-clickable, so the existing
+  long-press interaction is untouched. A failed union degrades to circles rather than
+  blanking the overlay.
+
+- **Item N — per-zone drill-down** (`zoneDiagnosis`, long-press ▸ "What survives here?").
+  Reports how much of a station's zone survives *and which questions cut into it*. That
+  second half is the valuable one and is not derivable from the map: a zone can be eliminated
+  by the **combination** of two questions while neither does it alone. Naming them tells the
+  seeker which answer to re-check when a station they were confident about vanishes. Drafts
+  and disabled questions are correctly excluded; a zone that never overlapped the board
+  reports `null`, not 0%.
+
+- **Item O — custom station lists** (`src/station-import.js`, CSV / GeoJSON / KML). The point
+  is not the file formats: a group who have already agreed a station set (a shared Google
+  MyMaps layer, a spreadsheet, a converted GTFS export) had to retype it or play with a
+  different set from the one they agreed. KML is here because MyMaps exports it and MyMaps is
+  what non-technical players use.
+
+  Dependency-free and DOM-free by choice — a hand-rolled CSV reader (quoted fields, embedded
+  commas, CRLF, BOM) beats a new dependency in a PWA that must work offline, and a regex KML
+  scan is testable under `node --test` and works in a worker. Format is sniffed from
+  **content**, not the hint, because the hint is routinely wrong.
+
+  Two behaviours worth calling out: a re-import **never overwrites an existing station**, so
+  eliminations the seeker has already made survive it; and an in-range lat/lng transposition
+  is imported as given rather than guessed at, because 72.8 is a real latitude and rejecting
+  it would break every Arctic board.
+
+Suite: **810 → 854 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

@@ -13,6 +13,19 @@ export const DEFAULT_SETTINGS = {
   geofenceAlertStyle: "vibrate-tone", // Phase 8 (§C3) + Phase 33 (req #10): governs BOTH the geofence-edge and seeker-close alerts. "off" | "silent" | "vibrate" | "vibrate-tone". off = no system notification and no buzz/tone (pill still updates); silent = notification only; vibrate = + buzz; vibrate-tone = + buzz + tone. The native local-notification path (Phase 41/44) reads this too.
   approachThresholdM: 2000,      // Phase 12 (§C5): fire seeker-close alert when a live-shared seeker gets within this many m of the hiding zone (0 = pin only, no alert)
   role: "seeker",                // this device's role in THIS game: "seeker" | "hider". Gates the Hider-zone geofence (src/geofence.js, src/native-geofence.js) — a seeker using the Hider-zone panel to shade a GUESS must not get "you left the zone" alerts about their own position. Set from the 🎯 Hider-zone panel; defaults to seeker.
+  // v2 Phase 3 (item L): how far from a station the hider may be. A station counts as ruled
+  // out only when its WHOLE zone is eliminated — see src/hiding-zones.js for why the old
+  // point-in-polygon rule was a false-elimination bug rather than a rounding difference.
+  //
+  // Defaults to 0, which collapses the zone to the point and reproduces the previous
+  // behaviour EXACTLY. That is deliberate: a non-zero default would silently change what
+  // every existing saved board says the moment it is reopened, possibly mid-game. A seeker
+  // sets it once per board to match the rules they are playing (the Jet Lag home game's own
+  // default is a quarter-mile-ish walk from the station).
+  hidingRadiusM: 0,
+  // v2 Phase 3 (item M): how surviving hiding zones are drawn.
+  // "zones" circles | "stations" points | "no-overlap" merged silhouette | "no-display" none.
+  zoneStyle: "zones",
 };
 
 function uid(prefix) {

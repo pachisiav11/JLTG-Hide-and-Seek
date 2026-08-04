@@ -18,6 +18,9 @@
 import * as store from "./store.js";
 import { toast, contextMenu, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
+import { zoneRenderGeometry, zoneDiagnosis } from "./hiding-zones.js";
+import { computeElimination } from "./tools.js";
+import { geojsonToPathGroups } from "./geo.js";
 import { toggleStationElimination } from "./stations.js";
 import { addNote } from "./notes.js";
 
@@ -37,12 +40,16 @@ const LONG_PRESS_MS = 500;
 // Pure: the two actions a station's chooser offers. The toggle label reflects
 // the station's current state so one sheet covers eliminate AND restore.
 // Exported so the menu contents are unit-tested without a Google Maps instance.
-export function stationLongPressActions(station) {
+export function stationLongPressActions(station, { hasZone = false } = {}) {
   const eliminated = !!station?.eliminated;
-  return [
+  const actions = [
     { id: "note", label: "📝 Add note here" },
     { id: "toggle", label: eliminated ? "♻️ Restore station" : "❌ Eliminate station" },
   ];
+  // v2 Phase 3 (item N). Only offered when the board HAS a hiding radius: with no zone the
+  // drill-down reduces to "is this point shaded", which the map already shows.
+  if (hasZone) actions.push({ id: "zone", label: "🔎 What survives here?" });
+  return actions;
 }
 
 export class StationsLayer {
@@ -55,6 +62,7 @@ export class StationsLayer {
     // every marker. Rendering is cheap on 8 stations and expensive on 400.
     this._lastListRef = null;
     this._lastFlagsSig = null;
+    this._lastZoneSig = null;
     this._pressState = null;   // {timer, domEvent} while a long-press is pending
     this._dragHandle = null;   // map dragstart cancels a pending press (it's a pan)
   }
@@ -83,16 +91,27 @@ export class StationsLayer {
     return s;
   }
 
+  // v2 Phase 3 (item M). The zone overlay depends on two SETTINGS as well as the list, and
+  // neither is part of `_flagsSig`. Without them in the signature, changing the hiding radius
+  // or the render style leaves the previous overlay on the map — the redraw is skipped
+  // because the station list itself did not change.
+  _zoneSig(g) {
+    return `${g?.settings?.hidingRadiusM || 0}|${g?.settings?.zoneStyle || "zones"}`;
+  }
+
   render() {
     const g = store.getCurrent();
     const list = g?.stations?.list;
     if (!list || !list.length) return this._clear();
     const flagsSig = this._flagsSig(list);
-    if (list === this._lastListRef && flagsSig === this._lastFlagsSig) return;
+    const zoneSig = this._zoneSig(g);
+    if (list === this._lastListRef && flagsSig === this._lastFlagsSig && zoneSig === this._lastZoneSig) return;
     this._clear();
     this._lastListRef = list;
     this._lastFlagsSig = flagsSig;
+    this._lastZoneSig = zoneSig;
     if (!window.google?.maps) return;
+    this._renderZones(g, list);
     const pal = getPalette();
     // Use palette colours that stand out against the mask/active fills already
     // on the map. Active = the palette's "active" outline; eliminated = the
@@ -127,6 +146,54 @@ export class StationsLayer {
     }
   }
 
+  // v2 Phase 3, item M — draw the surviving hiding zones.
+  //
+  // Only stations that still have surviving zone area are drawn. A zone is the ground the
+  // hider could actually be standing on, so drawing an eliminated one invites the seeker to
+  // search somewhere the board has already ruled out.
+  //
+  // Four styles, because one does not fit every board:
+  //   zones      — a circle each. Most informative, unreadable past ~40 overlapping stations.
+  //   stations   — points only. What the layer did before this existed.
+  //   no-overlap — the merged silhouette. On a dense board this is the only readable option
+  //                and it is also the honest one: separate circles imply more distinct places
+  //                than actually exist where they overlap.
+  //   no-display — nothing. The station list still updates; the map stays clean.
+  //
+  // Zones are non-clickable and sit BELOW the station markers, so the existing long-press
+  // interaction on a marker is unaffected.
+  _renderZones(g, list) {
+    const radiusM = g?.settings?.hidingRadiusM || 0;
+    const style = g?.settings?.zoneStyle || "zones";
+    if (!radiusM || style === "no-display" || style === "stations") return;
+
+    // Hand-eliminated stations and zones the questions have ruled out are both gone.
+    const live = list.filter((st) => !st.eliminated);
+    if (!live.length) return;
+
+    const pal = getPalette();
+    const colour = pal?.active || "#38bdf8";
+    const base = {
+      strokeColor: colour, strokeOpacity: 0.55, strokeWeight: 1,
+      fillColor: colour, fillOpacity: 0.10,
+      clickable: false, zIndex: 2, map: this.map,
+    };
+
+    let geom;
+    try { geom = zoneRenderGeometry(live, radiusM, style); }
+    catch (e) { console.warn("zone render failed", e); return; }
+
+    // A failed union must degrade to circles rather than blanking the overlay — the
+    // silhouette is a readability aid, and losing it should not lose the information.
+    const rings = style === "no-overlap" && geom.union
+      ? geojsonToPathGroups(geom.union.geometry || geom.union)
+      : geom.circles.map((c) => geojsonToPathGroups(c.zone.geometry)).flat();
+
+    for (const paths of rings) {
+      this.markers.push(new google.maps.Polygon({ ...base, paths }));
+    }
+  }
+
   _onDown(st, e) {
     this._cancelPress();
     const domEvent = e?.domEvent || null;
@@ -149,11 +216,51 @@ export class StationsLayer {
     const dom = e?.domEvent || null;
     const x = Number.isFinite(dom?.clientX) ? dom.clientX : Math.round((typeof window !== "undefined" ? window.innerWidth : 320) / 2);
     const y = Number.isFinite(dom?.clientY) ? dom.clientY : Math.round((typeof window !== "undefined" ? window.innerHeight : 480) / 2);
-    const actions = stationLongPressActions(st);
+    const radiusM = store.getCurrent()?.settings?.hidingRadiusM || 0;
+    const actions = stationLongPressActions(st, { hasZone: radiusM > 0 });
     contextMenu(x, y, actions.map((a) => ({
       label: a.label,
-      onClick: () => (a.id === "note" ? this._addNoteAt(st) : this._toggle(st.id, st.name)),
+      onClick: () => {
+        if (a.id === "note") return this._addNoteAt(st);
+        if (a.id === "zone") return this._explainZone(st, radiusM);
+        return this._toggle(st.id, st.name);
+      },
     })));
+  }
+
+  // v2 Phase 3, item N — "if the hider is at THIS station, what does the board say?"
+  //
+  // The question a seeker actually asks late in a game, when the shading has stopped being
+  // the useful representation and the real decision is which of six remaining stations to
+  // drive to. The valuable half is the list of questions ruling the zone out: a zone can be
+  // eliminated by the COMBINATION of two questions while neither does it alone, and the map
+  // cannot show that. Naming them tells the seeker which answer to re-check when a station
+  // they were confident about disappears.
+  async _explainZone(st, radiusM) {
+    const g = store.getCurrent();
+    if (!g?.gameArea) return toast("Draw a play area first — there is nothing to measure a zone against.");
+    let d;
+    try {
+      d = zoneDiagnosis(g.gameArea, g.history || [], st, radiusM, (step) => computeElimination(step, g.gameArea).eliminated);
+    } catch (e) {
+      console.warn("zone diagnosis failed", e);
+      return toast("Couldn't work out what's left of this zone.");
+    }
+    if (!d) return toast("Couldn't work out what's left of this zone.");
+
+    if (d.fraction === null) return toast(`${st.name}: this zone lies outside the play area.`);
+    if (!d.survives) {
+      const why = d.culprits.length
+        ? ` Ruled out by ${d.culprits.length} question${d.culprits.length === 1 ? "" : "s"} (${d.culprits.map((c) => c.tool).join(", ")}).`
+        : "";
+      return toast(`${st.name}: nothing of this zone survives.${why}`);
+    }
+    const pct = Math.round(d.fraction * 100);
+    const km2 = (d.survivingAreaM2 / 1e6).toFixed(2);
+    const why = d.culprits.length
+      ? ` ${d.culprits.length} question${d.culprits.length === 1 ? " has" : "s have"} cut into it (${d.culprits.map((c) => c.tool).join(", ")}).`
+      : " No question has touched it.";
+    toast(`${st.name}: ${pct}% of its zone survives (${km2} km²).${why}`);
   }
 
   async _addNoteAt(st) {
