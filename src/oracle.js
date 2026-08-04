@@ -18,6 +18,7 @@
 //
 // Every function here is pure and DOM-free so `node --test` can drive it.
 
+import { distanceToGeometryM, distanceToLinePathsM, metresBetween } from "./geo.js";
 import { computeActiveArea, EMPTY_AREA, linePaths } from "./tools.js";
 
 function T() {
@@ -29,71 +30,17 @@ function feat(g) {
 }
 const pt = (p) => T().point([p.lng, p.lat]);
 
-// Ground metres between two {lat,lng}.
-export function metresBetween(a, b) {
-  return T().distance(pt(a), pt(b), { units: "meters" });
-}
-
-// Metres from a point to the nearest part of ANY geometry.
-//
-// The measuring tool's reference can be a Places point set (MultiPoint), a sourced or
-// hand-drawn line (LineString / MultiLineString), or a drawn area (Polygon). A truthful
-// "am I closer than you?" needs one distance function that handles all of them, and gets
-// the polygon case right: a hider STANDING INSIDE the reference area is at distance 0,
-// not at the distance to its edge. Measuring from the boundary unconditionally would make
-// a hider inside a lake answer "beyond", which is both false and unfalsifiable.
-export function distanceToGeometryM(p, geom) {
-  if (!geom) return Infinity;
-  const turf = T();
-  const P = pt(p);
-  const min = (a, b) => (b < a ? b : a);
-  let best = Infinity;
-
-  switch (geom.type) {
-    case "Point":
-      return turf.distance(P, turf.point(geom.coordinates), { units: "meters" });
-    case "MultiPoint":
-      for (const c of geom.coordinates) best = min(best, turf.distance(P, turf.point(c), { units: "meters" }));
-      return best;
-    case "LineString":
-      return turf.pointToLineDistance(P, turf.lineString(geom.coordinates), { units: "meters" });
-    case "MultiLineString":
-      for (const line of geom.coordinates) {
-        if (!Array.isArray(line) || line.length < 2) continue;
-        best = min(best, turf.pointToLineDistance(P, turf.lineString(line), { units: "meters" }));
-      }
-      return best;
-    case "Polygon":
-    case "MultiPolygon": {
-      if (turf.booleanPointInPolygon(P, feat(geom))) return 0; // inside == zero, see above
-      const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
-      for (const poly of polys) {
-        for (const ring of poly) {
-          if (!Array.isArray(ring) || ring.length < 2) continue;
-          best = min(best, turf.pointToLineDistance(P, turf.lineString(ring), { units: "meters" }));
-        }
-      }
-      return best;
-    }
-    case "GeometryCollection":
-      for (const g of geom.geometries || []) best = min(best, distanceToGeometryM(p, g));
-      return best;
-    default:
-      return Infinity;
-  }
-}
+// The distance primitives live in geo.js, shared with the measuring cards (item F) — the
+// oracle must judge "closer than me?" by exactly the same measure the app buffers by, or
+// it is grading the app against a different question. `metresBetween` is geo.js's
+// equirectangular-lite helper, which is also what the Voronoi's longitude compression
+// approximates, so the oracle and the partition agree by construction rather than by luck.
+export { distanceToGeometryM, metresBetween };
 
 // Metres from a point to the nearest path of a line object (hand-drawn `coords` or
 // auto-sourced `paths` — `linePaths` normalises both).
 export function distanceToLineM(p, ln) {
-  const turf = T();
-  const P = pt(p);
-  let best = Infinity;
-  for (const path of linePaths(ln)) {
-    const d = turf.pointToLineDistance(P, turf.lineString(path.map((c) => [c.lng, c.lat])), { units: "meters" });
-    if (d < best) best = d;
-  }
-  return best;
+  return distanceToLinePathsM(p, linePaths(ln));
 }
 
 // Index of the nearest entry in a {lat,lng}[] feature list.

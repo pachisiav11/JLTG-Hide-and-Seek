@@ -50,6 +50,79 @@ export function featuresNearArea(feats, area) {
   } catch (_) { return feats; } // never block on a geometry error
 }
 
+// Metres from a point to the nearest part of ANY geometry.
+//
+// v2 Phase 2 (item F). The measuring cards ask the seeker to TYPE their own distance to the
+// reference, then buffer by it. That is a measurement the app is holding all the inputs for
+// and can simply take: the seeker's pin and the reference geometry are both already on the
+// map. Typing it is a pure error surface — a mis-paced estimate, a metres/feet slip, a stale
+// number left over from the previous question — and every one of those errors lands as a
+// confidently wrong elimination.
+//
+// One function has to cover every reference shape the cards produce: a Places point set
+// (MultiPoint), a sourced or hand-drawn line (LineString / MultiLineString), and a drawn area
+// (Polygon). The polygon case is the one worth stating: a seeker standing INSIDE the reference
+// area is at distance 0, not at the distance to its edge. Measuring from the boundary
+// unconditionally would make someone standing in a park answer "beyond the nearest park".
+export function distanceToGeometryM(p, geom) {
+  if (!geom || !window.turf) return Infinity;
+  const turf = T();
+  const P = turf.point([p.lng, p.lat]);
+  let best = Infinity;
+  const keep = (d) => { if (Number.isFinite(d) && d < best) best = d; };
+
+  switch (geom.type) {
+    case "Point":
+      keep(turf.distance(P, turf.point(geom.coordinates), { units: "meters" }));
+      return best;
+    case "MultiPoint":
+      for (const c of geom.coordinates) keep(turf.distance(P, turf.point(c), { units: "meters" }));
+      return best;
+    case "LineString":
+      keep(turf.pointToLineDistance(P, turf.lineString(geom.coordinates), { units: "meters" }));
+      return best;
+    case "MultiLineString":
+      for (const line of geom.coordinates) {
+        if (!Array.isArray(line) || line.length < 2) continue;
+        keep(turf.pointToLineDistance(P, turf.lineString(line), { units: "meters" }));
+      }
+      return best;
+    case "Polygon":
+    case "MultiPolygon": {
+      if (turf.booleanPointInPolygon(P, T().feature(geom))) return 0; // inside == zero, see above
+      const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+      for (const poly of polys) {
+        for (const ring of poly) {
+          if (!Array.isArray(ring) || ring.length < 2) continue;
+          keep(turf.pointToLineDistance(P, turf.lineString(ring), { units: "meters" }));
+        }
+      }
+      return best;
+    }
+    case "GeometryCollection":
+      for (const g of geom.geometries || []) keep(distanceToGeometryM(p, g));
+      return best;
+    default:
+      return Infinity;
+  }
+}
+
+// Metres from a point to the nearest path of a LINE OBJECT — the {paths} / {coords} shape
+// the line cards store. `pathsOf` is passed in rather than imported so this module keeps no
+// dependency on tools.js (which imports geo.js indirectly via layers).
+export function distanceToLinePathsM(p, paths) {
+  if (!window.turf || !Array.isArray(paths)) return Infinity;
+  const turf = T();
+  const P = turf.point([p.lng, p.lat]);
+  let best = Infinity;
+  for (const path of paths) {
+    if (!Array.isArray(path) || path.length < 2) continue;
+    const d = turf.pointToLineDistance(P, turf.lineString(path.map((c) => [c.lng, c.lat])), { units: "meters" });
+    if (Number.isFinite(d) && d < best) best = d;
+  }
+  return best;
+}
+
 // [[lat,lng],...] ring -> Turf polygon feature (auto-closed).
 export function ringToTurf(latlngs) {
   const ring = latlngs.map(([lat, lng]) => [lng, lat]);

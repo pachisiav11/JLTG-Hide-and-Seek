@@ -93,6 +93,40 @@ export function unionAll(geoms, unionFn = safeUnion) {
   return out;
 }
 
+// A partition with too few seeds does not answer the question the card claims to ask, and it
+// does so QUIETLY — the geometry is valid, the shading is real, and the seeker spends a
+// question learning something much weaker than they thought.
+//
+// v2 Phase 2, item I. The Metro Lines card already warned about this ("Only one line is in
+// range…") and it was the single most useful sentence in that flow, so it is generalised here
+// to every card that partitions a candidate set. Returning a string rather than raising or
+// blocking is deliberate: a 1- or 2-candidate partition is a legitimate question to ask, it
+// just needs to be asked knowingly.
+//
+//   0 — nothing to partition at all.
+//   1 — the cell covers everything, so a "nearest" card collapses into whatever OTHER
+//       constraint it carries: a radius question for Tentacles (cell ∩ circle == circle),
+//       and nothing whatsoever for Matching, which has no radius to fall back on.
+//   2 — two seeds make one bisector. That is exactly a Thermometer, and it is worth saying
+//       so, because a seeker who wanted a fine-grained partition will otherwise read a
+//       half-board elimination as a strong result.
+//
+// `reach` is the human-readable radius ("2 km") for the cards that have one; omit it for
+// Matching, which does not.
+export function partitionDegeneracyNote(count, { kind = "candidates", reach = null } = {}) {
+  const n = Number.isFinite(count) ? count : 0;
+  if (n <= 0) return `No ${kind} found — this question has nothing to partition and will eliminate nothing.`;
+  if (n === 1) {
+    return reach
+      ? `Only one of these ${kind} is in range, so this can only tell you whether the hider is within ${reach} of you — it can't distinguish between ${kind}.`
+      : `Only one of these ${kind} was found, so every point on the board is nearest to it. This question cannot eliminate anything.`;
+  }
+  if (n === 2) {
+    return `Only two ${kind} — the partition is a single dividing line between them, so this behaves like a Thermometer rather than a fine-grained ${kind.replace(/s$/, "")} question.`;
+  }
+  return null;
+}
+
 // --- Radar: centre + radius circle ---------------------------------------
 function radar(step, gameArea) {
   const { center, radius } = step.inputs;      // radius in metres

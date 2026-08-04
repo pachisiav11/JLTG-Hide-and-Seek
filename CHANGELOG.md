@@ -71,6 +71,68 @@ would notice; this phase exists so every later phase has something to break agai
 
 Suite: **756 → 786 tests, all passing.**
 
+## v2 Phase 2 — Question-model upgrades (§10.2 items F, G, H, I)
+
+Four changes to what a question *is* and what the seeker can do with one. All small; between
+them they close the biggest usability gap against the reference mapper.
+
+- **Item F — derive the seeker's own distance** (`src/geo.js`, `src/layers.js`,
+  `test/derive-distance.test.mjs`, 10 tests). The measuring cards buffer a reference by the
+  seeker's distance to it, and the seeker used to type that number. The app was holding both
+  operands the whole time — the GPS fix and the reference geometry. Typing the number between
+  them is a pure error surface (a paced estimate, a metres/feet slip, a stale value from the
+  previous question), and each of those lands as a confidently wrong elimination that looks
+  exactly like a right one.
+
+  New `distanceToGeometryM` in `geo.js` handles every reference shape the cards produce —
+  point sets, sourced lines (many disjoint OSM ways), drawn areas. The judgement call is the
+  polygon case: a seeker standing *inside* the reference is at distance **zero**, not at the
+  distance to its edge, or someone standing in a park would answer "beyond the nearest park".
+
+  Derived is the default but never a lock: it prefills only while the field is untouched, any
+  keystroke stops it, and a 📍 button re-measures on demand. It runs in the background rather
+  than blocking the sheet, because a cold GPS fix takes seconds. No fix, or an unmeasurable
+  reference, falls back to manual entry with a reason.
+
+- **Items G + H — `draft` and `hidden`** (`src/model.js`, `src/layers.js`, `styles/main.css`,
+  `test/draft-hidden-steps.test.mjs`, 6 tests). A step produces exactly two things: an
+  elimination and its guides. `enabled` switched both off together, so there was no way to ask
+  for either alone. The two missing states are exact complements:
+
+  - **draft** — guides yes, elimination no. *"Show me where this question would cut, without
+    spending it."* Hide & Seek is a game about choosing which question to ask next and nothing
+    here helped with that decision before.
+  - **hidden** — guides no, elimination yes. On a ten-question board it is the ink that makes
+    the map unreadable, not the shading, and wanting a clean map should not require un-applying
+    an answer.
+
+  A deliberate **deviation** from the reference, which has a global planning mode plus a
+  per-question lock, and uses `hidden` for what `enabled: false` already means here. A global
+  mode was rejected: with questions committed on add (ours are), one toggle silently
+  un-applies an entire reasoned-about board. Per-question is the same capability without that
+  failure mode, and it composes. The two flags are mutually exclusive by construction — a
+  hidden draft is just `enabled: false` wearing two flags — and both default off, so every
+  game ever written reads correctly with no migration.
+
+  The board says when it is showing drafts, because a preview boundary over unshaded ground is
+  otherwise indistinguishable from a question that eliminated nothing.
+
+- **Item I — warn when a partition has collapsed** (`src/tools.js`, `src/layers.js`,
+  `test/degeneracy-note.test.mjs`, 8 tests). A Voronoi over one seed is a valid partition that
+  answers nothing; over two it is a single bisector — a Thermometer wearing another card's
+  name. Both are legitimate to ask and both are far weaker than the card's wording implies,
+  with no hint from the geometry. The Metro Lines card already carried a hand-written warning
+  about this and it was the most useful sentence in the flow; every other Voronoi card had the
+  same failure mode and said nothing.
+
+  New `partitionDegeneracyNote` states the **consequence**, not the diagnosis — "this can only
+  tell you whether they're within 2 km of you", not "degenerate partition" — and distinguishes
+  the one-candidate case *with* a reach (collapses to a radius question) from *without* one
+  (Matching, where it can eliminate nothing at all). Now shown by Tentacles points, Tentacles
+  lines and Matching-nearest alike.
+
+Suite: **786 → 810 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

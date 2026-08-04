@@ -88,7 +88,7 @@ export function createZone({ id, name, polygon } = {}) {
   };
 }
 
-export function createStep({ tool, inputs = {}, answer = {}, enabled = true } = {}) {
+export function createStep({ tool, inputs = {}, answer = {}, enabled = true, draft = false, hidden = false } = {}) {
   if (!TOOLS.includes(tool)) {
     throw new Error(`Unknown tool "${tool}". Expected one of: ${TOOLS.join(", ")}`);
   }
@@ -98,6 +98,31 @@ export function createStep({ tool, inputs = {}, answer = {}, enabled = true } = 
     inputs,   // enough to deterministically recompute the region
     answer,   // yes/no or chosen feature
     enabled,
+    // v2 Phase 2 (items G + H). A step produces exactly two things: an ELIMINATION (shading)
+    // and GUIDES (its circle, bisector, cell outlines, buffer ring). `enabled` switched both
+    // off together, which left no way to ask for either one alone. These are those two states,
+    // and they are deliberate complements:
+    //
+    //   draft  — guides YES, elimination NO. "Show me where this question would cut, without
+    //            spending it." Hide & Seek is a game about choosing which question to ask
+    //            next, and nothing in this app helped with that decision before.
+    //   hidden — guides NO, elimination YES. On a ten-question board it is the ink that makes
+    //            the map unreadable, not the shading, and a seeker who wants a clean map
+    //            should not have to un-apply an answer to get one.
+    //
+    // Both differ from `enabled: false`, which draws nothing and eliminates nothing.
+    //
+    // This is a deliberate DEVIATION from the reference mapper, which has a global "planning
+    // mode" plus a per-question lock, and uses `hidden` for what `enabled: false` already
+    // means here. A global mode was rejected: with questions committed on add (ours are), a
+    // global planning toggle silently un-applies an entire reasoned-about board the moment it
+    // is switched on. Per-question is the same capability without that failure mode, and it
+    // composes — a board can hold committed, drafted and hidden questions at once.
+    //
+    // Both default false and older saved games simply lack the fields, so `!!step.draft`
+    // reads correctly on every record ever written. No migration needed.
+    draft,
+    hidden,
     createdAt: Date.now(),
   };
 }

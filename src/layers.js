@@ -4,13 +4,13 @@
 // for Radar and Thermometer (guide §5.1, §5.2, §6.2).
 import * as store from "./store.js";
 import { createStep } from "./model.js";
-import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian } from "./geo.js";
-import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA } from "./tools.js";
+import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian, distanceToGeometryM } from "./geo.js";
+import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA, partitionDegeneracyNote } from "./tools.js";
 import { countStationsInEliminated } from "./stations.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
-import { openSheet, closeSheet, toast, loadingToast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection } from "./ui.js";
+import { openSheet, closeSheet, toast, loadingToast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection, splitDistance } from "./ui.js";
 import { getPalette } from "./palette.js";
 import { geoWatch } from "./geo-watch.js";
 
@@ -102,6 +102,18 @@ function approxWarning(cat) {
   return `<p class="warn-note">⚠ Couldn't load real line geometry, so this fell back to partitioning by nearest <strong>station</strong>, not nearest <strong>line</strong>. Where two lines run closer together than their stations are spaced, the hider's nearest line may not be the nearest station's line. If their answer looks inconsistent with the map, trust them, not this.</p>`;
 }
 
+// v2 Phase 2, item I — the same warning for every card that partitions a candidate set.
+//
+// The Metro Lines card carried a hand-written version of this and it was the most useful
+// sentence in the flow: a seeker who knows the partition has collapsed can pick a different
+// question instead of spending this one. Every other Voronoi card had the same failure mode
+// and said nothing. `partitionDegeneracyNote` lives in tools.js so the wording is testable
+// without a DOM; this is only the markup around it.
+function degeneracyHTML(count, opts) {
+  const note = partitionDegeneracyNote(count, opts);
+  return note ? `<p class="warn-note">⚠ ${escapeHtml(note)}</p>` : "";
+}
+
 // Google could not search the whole board. Say so: the partition is being built from
 // whatever fell inside a 50 km disc, and the seeker cannot tell that from a complete answer.
 function clampWarning(radius, wanted) {
@@ -175,6 +187,30 @@ export class Layers {
       g.redoStack = []; // a manual toggle makes the pending redo meaningless
     });
   }
+  // v2 Phase 2 (items G + H). Draft and hidden are the two halves of what `enabled` used to
+  // switch on and off together — see the note on createStep. Neither touches redoStack:
+  // unlike a toggle, neither changes whether the question is part of the board, so a pending
+  // redo stays meaningful.
+  //
+  // Draft and hidden are mutually exclusive by construction rather than by rule: a hidden
+  // draft would draw nothing and eliminate nothing, which is exactly `enabled: false` wearing
+  // two flags. Setting either clears the other so that state is unreachable.
+  setDraft(id, value) {
+    store.update((g) => {
+      const s = g.history.find((x) => x.id === id);
+      if (!s) return;
+      s.draft = value === undefined ? !s.draft : !!value;
+      if (s.draft) s.hidden = false;
+    });
+  }
+  setHidden(id, value) {
+    store.update((g) => {
+      const s = g.history.find((x) => x.id === id);
+      if (!s) return;
+      s.hidden = value === undefined ? !s.hidden : !!value;
+      if (s.hidden) s.draft = false;
+    });
+  }
   remove(id) {
     store.update((g) => {
       g.history = g.history.filter((x) => x.id !== id);
@@ -238,6 +274,16 @@ export class Layers {
     this.failedSteps = new Set();
     let dropped = 0;
     let uncomputed = 0;
+    // v2 Phase 2, item H — DRAFT questions preview instead of applying. A draft draws its
+    // boundary (below, with the other guides) but contributes no elimination, so the seeker
+    // can see exactly where a candidate cut would land before spending the question on it.
+    //
+    // Filtered here rather than inside computeActiveArea, which stays a pure function of the
+    // steps it is handed. That also keeps the fold memo honest: a different step list is a
+    // different fold, so drafting a question correctly misses the cache instead of serving a
+    // board computed with it applied.
+    const draftCount = g.history.filter((s) => s.enabled && s.draft).length;
+    const foldSteps = draftCount ? g.history.filter((s) => !s.draft) : g.history;
     if (g.gameArea) {
       // BOTH failure reasons must be recorded, and they are not the same thing:
       //
@@ -252,7 +298,7 @@ export class Layers {
       // and it reports the failure as "failed to render" when what actually happened is
       // "eliminated nothing". A seeker reading "failed to render" reasonably assumes the
       // shading is fine and only the overlay is missing. It is not.
-      const active = computeActiveArea(g.gameArea, g.history, (id, reason) => {
+      const active = computeActiveArea(g.gameArea, foldSteps, (id, reason) => {
         this.failedSteps.add(id);
         if (reason === "union") dropped++;
         else uncomputed++;
@@ -292,7 +338,13 @@ export class Layers {
     // Adds to this.failedSteps (already seeded above by any union failures): a failing
     // question stays checked and enabled, so without marking it in the Questions panel the
     // banner tells the seeker something broke but not what to disable.
-    const liveSteps = g.gameArea ? g.history.filter((s) => s.enabled) : [];
+    //
+    // `hidden` (item G) is filtered here and ONLY here: a hidden question still eliminates,
+    // it just draws no ink. That is the whole point of it being a separate flag from
+    // `enabled` — on a ten-question board it is the guides that make the map unreadable, not
+    // the shading, and a seeker who wants a clean map should not have to un-apply an answer
+    // to get one.
+    const liveSteps = g.gameArea ? g.history.filter((s) => s.enabled && !s.hidden) : [];
     for (const s of liveSteps) {
       const color = pal.steps[idx % pal.steps.length];
       idx++;
@@ -318,6 +370,10 @@ export class Layers {
         notices.push(`${orphaned} question${orphaned === 1 ? "" : "s"} ${orphaned === 1 ? "is" : "are"} saved but can't be shown without a play area — add a zone (Zones ▸ Draw) to see ${orphaned === 1 ? "it" : "them"} again.`);
       }
     }
+    // Drafts change what the shading MEANS, so the board must say so — an unexplained
+    // preview boundary sitting over unshaded ground is indistinguishable from a question
+    // that eliminated nothing.
+    if (draftCount) notices.push(`${draftCount} question${draftCount === 1 ? " is" : "s are"} in draft — ${draftCount === 1 ? "its" : "their"} boundary is drawn but ${draftCount === 1 ? "it is" : "they are"} not eliminating anything yet.`);
     // A question that could not be COMPUTED contributes no shading at all. That is the most
     // consequential of the three and used to be reported as "failed to render", which
     // understates it — a seeker told the overlay is missing will still trust the shading.
@@ -1028,9 +1084,11 @@ export class Layers {
           <li>
             <label class="li-toggle">
               <input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""} />
-              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}${broke ? ` <span class="li-failed" title="This question could not be computed — its geometry degenerated. It is contributing no shading.">⚠ failed</span>` : ""}</span>
+              <span class="li-name ${s.enabled ? "" : "off"}">${escapeHtml(s.title || describeStep(s))}${broke ? ` <span class="li-failed" title="This question could not be computed — its geometry degenerated. It is contributing no shading.">⚠ failed</span>` : ""}${s.draft ? ` <span class="li-draft" title="Draft: its boundary is drawn but it is not eliminating anything.">◐ draft</span>` : ""}${s.hidden ? ` <span class="li-hidden" title="Hidden: it still eliminates, but draws nothing on the map.">👁 hidden</span>` : ""}</span>
             </label>
             <span class="li-actions">
+              <button class="btn btn-ghost btn-sm" data-draft="${s.id}" title="${s.draft ? "Apply this question" : "Preview only — draw its boundary without eliminating"}">${s.draft ? "✓" : "◐"}</button>
+              <button class="btn btn-ghost btn-sm" data-hide="${s.id}" title="${s.hidden ? "Show this question's guides" : "Keep the elimination, hide the guides"}">${s.hidden ? "🙈" : "👁"}</button>
               <button class="btn btn-ghost btn-sm" data-rename="${s.id}">✏️</button>
               <button class="btn btn-ghost btn-sm" data-del="${s.id}">🗑</button>
             </span>
@@ -1072,6 +1130,10 @@ export class Layers {
     s.q("#t-undo").onclick = () => { this.undo(); s.close(); this.openPanel(); };
     s.q("#t-redo").onclick = () => { this.redo(); s.close(); this.openPanel(); };
     s.qa("[data-toggle]").forEach((c) => (c.onchange = () => this.toggle(c.dataset.toggle)));
+    // Reopen the panel after a draft/hide flip so the badge and the button glyph both
+    // reflect the new state — the row's markup is built once, at render time.
+    s.qa("[data-draft]").forEach((b) => (b.onclick = () => { this.setDraft(b.dataset.draft); s.close(); this.openPanel(); }));
+    s.qa("[data-hide]").forEach((b) => (b.onclick = () => { this.setHidden(b.dataset.hide); s.close(); this.openPanel(); }));
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.remove(b.dataset.del); s.close(); this.openPanel(); }));
     s.qa("[data-rename]").forEach((b) => (b.onclick = async () => {
       const step = store.getCurrent().history.find((x) => x.id === b.dataset.rename);
@@ -1435,6 +1497,7 @@ export class Layers {
       title: card.label,
       bodyHTML: `
         <p class="muted">Which is <strong>your</strong> nearest ${escapeHtml(card.label.toLowerCase())}?</p>
+        ${degeneracyHTML(feats.length, { kind: pluralLabel(card.label).toLowerCase() })}
         ${this._featureListHTML("mt-feat", feats)}
         <label class="fieldlbl">Did the hider answer the same?</label>
         <div class="seg" role="radiogroup">
@@ -2004,7 +2067,7 @@ export class Layers {
       bodyHTML: `
         <p class="muted">Metro lines within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
         ${hidden ? `<p class="warn-note">⚠ ${hidden} more line${hidden > 1 ? "s are" : " is"} in range but hidden by your rail filter, so ${hidden > 1 ? "they are" : "it is"} excluded from this partition. That's right if you're not playing on ${hidden > 1 ? "them" : "it"} — but the hider must be answering about the same set you are.</p>` : ""}
-        ${lines.length < 2 ? `<p class="warn-note">⚠ Only one line is in range, so this can only tell you whether the hider is within ${rTxt} of you — it can't distinguish between lines.</p>` : ""}
+        ${degeneracyHTML(lines.length, { kind: "lines", reach: rTxt })}
         <div class="seg">${list}</div>
         <div class="seg"><label><input type="radio" name="tt-line" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
         <div class="sheet-actions">
@@ -2047,6 +2110,7 @@ export class Layers {
       bodyHTML: `
         <p class="muted">${escapeHtml(cat.label)} within ${rTxt} of you (the blue circle). Which is the hider closest to?</p>
         ${cat.approx ? approxWarning(cat) : ""}
+        ${degeneracyHTML(features.length, { kind: pluralLabel(cat.label).toLowerCase(), reach: rTxt })}
         ${this._featureListHTML("tt-feat", features)}
         <div class="seg"><label><input type="radio" name="tt-feat" value="none"/> None — the hider is outside my ${rTxt} reach (a miss)</label></div>
         <div class="row">
@@ -2131,6 +2195,10 @@ export class Layers {
         ${addInputs.refSource === "osm" ? `<p class="muted">✓ Using real ${escapeHtml(card.label.toLowerCase())} geometry from OpenStreetMap — nothing to draw. It appears on the map once the question is added.</p>` : ""}
         <label class="fieldlbl">Your distance</label>
         ${distanceFieldHTML("m-dist", 500, units)}
+        <div class="row">
+          <button id="m-measure" class="btn btn-ghost" type="button">📍 Measure from my location</button>
+        </div>
+        <p id="m-measured" class="muted"></p>
         <label class="fieldlbl">The hider is…</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="m-side" value="in" checked/> Closer than me (within — keep inside)</label>
@@ -2142,6 +2210,61 @@ export class Layers {
         </div>`,
     });
     s.q("#m-cancel2").onclick = () => s.close();
+
+    // v2 Phase 2, item F — derive the seeker's own distance instead of asking for it.
+    //
+    // The app is holding both operands already: the seeker's GPS fix and the reference
+    // geometry it is about to buffer. Asking the seeker to type the number between them is a
+    // pure error surface — a paced estimate, a metres/feet slip, a stale value left from the
+    // previous question — and each of those lands as a confidently wrong elimination that
+    // looks exactly like a right one.
+    //
+    // Derived is the DEFAULT but not a lock: it prefills only while the field is untouched,
+    // and any keystroke stops it. A seeker who measured differently (walked it, knows the
+    // reference is mis-sourced, is answering for a teammate standing elsewhere) keeps the
+    // last word, which is why this is a prefill and not a read-only readout.
+    //
+    // Kicked off in the background rather than awaited: a cold GPS fix can take seconds and
+    // the sheet must be usable immediately. `_getSelfPosition` resolves null rather than
+    // hanging when there is no permission or no fix.
+    let userEdited = false;
+    const field = s.q("#m-dist");
+    const unitSel = s.q("#m-dist-unit");
+    const note = s.q("#m-measured");
+    field?.addEventListener("input", () => { userEdited = true; });
+
+    const applyMeasured = (metres, { manual = false } = {}) => {
+      if (!Number.isFinite(metres) || metres <= 0) {
+        if (note) note.textContent = "Couldn't measure from here — enter your distance manually.";
+        return;
+      }
+      // Respect a value the seeker typed; a background fix must never overwrite it.
+      if (userEdited && !manual) return;
+      const { unit, value } = splitDistance(metres, units);
+      if (field) field.value = value;
+      if (unitSel) unitSel.value = unit;
+      const label = unitSel?.selectedOptions?.[0]?.textContent || "";
+      if (note) note.textContent = `Measured from your location: ${value} ${label}. Edit it if you measured differently.`;
+    };
+
+    const measureNow = async ({ manual = false } = {}) => {
+      if (!addInputs.refGeometry) return;
+      const pos = await this._getSelfPosition();
+      if (!pos) {
+        if (note && manual) note.textContent = "No GPS fix available — enter your distance manually.";
+        return;
+      }
+      try {
+        applyMeasured(distanceToGeometryM(pos, addInputs.refGeometry), { manual });
+      } catch (e) {
+        console.warn("auto-measure failed", e);
+        if (note && manual) note.textContent = "Couldn't measure against this reference — enter your distance manually.";
+      }
+    };
+
+    s.q("#m-measure").onclick = () => measureNow({ manual: true });
+    measureNow();
+
     s.q("#m-add").onclick = () => {
       // Validate, never clamp — see the Radar sheet. Zero is rejected with its own reason
       // rather than accepted: turf.buffer(geometry, 0) returns null, so a 0-distance

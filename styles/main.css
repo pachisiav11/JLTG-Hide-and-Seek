@@ -531,6 +531,26 @@ textarea.field { resize: vertical; }
   margin-left: 0.4em;
 }
 
+/* v2 Phase 2 (items G + H). A draft draws its boundary but eliminates nothing; a hidden
+   question eliminates but draws nothing. Both are states a seeker has to be able to read off
+   the list at a glance, because in each case the MAP alone is misleading about what the
+   question is doing — a draft's boundary sits over unshaded ground, and a hidden question's
+   shading has no visible cause. Neither is an error, so neither uses the danger colour. */
+.li-draft {
+  color: var(--accent, #38bdf8);
+  font-weight: 600;
+  font-size: 0.85em;
+  white-space: nowrap;
+  margin-left: 0.4em;
+}
+.li-hidden {
+  color: var(--muted, #94a3b8);
+  font-weight: 600;
+  font-size: 0.85em;
+  white-space: nowrap;
+  margin-left: 0.4em;
+}
+
 
 /* Context menu (long-press actions) */
 .ctx-menu {
