@@ -359,6 +359,42 @@ Suite: **868 → 892 tests, all passing.**
 
 Suite: **892 → 920 tests, all passing.**
 
+## v2 audit — one gap found and closed
+
+After all six phases were pushed, every new module was checked for **reachability from the
+running app**, and each phase was then re-verified functionally in a real browser rather than
+only through its unit tests.
+
+**Item O was orphaned.** `src/station-import.js` had 22 passing tests and nothing in the app
+imported it — the parser existed, the feature did not. A player could not import a station
+list. Now wired into Stations ▸ *Import list (CSV / GeoJSON / KML)*, by file or paste, with
+merge (default) or replace. Merge is the default deliberately: it can only add, while replace
+discards a set that may carry eliminations the seeker reasoned their way to, so the
+destructive option is the one you have to choose. An import clears `confirmedAt`, because a
+changed set has not been agreed yet.
+
+This is worth recording as a process point, not just a fix: a green suite proved the parser
+correct and said nothing about whether the feature was connected. Reachability is a separate
+property and now has its own check.
+
+`src/oracle.js` is also imported by no `src/` file, but that is **by design** — it is a test
+fixture and a future post-game debrief tool, never a live answering path (§10.6).
+
+### Per-phase functional audit (real app, stubbed Google Maps, headless Chromium)
+
+All 16 checks pass:
+
+| Phase | Verified in-app |
+|---|---|
+| 1 | oracle retains the hider; a failing question reports `"compute"` rather than passing silently |
+| 2 | a draft leaves 263 km² where applying it would leave 13; derived distance correct to a line; degeneracy note fires at n=1,2 and is silent at n=5 |
+| 3 | zone rule keeps a station the point rule drops; all four render styles produce geometry; drill-down names the culprit question; station import reachable and merging |
+| 4 | 3 concurrent asks → 1 underlying call; 5xx walks both proxies, 4xx stops after one |
+| 5 | Station's Line is in the bank, dispatches, eliminates via zones, and refuses without a radius; "shorter" eliminates 197 km² vs "different" 131 km² |
+| 6 | share round trip preserves zones and drops notes (518-char link); subtraction cuts a real hole and excludes its centre |
+
+Boot check: 16 modules wired, 0 unexpected console or page errors.
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

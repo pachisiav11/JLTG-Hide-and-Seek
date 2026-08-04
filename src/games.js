@@ -306,6 +306,74 @@ export class Games {
     s.q("#im-go").onclick = () => doImport(s.q("#im-text").value);
   }
 
+  // v2 Phase 3, item O. Parsing lives in src/station-import.js (pure, 22 tests); this is only
+  // the sheet around it.
+  _openStationImport(onDone) {
+    const s = openSheet({
+      title: "Import stations",
+      bodyHTML: `
+        <p class="muted">CSV, GeoJSON or KML. The format is detected from the file's contents, not its name — exports are routinely served with the wrong type.</p>
+        <p class="muted">CSV needs latitude and longitude columns (<code>lat</code>/<code>latitude</code>/<code>y</code>/<code>stop_lat</code> and <code>lng</code>/<code>lon</code>/<code>long</code>/<code>longitude</code>/<code>x</code>/<code>stop_lon</code>); a name column is optional.</p>
+        <input id="si-file" class="field" type="file" accept=".csv,.json,.geojson,.kml,.xml,text/csv,application/json,application/vnd.google-earth.kml+xml" />
+        <label class="fieldlbl">…or paste the file contents</label>
+        <textarea id="si-text" class="field" rows="6" placeholder="name,lat,lng&#10;Churchgate,18.9354,72.8271"></textarea>
+        <label class="fieldlbl">Add to the existing set, or replace it?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="si-mode" value="merge" checked/> Merge — keep what's there, add what's new</label>
+          <label><input type="radio" name="si-mode" value="replace"/> Replace — discard the current set</label>
+        </div>
+        <div class="sheet-actions">
+          <button id="si-cancel" class="btn btn-ghost">Cancel</button>
+          <button id="si-go" class="btn btn-primary">Import</button>
+        </div>
+        <p id="si-status" class="muted"></p>`,
+    });
+    s.q("#si-cancel").onclick = () => s.close();
+
+    const run = async (text, hint) => {
+      const status = s.q("#si-status");
+      let parsed;
+      try {
+        const { parseStations } = await import("./station-import.js");
+        parsed = parseStations(text, hint);
+      } catch (e) {
+        // The parser's messages name the accepted column spellings, so surface them verbatim
+        // rather than replacing them with "invalid file" — the fix is usually one rename.
+        status.textContent = e.message || "Couldn't read that file.";
+        return;
+      }
+      if (!parsed.length) { status.textContent = "No usable stations found in that file."; return; }
+
+      const mode = s.qa('input[name="si-mode"]').find((r) => r.checked)?.value || "merge";
+      const { mergeStations } = await import("./station-import.js");
+      let added = 0, skipped = 0, total = 0;
+      await store.update((g) => {
+        const cur = g.stations?.list || [];
+        const res = mergeStations(cur, parsed, mode);
+        added = res.added; skipped = res.skipped; total = res.list.length;
+        g.stations = {
+          ...(g.stations || {}),
+          source: mode === "replace" ? "import" : (g.stations?.source || "import"),
+          // A changed set has not been agreed yet: re-locking is a deliberate act, and the
+          // counters downstream key off confirmedAt.
+          confirmedAt: null,
+          list: res.list,
+        };
+      });
+      s.close();
+      toast(`Imported ${added} station${added === 1 ? "" : "s"}${skipped ? ` (${skipped} already present)` : ""} — ${total} in the set. Lock it in when you're happy.`);
+      onDone?.();
+    };
+
+    s.q("#si-go").onclick = async () => {
+      const file = s.q("#si-file")?.files?.[0];
+      if (file) return run(await file.text(), file.name || file.type);
+      const text = s.q("#si-text")?.value || "";
+      if (!text.trim()) { s.q("#si-status").textContent = "Choose a file or paste some contents first."; return; }
+      return run(text, "");
+    };
+  }
+
   // ---- Stations (locked station set — PLAYTEST_IDEAS §0) ----
   //
   // A game-owned collection of the stations on this board. Sourced from OSM or Google
@@ -384,6 +452,10 @@ export class Games {
           <button id="st-places" class="btn">🅶 Source from Google Places</button>
         </div>
         <div class="row"><button id="st-pick" class="btn">📍 Add stations (tap map)</button></div>
+        <div class="row">
+          <button id="st-import" class="btn">⇩ Import list (CSV / GeoJSON / KML)</button>
+        </div>
+        <p class="muted">v2: bring in a set your group has already agreed — a Google MyMaps export, a spreadsheet, a GTFS conversion. Re-importing never un-eliminates a station you have already ruled out.</p>
         <p class="muted">Tap the map to drop a station pin, keep tapping to add more, then Done. Use this when a real station doesn't show up from OSM/Places.</p>
         <ul class="list station-list">${rows}</ul>
         ${lineBlock}
@@ -397,6 +469,12 @@ export class Games {
     if (!actions) return s;
 
     const refresh = () => { s.close(); this._stationsSheet(store.getCurrent()); };
+    // v2 Phase 3, item O — import a station list the group already agreed.
+    //
+    // Merge is the default and replace is opt-in: merging can only ever add, while replacing
+    // discards a set that may carry eliminations the seeker reasoned their way to. The
+    // destructive option should be the one you have to choose.
+    s.q("#st-import").onclick = () => this._openStationImport(refresh);
 
     const materialise = async (source) => {
       const btn = s.q(source === "osm" ? "#st-osm" : "#st-places");
