@@ -192,6 +192,50 @@ A seeker does not want to reason about "3,200 km² of shading" — they want to 
 
 Suite: **810 → 854 tests, all passing.**
 
+## v2 Phase 4 — Data resilience (§10.4 items P, Q, R, S, T)
+
+Two real gaps closed and three items found already satisfied. Recording the "already fine"
+ones matters as much as the changes — they are the parts a later pass would otherwise
+"fix" twice.
+
+- **Item R — in-flight de-duplication** (`src/net.js`, 5 tests). A board where several
+  questions need the same rail geometry fired several identical multi-second Overpass
+  queries, because each loader independently missed the cache. Against a volunteer service
+  where ~64% of individual calls already fail, that is both slower for the player and rude to
+  the upstream. `dedupe(key, fn)` collapses concurrent callers onto one request.
+
+  The subtlety is what happens on failure: the entry is released when the promise **settles**,
+  not when it resolves. Caching a rejected promise would let one transient Overpass failure
+  poison that query for the rest of the session, showing a permanent error where a retry
+  would have worked. Wired into the lines and stations loaders — station sets are the
+  most-shared payload on a board, so that is where it earns most.
+
+- **Item P — more than one proxy** (`src/net.js`, `config.example.js`, 9 tests).
+  `OVERPASS_PROXY_URL` now accepts a comma-separated list or an array and tries each in
+  order. A **4xx stops the walk** — a malformed query fails identically everywhere, so
+  retrying it burns the budget and then reports "all proxies down" when the truth is "this
+  query is wrong". That distinction already existed server-side in `overpass.js`; this keeps
+  it client-side rather than flattening it. One configured base behaves exactly as before, so
+  no existing deployment changes.
+
+### Already satisfied — deliberately not re-done
+
+- **Item P (server half)** — endpoint failover across public Overpass instances already
+  exists in `overpass.js`, with a **measured** ordering (maps.mail.ru 83%, overpass-api.de
+  28%, kumi 0% over 61 live attempts) and a multi-pass budget. Nothing was duplicated.
+- **Item Q — cache segmentation** — already done: `lines` and `stations` are separate
+  IndexedDB stores with their own keys, a 30-day TTL, payload pruning, and a **stale-cache
+  fallback** when the network fails. That is what the reference achieves with three named
+  Cache Storage buckets, and the stale fallback is better than what it does.
+- **Item S — simplify board polygons in queries** — does not apply. The proxy takes a
+  **bbox**, not a polygon, so there is no multi-kilobyte ring in the URL to simplify. This is
+  a better shape than the reference's, which inlines every vertex of a hand-drawn board into
+  every query it makes.
+- **Item T — `brand:wikidata` for chains** — not applicable yet: there are no chain cards
+  (McDonald's / 7-Eleven) in the question bank. It belongs with adding one, in Phase 5.
+
+Suite: **854 → 868 tests, all passing.**
+
 ## Phases 47–51 — playtest fixes: live-share reliability, pill clarity, server-computed locked-device alert
 A real-device playtest found the seeker's red dot not reaching the hider's map and no
 clear way to tell whether Live location share settings had actually saved. Investigated

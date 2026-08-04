@@ -26,6 +26,11 @@ window.JLTG_CONFIG = {
   // Also powers the 🚄 Rail toolbar button (§G1), which draws real rail geometry from
   // OpenStreetMap — including the suburban locals Google's transit layer omits. Without
   // this URL that button can only report that no proxy is configured.
+  // v2 Phase 4 (item P): may be a LIST — comma-separated, or an array — and each is tried
+  // in order until one answers. A 4xx stops the walk (a malformed query fails identically
+  // everywhere); a timeout or 5xx moves on to the next. One value behaves exactly as before,
+  // so an existing config needs no change.
+  //   OVERPASS_PROXY_URL: "https://primary.example, https://backup.example",
   OVERPASS_PROXY_URL: "",
 
   // OPTIONAL (Phase 13): base URL of the Render backend for LIVE MULTIPLAYER sync

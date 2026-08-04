@@ -13,6 +13,7 @@
 // hence `osm:node/<id>` for OSM and `places:<place_id>` for Google Places.
 
 import * as db from "./db.js";
+import { dedupe, withProxyFailover } from "./net.js";
 import { boardBbox } from "./lines.js";
 
 // Rail geometry TTL is 30 days; stations move even less often, but the same reasoning
@@ -58,7 +59,11 @@ export async function loadStationsFromOsm(bbox, { proxyBase = null, now = Date.n
   }
 
   try {
-    const data = await fetchFromProxy(proxyBase, bbox);
+    // v2 Phase 4 (items P + R) — see the matching block in lines.js. Station sets are the
+    // most-shared payload on a board (every station-relative question wants the same one),
+    // so this is where de-duplication earns the most.
+    const data = await dedupe(`stations:${key}`, () =>
+      withProxyFailover(proxyBase, (base) => fetchFromProxy(base, bbox)));
     try { await dbImpl.put("lines", { key, source: "osm", bbox, fetchedAt: now, data }); } catch { /* over quota */ }
     return { ...data, from: "network" };
   } catch (err) {

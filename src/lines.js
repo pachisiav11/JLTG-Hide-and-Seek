@@ -17,6 +17,7 @@
 // one stroke per physical way. But modes are now user-visible and individually switchable, so
 // a mode's colour is what makes the filter legible on the map instead of a guess.
 import * as db from "./db.js";
+import { dedupe, withProxyFailover } from "./net.js";
 import * as store from "./store.js";
 import { toast, loadingToast, openSheet, escapeHtml } from "./ui.js";
 
@@ -371,7 +372,13 @@ export async function loadLines(kind, bbox, { level = null, proxyBase = null, no
   }
 
   try {
-    const data = await fetchFromProxy(proxyBase, kind, bbox, level);
+    // v2 Phase 4 (items P + R). `dedupe` collapses concurrent identical loads — a board where
+    // several questions all need the same rail geometry used to fire several copies of the
+    // same multi-second query, because each caller independently missed the cache.
+    // `withProxyFailover` walks every configured proxy base; with one configured (the
+    // existing shape) it is exactly one call and nothing changes.
+    const data = await dedupe(`lines:${key}`, () =>
+      withProxyFailover(proxyBase, (base) => fetchFromProxy(base, kind, bbox, level)));
     try { await dbImpl.put("lines", { key, kind, bbox, level, fetchedAt: now, data }); } catch { /* over quota — still usable this session */ }
     return { ...data, from: "network" };
   } catch (err) {
