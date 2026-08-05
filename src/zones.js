@@ -54,7 +54,9 @@ export class Zones {
     this.map.setOptions({ draggableCursor: "crosshair" });
     this._draw.listener = this.map.addListener("click", (e) => this._addVertex(e.latLng));
     this._draw.bar = this._makeDrawBar();
-    toast("Tap the map to add points, then Finish.");
+    toast(this._drawMode === "subtract"
+      ? "Tap the map to outline the area to EXCLUDE, then Finish."
+      : "Tap the map to add points, then Finish.");
   }
 
   _addVertex(latLng) {
@@ -119,7 +121,9 @@ export class Zones {
     this._endDraw();
     const subtract = this._drawMode === "subtract";
     this._drawMode = null;
-    const name = await promptZoneName("");
+    // The naming sheet has to follow `subtract` too: "Name this zone" / "Save zone" over a
+    // shape the seeker just drew to CUT OUT reads as if the app misunderstood the action.
+    const name = await promptZoneName("", { excluded: subtract });
     if (name === null) return; // cancelled
     const fallback = subtract
       ? `Excluded ${store.getCurrent().zones.length + 1}`
@@ -198,8 +202,16 @@ export class Zones {
       merged = false;
       return false;
     });
+    // Both toasts below have to follow `mode`. An exclusion reported as "Added" describes the
+    // OPPOSITE of what just happened — the seeker cut the bay out of the board and is told it
+    // was put in — and the area figure beside it (which correctly went DOWN) then reads as a
+    // bug in the geometry rather than a bug in the sentence.
+    const excluded = mode === "subtract";
+
     if (!merged) {
-      toast(`Couldn’t merge “${zone.name}” into the play area, so it wasn’t added. The existing zones are unchanged.`);
+      toast(excluded
+        ? `Couldn’t cut “${zone.name}” out of the play area, so nothing was excluded. The existing zones are unchanged.`
+        : `Couldn’t merge “${zone.name}” into the play area, so it wasn’t added. The existing zones are unchanged.`);
       return null;
     }
     if (toLibrary) await this.saveToLibrary(zone);
@@ -207,7 +219,8 @@ export class Zones {
     // Surface a size sanity-check for the assembled area (Phase 7).
     const g = store.getCurrent();
     const sum = areaSummary(g?.gameArea, g?.settings?.units);
-    toast(sum ? `Added “${zone.name}” · game area ${sum.text}` : `Added “${zone.name}”.`);
+    const verb = excluded ? "Excluded" : "Added";
+    toast(sum ? `${verb} “${zone.name}” · game area ${sum.text}` : `${verb} “${zone.name}”.`);
     return zone;
   }
 
@@ -449,16 +462,17 @@ export class Zones {
 }
 
 // A small bottom-sheet prompt for a zone name. Resolves to the name, or null if cancelled.
-function promptZoneName(initial) {
+function promptZoneName(initial, { excluded = false } = {}) {
   return new Promise((resolve) => {
     let done = false;
     const s = openSheet({
-      title: "Name this zone",
+      title: excluded ? "Name this excluded area" : "Name this zone",
       bodyHTML: `
-        <input id="zn-name" class="field" type="text" placeholder="e.g. Marina Bay" value="${escapeHtml(initial)}" />
+        ${excluded ? `<p class="muted">This area will be cut OUT of the board — everything inside it is out of play.</p>` : ""}
+        <input id="zn-name" class="field" type="text" placeholder="${excluded ? "e.g. the bay, the airfield" : "e.g. Marina Bay"}" value="${escapeHtml(initial)}" />
         <div class="sheet-actions">
           <button id="zn-cancel" class="btn btn-ghost">Cancel</button>
-          <button id="zn-save" class="btn btn-primary">Save zone</button>
+          <button id="zn-save" class="btn btn-primary">${excluded ? "Exclude this area" : "Save zone"}</button>
         </div>`,
       onClose: () => { if (!done) resolve(null); },
     });
