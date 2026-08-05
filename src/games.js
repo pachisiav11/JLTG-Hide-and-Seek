@@ -6,22 +6,21 @@ import { getPaletteName, setPalette } from "./palette.js";
 import { makeManualStation } from "./stations.js";
 import { formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
-import * as places from "./places.js";
 import { guideBodyHTML } from "./guide.js";
 import { formatBuildStamp } from "./build-info.js";
 import { isNativeCapacitor } from "./bg-spike.js";
 import { queryGrants, wizardHTML, openSettingsFor, alertsReachCopy, mountReadinessNote } from "./native-permissions.js";
 
 export class Games {
-  constructor(zones, { boundaries = null, features = null, library = null, map = null, lines = null, liveShare = null, layers = null } = {}) {
+  constructor(zones, { boundaries = null, features = null, library = null, liveShare = null, layers = null } = {}) {
     this.zones = zones; // used to fit the map after opening a game
     this.boundaries = boundaries; // reference-boundary overlays (cleared on wipe)
     this.features = features; // transient map features (route/measure/transit)
     this.library = library; // reusable custom categories + pins (Phase 9)
-    this.map = map; // used for Places-sourced stations (Places needs a map ref)
-    this.lines = lines; // rail line data — needed for A4 "eliminate this line's stations"
     this.liveShare = liveShare; // §C5 live seeker↔hider location channel
     this.layers = layers; // map-tap point picking — "Add stations (tap map)"
+    // `map` and `lines` used to be held here for board-wide Places station sourcing and for
+    // eliminate-by-line. Both features are gone, and nothing else in this class touched them.
   }
 
   // ---- Top menu ----

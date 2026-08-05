@@ -1,8 +1,8 @@
 // Phase 38 (Stage 4): in-app Guide.
 //
 // The tool has grown well past what the original "How to play" sheet covers —
-// a locked station set with map interactions, a live seeker↔hider location
-// channel, and a small family of proximity alerts. This Guide is the reference
+// station map interactions, a live seeker↔hider location channel, and a small
+// family of proximity alerts. This Guide is the reference
 // for those, split into labelled sections. The Android section below is the
 // off-device fallback copy: on the native shell, Phase 45's games.js replaces it
 // with a LIVE permissions setup wizard (src/native-permissions.js) that detects
@@ -32,10 +32,11 @@ export const GUIDE_SECTIONS = [
     id: "stations",
     title: "🚉 Stations",
     html: `
-      <p class="muted">Lock in the board's stations once (☰ menu ▸ 🚉 Stations, from OSM or Google Places); line-, range- and name-length questions all refer to that set.</p>
+      <p class="muted">A shortlist for the END of a game. When the board has narrowed to a handful of candidates, add them and work through them one at a time. Nothing is sourced and nothing needs setting up first — no question reads this list.</p>
       <ul>
+        <li><strong>📍 Add stations (tap map)</strong> (☰ menu ▸ 🚉 Stations) drops a pin wherever you tap — keep tapping to add more, then Done. No name needed.</li>
         <li><strong>Long-press a station</strong> (or right-click on desktop) for a chooser: 📝 add a note, or ❌ eliminate / ♻️ restore it. A plain tap does nothing, so you can't rule one out by accident.</li>
-        <li><strong>📍 Add stations (tap map)</strong> (in the Stations panel) drops a pin wherever you tap — keep tapping to add more, then Done. Use it when a real station doesn't show up from OSM/Places; no name needed.</li>
+        <li>A shared link carries the shortlist, so a teammate opening it sees the same candidates and the same ones struck off.</li>
       </ul>`,
   },
   {

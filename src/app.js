@@ -228,7 +228,7 @@ async function main() {
       onSeekerPoint: (pt) => seekerDot.update(pt),
       onError: (msg) => toast(`Live share: ${msg}`, 4000),
     });
-    const games = new Games(zones, { boundaries, features, library, map, lines, liveShare, layers });
+    const games = new Games(zones, { boundaries, features, library, liveShare, layers });
     layers.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
@@ -253,7 +253,7 @@ async function main() {
     // whenever location permission is granted).
     const gpsStatus = new GpsStatus({ watch: geoWatch });
     gpsStatus.init();
-    // Phase 6 (A3): render the locked station set as tappable markers so
+    // Render the station shortlist as tappable markers so
     // manually eliminating a station is a one-tap map interaction, not a
     // panel scroll. Reuses game.stations.list (Phase 1) and the eliminated
     // flag + eliminatedBy tag (Phase 4).

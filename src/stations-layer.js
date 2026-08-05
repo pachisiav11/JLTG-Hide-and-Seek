@@ -1,4 +1,4 @@
-// Phase 6 (A3): render the locked station set as tappable markers on the map, so
+// Render the station shortlist as tappable markers on the map, so
 // eliminating a station is a one-tap action on the object itself instead of
 // scrolling a list panel to find it.
 //

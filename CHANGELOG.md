@@ -495,6 +495,35 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — sweeping up after the station list
+
+Leftovers from the removed features, found by asking what still referenced them.
+
+- **`src/guide.js`** still told players to *"Lock in the board's stations once (☰ menu ▸ 🚉
+  Stations, from OSM or Google Places); line-, range- and name-length questions all refer to
+  that set."* Every clause of that was false. It now describes the shortlist, and mentions
+  that a share link carries it. This was the last user-facing description of the old workflow.
+- **`Games` held `map` and `lines`** — the first for board-wide Places sourcing, the second
+  for eliminate-by-line. Both features are gone and nothing else in the class touched either,
+  so the constructor no longer takes them and `app.js` no longer passes them. The
+  `places.js` import they justified goes too.
+- **Dead CSS** for the eliminate-by-line block (`.station-line-list`, `.station-line-row`).
+- **Stale comments** naming the "locked station set" and the retired A3/A4/A5 items.
+
+**Rail is NOT obsolete and stays.** Worth stating, because the removed eliminate-by-line
+lived behind it: the 🚄 panel draws rail lines from OSM, and `candidateLines` — which honours
+the panel's per-line filter — is what both **Transit Line** and **Station's Line** ask for
+their candidates. `lineGroups()` looked orphaned after eliminate-by-line went, but the panel's
+own render and filter still call it.
+
+**Hiding radius stays too, and is required.** It is the only input the Station's Line card has
+for how much ground "near one of these stations" covers, and that card refuses rather than
+guess when it is 0. It would only become removable alongside Station's Line itself.
+
+Verified: 887/887 unit tests; a 12-check browser pass confirming the guide text changed, that
+`Games` no longer carries what it does not use, that Rail is still wired, and that Settings
+kept the radius and lost Zone display. All four browser suites re-run clean.
+
 ## v2 — the station list is now a hand-tapped shortlist
 
 The end of the review. The locked, board-wide station set is gone; what is left is a

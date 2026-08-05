@@ -119,8 +119,7 @@ export async function loadStationsFromPlaces(bbox, { placesImpl } = {}) {
 // Which stations belong to a given rail line, computed as the ids of any station
 // within `toleranceM` metres of any way in the line. Client-side heuristic so this
 // works without a server round trip — the OSM route relations that would give an
-// authoritative membership are a bigger payload to fetch and would block A4 on the
-// (currently broken) backend redeploy.
+// authoritative membership are a bigger payload to fetch.
 //
 // A rail line's `paths` is a list of polylines in [lat, lng] order (the shape lines.js
 // produces via `groupIntoLines`). A station is "on" the line if it lies within the
