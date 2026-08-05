@@ -83,7 +83,25 @@ const run = async (label, hider, plan) => {
   const out = await page.evaluate(async ({ hider, plan, label }) => {
     const { board, stations, museums, parks, RADIUS_M, turf, tools, oracle, hz, nameLen } = window.__play;
     const km2 = (g) => (g && g !== tools.EMPTY_AREA ? turf.area(turf.feature(g)) / 1e6 : 0);
-    const liveStations = (active) => hz.splitByZoneSurvival(active, stations, RADIUS_M).surviving.length;
+    // "How many stations could still hold the hider?" — the basis of the never-resurrect
+    // invariant below.
+    //
+    // This used to call hz.splitByZoneSurvival. That function was removed with the station
+    // counter and drill-down: in the APP nothing ever eliminated a station from geometry
+    // (stations are only eliminated by hand), so it had no caller left. The invariant is
+    // still worth checking here, so the rule lives in the test that needs it — a station
+    // counts as live while ANY part of its zone survives.
+    const liveStations = (active) => {
+      if (!active || active === tools.EMPTY_AREA) return 0;
+      const area = turf.feature(active);
+      return stations.filter((st) => {
+        const zone = hz.zoneFor(st, RADIUS_M);
+        if (!zone) return turf.booleanPointInPolygon(turf.point([st.lng, st.lat]), area);
+        // Undecidable → count it as live. Under-eliminating costs a turn; over-eliminating
+        // is the failure this whole harness exists to catch.
+        try { return !!turf.intersect(turf.featureCollection([zone, area])); } catch (_) { return true; }
+      }).length;
+    };
 
     const mkStep = (spec, i) => {
       const id = `q${i}`;
