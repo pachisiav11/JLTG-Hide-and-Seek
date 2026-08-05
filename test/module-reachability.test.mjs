@@ -3,7 +3,10 @@
 // This exists because of a real failure. `src/station-import.js` shipped in v2 Phase 3 with
 // 22 passing tests and **nothing in the app importing it**: the parser was correct and the
 // feature did not exist, because no UI ever called it. A player could not import a station
-// list. It was caught only by a manual audit after the phase was pushed.
+// list. It was caught only by a manual audit after the phase was pushed. (That module has
+// since been removed outright — it was bulk-loading a station set from a file, which pulls
+// against the station list being a late-game tool — but the failure it demonstrated is
+// general, so the check stays.)
 //
 // The lesson is that a green suite proves a module CORRECT and says nothing about whether it
 // is CONNECTED. Those are separate properties, and only one of them had a check. This is the
@@ -105,8 +108,7 @@ test("the entry point itself resolves and pulls in the core modules", () => {
 test("the v2 feature modules are wired to real call sites", () => {
   const reachable = reachableFrom(ENTRY);
   for (const [mod, feature] of [
-    ["hiding-zones.js", "hiding-zone survival, render styles and drill-down"],
-    ["station-import.js", "CSV / GeoJSON / KML station import"],
+    ["hiding-zones.js", "the hiding-zone overlay and its render styles"],
     ["net.js", "request de-duplication and proxy failover"],
     ["share-link.js", "share a game in a URL"],
   ]) {
