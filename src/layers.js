@@ -1597,14 +1597,9 @@ export class Layers {
   // line cards use for storing their geometry.
   async _matchStationLine(card) {
     const g = store.getCurrent();
-    const stations = (g?.stations?.list || []).filter((st) => !st.eliminated);
-    if (stations.length < 2) {
-      toast("This card needs a station set — build one in Stations (☰ menu) first.");
-      return this.openPanel();
-    }
     const radiusM = g?.settings?.hidingRadiusM || 0;
     if (radiusM <= 0) {
-      toast("Set a hiding radius in Settings ▸ Hiding zones first — without one this question can't rule out any ground.");
+      toast("Set a hiding radius in Settings ▸ Hiding radius first — without one this question can't rule out any ground.");
       return this.openPanel();
     }
 
@@ -1629,37 +1624,182 @@ export class Layers {
     const s = openSheet({
       title: card.label,
       bodyHTML: `
-        <p class="muted">Which line is <strong>your</strong> nearest station on? The hider answers whether theirs is on the same one.</p>
+        <p class="muted">Which line is <strong>your</strong> nearest station on? Stations on it are looked up next, and you confirm them before the question is added.</p>
         ${degeneracyHTML(lines.length, { kind: "lines" })}
         <div class="seg">${list}</div>
-        <label class="fieldlbl">Did the hider answer the same?</label>
+        <div class="sheet-actions"><button id="sl-cancel" class="btn btn-ghost">Cancel</button><button id="sl-next" class="btn btn-primary">Find its stations</button></div>`,
+    });
+    s.q("#sl-cancel").onclick = () => { s.close(); this.openPanel(); };
+    s.q("#sl-next").onclick = async () => {
+      const idx = parseInt(s.qa('input[name="sl-line"]').find((r) => r.checked)?.value ?? "0", 10);
+      const line = lines[idx];
+      if (!line) return toast("Pick a line first.");
+      s.close();
+
+      let found;
+      try { found = await this._stationsOnLine(line, lines, g); }
+      catch (e) { toast(e.message || "Couldn't look up stations for that line."); return this.openPanel(); }
+
+      const chosen = await this._stationLineCandidates(card, line, found);
+      if (!chosen || !chosen.length) return this.openPanel();
+      this._stationLineAnswer(card, line, chosen, radiusM);
+    };
+  }
+
+  // Source the stations sitting on `line`, and work out which OTHER lines each one also
+  // serves so the confirm step can say so.
+  //
+  // Per-question and transient, which is the whole point: this card used to require a
+  // locked, board-wide station set built before the game started. It now looks up only what
+  // this one question needs, the same way the Nearest-station and Name-length cards already
+  // do, and keeps nothing afterwards beyond the stations actually committed to the step.
+  //
+  // OSM first and Places as the fallback, matching places.js's ladder: `railway=station`
+  // is an exact tag, where Google's transit_station is a fuzzier category that also returns
+  // bus stops and station-adjacent malls.
+  async _stationsOnLine(line, allLines, g) {
+    const { boardBbox } = await import("./lines.js");
+    const { loadStationsFromOsm, loadStationsFromPlaces, stationsOnLineWithLabels } = await import("./stations.js");
+    const bbox = boardBbox(g?.gameArea);
+    if (!bbox) throw new Error("Draw a play area first — stations are looked up for the board.");
+
+    const hide = loadingToast(`Finding stations on ${line.label}…`);
+    let stations = [];
+    try {
+      const proxy = window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null;
+      try {
+        ({ stations } = await loadStationsFromOsm(bbox, { proxyBase: proxy }));
+      } catch (osmErr) {
+        // OSM first, Places as the fallback, matching places.js's ladder: `railway=station`
+        // is an exact tag, where Google's transit_station is a fuzzier category that also
+        // returns bus stops and station-adjacent malls.
+        console.warn("OSM stations unavailable, trying Places", osmErr);
+        ({ stations } = await loadStationsFromPlaces(bbox, {
+          placesImpl: { searchCategory: (opts) => places.searchCategory(this.map, opts) },
+        }));
+      }
+    } finally { hide(); }
+
+    return stationsOnLineWithLabels(stations, line, allLines);
+  }
+
+  // Confirm which stations count, showing each one's name AND the lines it serves.
+  //
+  // A checklist rather than a silent commit because the sourcing is the weak link: OSM
+  // tagging is uneven, the 100 m line tolerance is a heuristic, and a station wrongly
+  // included or missed changes which ground the answer keeps. The seeker can see the map
+  // behind the sheet and the markers move as they tick.
+  _stationLineCandidates(card, line, found) {
+    const g = store.getCurrent();
+    const area = g?.gameArea;
+    const feats = found.map((f) => ({ ...f, on: true }));
+    let markers = [];
+    const drawMarkers = () => {
+      markers.forEach((m) => m.setMap(null));
+      markers = feats.map((f, i) => new google.maps.Marker({
+        position: { lat: f.lat, lng: f.lng }, label: `${i + 1}`,
+        opacity: f.on ? 1 : 0.35, map: this.map,
+      }));
+    };
+    drawMarkers();
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (val) => { if (settled) return; settled = true; markers.forEach((m) => m.setMap(null)); resolve(val); };
+
+      const render = () => {
+        const rows = feats.map((f, i) => {
+          // Name the OTHER lines it serves; repeating the chosen one on every row is noise.
+          const others = (f.lines || []).filter((l) => l !== line.label);
+          const sub = others.length
+            ? `<span class="muted"> — also ${escapeHtml(others.join(", "))}</span>`
+            : `<span class="muted"> — ${escapeHtml(line.label)} only</span>`;
+          // Name and lines in ONE span: `.seg label` is a flex row, so leaving them as
+          // separate children makes them separate flex items that wrap independently — the
+          // line list can end up orphaned from the name it belongs to.
+          return `<label class="feat-item" data-name="${escapeHtml((f.name || "").toLowerCase())}">
+             <input type="checkbox" data-idx="${i}" ${f.on ? "checked" : ""}/>
+             <span>${i + 1}. ${escapeHtml(f.name)}${sub}</span>
+           </label>`;
+        }).join("") || `<p class="muted">Nothing found on this line — add the stations by tap, or go back and pick another line.</p>`;
+        const search = feats.length > 8
+          ? `<input class="field feat-search" data-search="slc" placeholder="Filter ${feats.length}…" />` : "";
+        const onCount = feats.filter((f) => f.on).length;
+        const s = openSheet({
+          title: `${escapeHtml(line.label)} — stations`,
+          mapInteractive: true,
+          bodyHTML: `
+            <p class="muted">Tick the stations on <strong>${escapeHtml(line.label)}</strong> that count, and add any the lookup missed. Their hiding zones are what the answer keeps or removes.</p>
+            ${search}
+            <div class="seg feat-list" data-list="slc">${rows}</div>
+            <div class="row"><button id="slc-tap" class="btn">✋ Add by tap</button></div>
+            <div class="sheet-actions">
+              <button id="slc-cancel" class="btn btn-ghost">Cancel</button>
+              <button id="slc-done" class="btn btn-primary">Use selected (${onCount})</button>
+            </div>`,
+        });
+        // Keep the button's count honest as ticks change. Without this it shows the count
+        // from the last full render, so a seeker who unticks two stations still reads "Use
+        // selected (5)" — the one number they are checking before committing.
+        const done = s.q("#slc-done");
+        const syncCount = () => { done.textContent = `Use selected (${feats.filter((f) => f.on).length})`; };
+        s.qa("[data-idx]").forEach((cb) => {
+          cb.onchange = () => { feats[+cb.dataset.idx].on = cb.checked; drawMarkers(); syncCount(); };
+        });
+        this._wireFeatureSearch(s, "slc");
+        s.q("#slc-cancel").onclick = () => { s.close(); finish(null); };
+        done.onclick = () => {
+          const chosen = feats.filter((f) => f.on);
+          if (!chosen.length) { toast("Tick at least one station, or cancel."); return; }
+          s.close(); finish(chosen);
+        };
+        // A hand-placed station is on the chosen line by construction — that is why the
+        // seeker is adding it here — so it needs no membership test.
+        s.q("#slc-tap").onclick = async () => {
+          s.close();
+          const pts = await this.pick(1, "Tap the station's location.", area ? { constrainToArea: true } : {});
+          if (pts) {
+            const ok = await this._confirmPin(pts[0], `Add this as a station on ${line.label}?`);
+            if (ok) {
+              feats.push({
+                id: `manual:${Date.now().toString(36)}_${feats.length}`,
+                name: `Station ${feats.length + 1}`, lat: pts[0].lat, lng: pts[0].lng,
+                lines: [line.label], on: true,
+              });
+              drawMarkers();
+            }
+          }
+          render();
+        };
+      };
+      render();
+    });
+  }
+
+  // Same/different, then commit. Only the stations ON the line are stored: matchingStationLine
+  // filters by `memberIds` and never looks at the rest, so carrying the whole board's stations
+  // on the step (as this card used to) was dead weight in every save and share link.
+  _stationLineAnswer(card, line, chosen, radiusM) {
+    const s = openSheet({
+      title: card.label,
+      bodyHTML: `
+        <p class="muted">Your nearest station is on <strong>${escapeHtml(line.label)}</strong> (${chosen.length} station${chosen.length === 1 ? "" : "s"} confirmed). Did the hider answer the same?</p>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="sl-match" value="yes" checked/> Yes — same line (keep those stations' zones)</label>
           <label><input type="radio" name="sl-match" value="no"/> No — different line (remove them)</label>
         </div>
-        <div class="sheet-actions"><button id="sl-cancel" class="btn btn-ghost">Cancel</button><button id="sl-add" class="btn btn-primary">Add question</button></div>`,
+        <div class="sheet-actions"><button id="sl-back" class="btn btn-ghost">Cancel</button><button id="sl-add" class="btn btn-primary">Add question</button></div>`,
     });
-    s.q("#sl-cancel").onclick = () => { s.close(); this.openPanel(); };
-    s.q("#sl-add").onclick = async () => {
-      const idx = parseInt(s.qa('input[name="sl-line"]').find((r) => r.checked)?.value ?? "0", 10);
-      const line = lines[idx];
-      if (!line) return toast("Pick a line first.");
-      const { stationsWithinLine } = await import("./stations.js");
-      const memberIds = [...stationsWithinLine(stations, line.paths || [])];
-      if (!memberIds.length) {
-        // Refuse rather than commit: "same line" about a line serving no station on this
-        // board eliminates the entire board, which is almost never what happened — it is
-        // nearly always a tolerance or sourcing mismatch.
-        return toast(`No station on this board sits on ${line.label}. Pick another line, or check the station set covers it.`);
-      }
+    s.q("#sl-back").onclick = () => { s.close(); this.openPanel(); };
+    s.q("#sl-add").onclick = () => {
       const match = (s.qa('input[name="sl-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
+      const stations = chosen.map((st) => ({ id: st.id, name: st.name, lat: st.lat, lng: st.lng }));
       this.addStep("matching", {
         mode: "stationLine", category: card.id, categoryLabel: card.label,
-        stations: stations.map((st) => ({ id: st.id, name: st.name, lat: st.lat, lng: st.lng })),
-        memberIds, radiusM, lineLabel: line.label,
+        stations, memberIds: stations.map((st) => st.id), radiusM, lineLabel: line.label,
       }, { match });
       s.close();
-      toast(`Matching question added — ${memberIds.length} station${memberIds.length === 1 ? "" : "s"} on ${line.label}.`);
+      toast(`Matching question added — ${stations.length} station${stations.length === 1 ? "" : "s"} on ${line.label}.`);
     };
   }
 

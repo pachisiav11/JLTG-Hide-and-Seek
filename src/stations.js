@@ -158,6 +158,42 @@ export function stationsWithinLine(stations, wayPaths, { toleranceM = DEFAULT_LI
   }
   return hits;
 }
+// Which stations sit on `chosenLine`, each tagged with EVERY candidate line it serves.
+//
+// Pure, so the membership rules are unit-testable without a browser, a network or a map —
+// which matters more than usual here: this is what decides which ground a "same line" answer
+// keeps, and it is built from two heuristics (a distance tolerance to the way, and whatever
+// OSM happened to tag) rather than from an authoritative route relation.
+//
+// The per-station line list is the reason this returns objects rather than ids. An
+// interchange is exactly the station a seeker second-guesses on the confirm step, and
+// "Dadar — also Central Line" answers that where a bare name does not.
+export function stationsOnLineWithLabels(stations, chosenLine, allLines = [], { toleranceM } = {}) {
+  const opts = toleranceM ? { toleranceM } : {};
+  const onChosen = stationsWithinLine(stations || [], chosenLine?.paths || [], opts);
+  if (!onChosen.size) return [];
+
+  // Membership against every line, not just the chosen one. Computed once per line rather
+  // than per station: stationsWithinLine already walks the whole list.
+  const labelsFor = new Map();
+  for (const l of allLines || []) {
+    if (!l?.label) continue;
+    for (const id of stationsWithinLine(stations || [], l.paths || [], opts)) {
+      if (!labelsFor.has(id)) labelsFor.set(id, []);
+      if (!labelsFor.get(id).includes(l.label)) labelsFor.get(id).push(l.label);
+    }
+  }
+
+  return (stations || [])
+    .filter((st) => onChosen.has(st.id))
+    .map((st) => ({
+      id: st.id, name: st.name, lat: st.lat, lng: st.lng,
+      // Falling back to the chosen line keeps the shape honest when `allLines` was not
+      // supplied — the station IS on it, that is why it is in this list.
+      lines: labelsFor.get(st.id) || (chosenLine?.label ? [chosenLine.label] : []),
+    }));
+}
+
 
 // A4 bulk action: mark every station on the given line as eliminated, tagged with
 // `line:<key>` so a later "restore this line" un-eliminates exactly those and not
