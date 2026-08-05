@@ -304,42 +304,6 @@ export function toggleStationElimination(list, id) {
   return { id, eliminated: entry.eliminated, wasEliminated };
 }
 
-// The count the B1 draft-mode preview shows: "N of Y active stations would be
-// eliminated by this pending step". Pure — takes an already-computed eliminated
-// geometry rather than recomputing, so a caller that has run `computeElimination`
-// once (the layers.js preview does exactly this) does not run it twice.
-//
-// Stations already flagged `eliminated: true` are OUT of the denominator: they are
-// no longer part of the answer domain, and counting them would tell the seeker the
-// pending question narrows a set of size Y when the set they care about is smaller.
-//
-// Returns null when there is nothing meaningful to count — no shape, no
-// stations at all, OR every station has already been eliminated. The last case
-// used to return `{inside: 0, total: 0}` and the sheet rendered "0 of 0 active
-// stations", which is worse than no readout (it looks like a real answer and
-// waits to become a divide-by-zero the moment a caller ever percentages it).
-// Distinguishing "no counter to show" from "the counter is zero" is the
-// caller's job now — layers.js reads null and hides the readout row instead of
-// rendering a meaningless number.
-export function countStationsInEliminated(eliminated, stations) {
-  if (!eliminated || !Array.isArray(stations) || !stations.length) return null;
-  if (typeof window === "undefined" || !window.turf) return null;
-  const turf = window.turf;
-  let shape;
-  try { shape = eliminated.type === "Feature" ? eliminated : turf.feature(eliminated); }
-  catch (_) { return null; }
-  let inside = 0, total = 0;
-  for (const s of stations) {
-    if (s.eliminated) continue;
-    total++;
-    try {
-      if (turf.booleanPointInPolygon(turf.point([s.lng, s.lat]), shape)) inside++;
-    } catch (_) { /* skip a station whose containment can't be computed */ }
-  }
-  if (total === 0) return null;
-  return { inside, total };
-}
-
 // "Add stations (tap map)": a manually-placed station pin, no network source and no
 // name prompt. The old "Select on map" snapped the tap to the NEAREST already-known
 // station — which broke exactly when OSM/Places hadn't surfaced the real station in

@@ -34,7 +34,6 @@ import {
   toggleStationElimination,
   orderStationsAlongLine,
   eliminateStationsInRange,
-  countStationsInEliminated,
 } from "../src/stations.js";
 import { computeElimination } from "../src/tools.js";
 import { evaluateGeofence } from "../src/geofence.js";
@@ -137,20 +136,11 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
   assert.equal(eliminatedByLine.length + activeAfterLine.length, 8, "every station accounted for");
 
   // 5. Phase 2: draft a NEW radar at Malad, 3 km radius, side=in — how many
-  //    still-active stations would it eliminate? Runs BEFORE the manual
-  //    toggle below so there's still at least one active station to count
-  //    (post-toggle every station is eliminated and the counter returns null
-  //    per Phase 16 — a case exercised separately in game-count-stations-empty).
-  const draftRadar = {
-    id: "draft", tool: "radar", enabled: true,
-    inputs: { center: { lat: 19.187, lng: 72.848 }, radius: 3000 },
-    answer: { side: "in" },
-  };
-  const { eliminated } = computeElimination(draftRadar, AREA);
-  const pv = countStationsInEliminated(eliminated, game.stations.list);
-  assert.ok(pv, "preview returns a number while active stations remain");
-  assert.equal(pv.total, game.stations.list.filter((s) => !s.eliminated).length,
-    "denominator EXCLUDES already-eliminated stations, per §B1 contract");
+  //    still-active stations would it eliminate?
+  //
+  //    That counter was removed in the station-list review — it was the one thing
+  //    pushing a seeker to build a station set on turn one. The elimination itself
+  //    is still asserted either side of here; only the readout is gone.
 
   // 6. Phase 6: the seekers realise ONE off-line station (Devipada) is also
   //    ruled out by an ambient clue. A manual toggle wins.

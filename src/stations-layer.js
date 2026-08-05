@@ -18,8 +18,7 @@
 import * as store from "./store.js";
 import { toast, contextMenu, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
-import { zoneRenderGeometry, zoneDiagnosis } from "./hiding-zones.js";
-import { computeElimination } from "./tools.js";
+import { zoneRenderGeometry } from "./hiding-zones.js";
 import { geojsonToPathGroups } from "./geo.js";
 import { toggleStationElimination } from "./stations.js";
 import { addNote } from "./notes.js";
@@ -40,16 +39,18 @@ const LONG_PRESS_MS = 500;
 // Pure: the two actions a station's chooser offers. The toggle label reflects
 // the station's current state so one sheet covers eliminate AND restore.
 // Exported so the menu contents are unit-tested without a Google Maps instance.
-export function stationLongPressActions(station, { hasZone = false } = {}) {
+// A third action, "🔎 What survives here?", used to sit here — a per-station drill-down
+// reporting what percentage of a zone survived and which questions had cut into it. Removed
+// on the owner's call during the station-list review: the station list is a LATE-game
+// instrument for working through the last handful of candidates one at a time, and by then
+// the answer is visible on the map. The zone geometry it read still runs and still protects
+// the board (see _renderZones); only the readout is gone.
+export function stationLongPressActions(station) {
   const eliminated = !!station?.eliminated;
-  const actions = [
+  return [
     { id: "note", label: "📝 Add note here" },
     { id: "toggle", label: eliminated ? "♻️ Restore station" : "❌ Eliminate station" },
   ];
-  // v2 Phase 3 (item N). Only offered when the board HAS a hiding radius: with no zone the
-  // drill-down reduces to "is this point shaded", which the map already shows.
-  if (hasZone) actions.push({ id: "zone", label: "🔎 What survives here?" });
-  return actions;
 }
 
 export class StationsLayer {
@@ -216,51 +217,14 @@ export class StationsLayer {
     const dom = e?.domEvent || null;
     const x = Number.isFinite(dom?.clientX) ? dom.clientX : Math.round((typeof window !== "undefined" ? window.innerWidth : 320) / 2);
     const y = Number.isFinite(dom?.clientY) ? dom.clientY : Math.round((typeof window !== "undefined" ? window.innerHeight : 480) / 2);
-    const radiusM = store.getCurrent()?.settings?.hidingRadiusM || 0;
-    const actions = stationLongPressActions(st, { hasZone: radiusM > 0 });
+    const actions = stationLongPressActions(st);
     contextMenu(x, y, actions.map((a) => ({
       label: a.label,
       onClick: () => {
         if (a.id === "note") return this._addNoteAt(st);
-        if (a.id === "zone") return this._explainZone(st, radiusM);
         return this._toggle(st.id, st.name);
       },
     })));
-  }
-
-  // v2 Phase 3, item N — "if the hider is at THIS station, what does the board say?"
-  //
-  // The question a seeker actually asks late in a game, when the shading has stopped being
-  // the useful representation and the real decision is which of six remaining stations to
-  // drive to. The valuable half is the list of questions ruling the zone out: a zone can be
-  // eliminated by the COMBINATION of two questions while neither does it alone, and the map
-  // cannot show that. Naming them tells the seeker which answer to re-check when a station
-  // they were confident about disappears.
-  async _explainZone(st, radiusM) {
-    const g = store.getCurrent();
-    if (!g?.gameArea) return toast("Draw a play area first — there is nothing to measure a zone against.");
-    let d;
-    try {
-      d = zoneDiagnosis(g.gameArea, g.history || [], st, radiusM, (step) => computeElimination(step, g.gameArea).eliminated);
-    } catch (e) {
-      console.warn("zone diagnosis failed", e);
-      return toast("Couldn't work out what's left of this zone.");
-    }
-    if (!d) return toast("Couldn't work out what's left of this zone.");
-
-    if (d.fraction === null) return toast(`${st.name}: this zone lies outside the play area.`);
-    if (!d.survives) {
-      const why = d.culprits.length
-        ? ` Ruled out by ${d.culprits.length} question${d.culprits.length === 1 ? "" : "s"} (${d.culprits.map((c) => c.tool).join(", ")}).`
-        : "";
-      return toast(`${st.name}: nothing of this zone survives.${why}`);
-    }
-    const pct = Math.round(d.fraction * 100);
-    const km2 = (d.survivingAreaM2 / 1e6).toFixed(2);
-    const why = d.culprits.length
-      ? ` ${d.culprits.length} question${d.culprits.length === 1 ? " has" : "s have"} cut into it (${d.culprits.map((c) => c.tool).join(", ")}).`
-      : " No question has touched it.";
-    toast(`${st.name}: ${pct}% of its zone survives (${km2} km²).${why}`);
   }
 
   async _addNoteAt(st) {

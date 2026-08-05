@@ -6,8 +6,6 @@ import * as store from "./store.js";
 import { createStep } from "./model.js";
 import { geojsonToPathGroups, featuresNearArea, ringSelfIntersections, ringCrossesAntimeridian, distanceToGeometryM } from "./geo.js";
 import { computeElimination, computeActiveArea, describeStep, EMPTY_AREA, partitionDegeneracyNote } from "./tools.js";
-import { countStationsInEliminated } from "./stations.js";
-import { countStationsEliminatedByZone } from "./hiding-zones.js";
 import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
@@ -467,44 +465,26 @@ export class Layers {
     const pal = getPalette();
     const PREVIEW_FILL = { strokeColor: pal.mask.fillColor || "#020a0c", strokeOpacity: 0.75, strokeWeight: 1.5, fillColor: pal.mask.fillColor || "#020a0c", fillOpacity: 0.28, clickable: false, zIndex: 6 };
     const clear = () => { state.overlays.forEach((o) => o.setMap(null)); state.overlays = []; };
-    // v2 Phase 3, item L. With a hiding radius set, a station counts as ruled out only when
-    // its WHOLE zone falls inside the proposed elimination — not merely its centre point.
-    // The point rule over-counts, and it over-counts in the dangerous direction: it reports a
-    // station as eliminated while the hider is standing in the part of its zone that
-    // survived. `hidingRadiusM` defaults to 0, which collapses the zone to the point and
-    // reproduces the old counter exactly, so no existing board changes under a seeker.
-    const countStationsInside = (geom) => {
-      const g = store.getCurrent();
-      const stations = g?.stations?.list || [];
-      const radiusM = g?.settings?.hidingRadiusM || 0;
-      if (radiusM > 0) return countStationsEliminatedByZone(geom, stations, radiusM);
-      return countStationsInEliminated(geom, stations);
-    };
-    const writeReadout = (size, count) => {
+    // The readout used to carry a second half: "N of M active stations would be eliminated",
+    // computed live against the game's station list as the question was being set up.
+    //
+    // Removed on the owner's call during the station-list review. It was the one thing in the
+    // app that pushed a seeker to build a station set on turn one — with no list it read as a
+    // missing setup step ("No station set — see Stations in the ☰ menu"), and the station list
+    // is meant to be a LATE-game instrument for working through the last few candidates, not
+    // a ~500-entry domain assembled before the first question.
+    //
+    // The area figure stays, because that one needs no setup and answers the question the
+    // preview exists for: is this question worth asking. The zone geometry that backed the
+    // counter is untouched and still governs which stations actually survive.
+    const writeReadout = (size) => {
       if (!readoutEl) return;
-      const g = store.getCurrent();
-      const stations = g?.stations?.list || [];
-      const confirmed = g?.stations?.confirmedAt;
-      // Phase 16 (fix #4): a locked set where every station has already been
-      // eliminated returns count=null from the pure counter. Give that its
-      // own message instead of the generic "unavailable" — the seeker knows
-      // exactly why the counter is silent then, and doesn't wonder if it broke.
-      const allEliminated = stations.length > 0 && stations.every((s) => s.eliminated);
-      const stationText = !stations.length
-        ? `<span class="muted">No station set — see Stations in the ☰ menu for a live counter.</span>`
-        : !confirmed
-        ? `<span class="muted">Station set is a draft (see Stations ▸ Lock in for a stable counter).</span>`
-        : allEliminated
-        ? `<span class="muted">No active stations remain — every station in the set is already eliminated.</span>`
-        : count === null
-        ? `<span class="muted">Station count unavailable.</span>`
-        : `<strong>${count.inside}</strong> of ${count.total} active station${count.total === 1 ? "" : "s"} would be eliminated`;
-      readoutEl.innerHTML = `${size} · ${stationText}`;
+      readoutEl.innerHTML = size;
     };
     const render = (step, { sizeLabel }) => {
       clear();
       const g = store.getCurrent();
-      if (!g?.gameArea) { writeReadout(sizeLabel || "", null); return; }
+      if (!g?.gameArea) { writeReadout(sizeLabel || ""); return; }
       let eliminated = null;
       try {
         const out = computeElimination(step, g.gameArea);
@@ -516,7 +496,7 @@ export class Layers {
         }
       }
       state.lastStep = step;
-      writeReadout(sizeLabel || "", countStationsInside(eliminated));
+      writeReadout(sizeLabel || "");
     };
     const remove = () => { clear(); state.lastStep = null; };
     return { render, remove };

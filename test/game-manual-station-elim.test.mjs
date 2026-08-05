@@ -16,7 +16,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { squareArea } from "./helpers/turf-env.mjs";
 import { createGame, normalizeGame } from "../src/model.js";
-import { toggleStationElimination, countStationsInEliminated } from "../src/stations.js";
+import { toggleStationElimination } from "../src/stations.js";
 import { computeElimination } from "../src/tools.js";
 
 const AREA = squareArea([72.8777, 19.176], 0.4);
@@ -69,18 +69,4 @@ test("game 4: manual eliminations survive save/reload (game.stations persists)",
   const reopened = normalizeGame(JSON.parse(JSON.stringify(g)));
   const kept = reopened.stations.list.filter((s) => s.eliminated).map((s) => s.name).sort();
   assert.deepEqual(kept, ["Dahisar", "Devipada"]);
-});
-
-test("game 5: manual eliminations narrow the Phase-2 draft-preview denominator", () => {
-  // The 'N of Y' counter uses countStationsInEliminated, which drops already-
-  // eliminated stations from Y. Two taps → Y drops by 2. Proves the map
-  // interaction and the panel preview see the same eliminated set.
-  const list = STATIONS();
-  const step = { id: "draft", tool: "radar", enabled: true, inputs: { center: { lat: 19.12, lng: 72.85 }, radius: 3000 }, answer: { side: "in" } };
-  const before = countStationsInEliminated(computeElimination(step, AREA).eliminated, list);
-  assert.equal(before.total, 4);
-  toggleStationElimination(list, "osm:node/1");
-  toggleStationElimination(list, "osm:node/2");
-  const after = countStationsInEliminated(computeElimination(step, AREA).eliminated, list);
-  assert.equal(after.total, 2, "the two eliminated stations must drop out of the Y denominator");
 });
