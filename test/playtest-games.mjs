@@ -55,7 +55,6 @@ await page.evaluate(async () => {
   const { store } = window.__jltg;
   const tools = await import('/src/tools.js');
   const oracle = await import('/test/oracle.js');
-  const hz = await import('/src/hiding-zones.js');
   const turf = window.turf;
 
   // A Mumbai-ish board with a realistic scatter of stations and POIs.
@@ -76,26 +75,28 @@ await page.evaluate(async () => {
   const RADIUS_M = 800;
   const nameLen = (n) => (n.replace(/\s*\(.*\)/, '').match(/\p{L}/gu) || []).length;
 
-  window.__play = { board, stations, museums, parks, RADIUS_M, turf, tools, oracle, hz, nameLen, store };
+  window.__play = { board, stations, museums, parks, RADIUS_M, turf, tools, oracle, nameLen, store };
 });
 
 const run = async (label, hider, plan) => {
   const out = await page.evaluate(async ({ hider, plan, label }) => {
-    const { board, stations, museums, parks, RADIUS_M, turf, tools, oracle, hz, nameLen } = window.__play;
+    const { board, stations, museums, parks, RADIUS_M, turf, tools, oracle, nameLen } = window.__play;
     const km2 = (g) => (g && g !== tools.EMPTY_AREA ? turf.area(turf.feature(g)) / 1e6 : 0);
     // "How many stations could still hold the hider?" — the basis of the never-resurrect
     // invariant below.
     //
-    // This used to call hz.splitByZoneSurvival. That function was removed with the station
-    // counter and drill-down: in the APP nothing ever eliminated a station from geometry
-    // (stations are only eliminated by hand), so it had no caller left. The invariant is
-    // still worth checking here, so the rule lives in the test that needs it — a station
-    // counts as live while ANY part of its zone survives.
+    // This used to call into src/hiding-zones.js. That whole module is gone: the station
+    // counter, the per-station drill-down and finally the zone overlay itself were all
+    // removed, and in the APP nothing ever eliminated a station from geometry anyway
+    // (stations are only eliminated by hand). The invariant is still worth checking, so the
+    // rule lives here now — a station counts as live while ANY part of its zone survives.
     const liveStations = (active) => {
       if (!active || active === tools.EMPTY_AREA) return 0;
       const area = turf.feature(active);
       return stations.filter((st) => {
-        const zone = hz.zoneFor(st, RADIUS_M);
+        const zone = RADIUS_M > 0
+          ? turf.circle([st.lng, st.lat], RADIUS_M / 1000, { units: 'kilometers', steps: 32 }).geometry
+          : null;
         if (!zone) return turf.booleanPointInPolygon(turf.point([st.lng, st.lat]), area);
         // Undecidable → count it as live. Under-eliminating costs a turn; over-eliminating
         // is the failure this whole harness exists to catch.

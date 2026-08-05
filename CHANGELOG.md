@@ -495,6 +495,53 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — the station list becomes a late-game instrument
+
+A point-by-point review of everything the station list did, and most of it went. The list is
+meant for working through the last handful of candidates one at a time — not a ~500-entry
+domain assembled before the first question, and not a source of automated conclusions.
+
+**Kept:** map markers, the long-press chooser, manual eliminate/restore, the Stations panel,
+map-tap add, the line and range bulk actions, the Station's Line card.
+
+**Removed, in three passes:**
+
+1. **The per-station "What survives here?" drill-down.** Late in a game, with a short list,
+   the map already shows what it was reporting.
+2. **The "N of M active stations would be eliminated" readout** in the draft preview. This
+   was the single thing pushing a seeker to build a station set on turn one — with no list it
+   read as a missing setup step. The area figure stays; it needs no setup.
+3. **The CSV / GeoJSON / KML import tool.** A bulk-load path presumes you arrived with a
+   file, which is pre-game prep — the thing the list is being pulled away from. 243 lines and
+   22 tests of hand-rolled parsing for the rarest action in the panel. Map-tap covers the
+   sizes that matter.
+4. **The hiding-zone overlay and the whole Zone display setting.** Removed as unfair
+   automation: drawing "everywhere the hider could be" does the seeker's spatial reasoning
+   for them. Circles / merged silhouette / points-only / no-display all go, and
+   `src/hiding-zones.js` with them.
+
+**The finding that made this cascade.** Removing (1) and (2) removed the last consumers of
+the zone-survival rule — and it emerged that nothing in the app had *ever* eliminated a
+station from geometry. Stations are only eliminated by hand (a tap, a line, a range), which
+is a seeker's observation rather than a deduction. The rule existed solely to make those two
+readouts honest, so `zoneSurvives`, `splitByZoneSurvival`, `countStationsEliminatedByZone`,
+`zoneDiagnosis` and `countStationsInEliminated` all went dead at once. Dead safety code that
+reads as if it were enforcing something is worse than none. Removing (4) then orphaned the
+last two functions and the module went entirely.
+
+**`hidingRadiusM` survives, reframed.** It is a RULE the group is playing ("how far from a
+station may a hider be"), not a display setting, and nothing is drawn for it. Its one
+remaining consumer is the Station's Line question, which needs it to know how much ground
+"near one of these stations" covers and refuses outright rather than guess when it is 0. The
+Settings section is renamed **Hiding radius** and its copy rewritten — the old text described
+a station-elimination rule that no longer exists.
+
+The playtest's never-resurrect invariant was preserved by moving the survival rule into the
+test that needs it, rather than dropping the check with the code.
+
+Suite 951 → 895. Full playtest re-run clean: 5 games, 24 turns, hider retained, handoff and
+exclusion holding, 0 console errors. Settings sheet verified in a browser.
+
 ## v2 — no auto-answering, enforced rather than intended
 
 The companion never answers its own questions. That has been the decision since Phase 5 built

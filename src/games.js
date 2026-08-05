@@ -817,21 +817,13 @@ export class Games {
           ${radio("mapStyle", "satellite", mapStyle, "Satellite")}
           ${radio("mapStyle", "dark", mapStyle, "Dark")}
         </div>
-        <h3 class="sub">Hiding zones</h3>
-        <p class="muted">How far from a station the hider may be. A station counts as ruled out only when its <strong>whole</strong> zone is eliminated — with this Off, only the station's exact point is tested, which can rule out a station while the hider is standing in the part of its zone that survived.</p>
+        <h3 class="sub">Hiding radius</h3>
+        <p class="muted">The rule your group is playing: how far from a station a hider may be. Nothing is drawn for it — it is an input to the <strong>Station's Line</strong> question, which needs it to know how much ground "near one of these stations" covers. Set it to the rule you are actually playing; set it too small and that card can rule out the hider.</p>
         <div class="seg">
           ${radio("hidingRadiusM", "0", String(st.hidingRadiusM || 0), "Off (point only)")}
           ${radio("hidingRadiusM", "400", String(st.hidingRadiusM || 0), "400 m")}
           ${radio("hidingRadiusM", "800", String(st.hidingRadiusM || 0), "800 m (~½ mile)")}
           ${radio("hidingRadiusM", "1600", String(st.hidingRadiusM || 0), "1.6 km (~1 mile)")}
-        </div>
-        <h3 class="sub">Zone display</h3>
-        <p class="muted">How surviving hiding zones are drawn. On a dense board the merged silhouette is the readable one — separate circles suggest more distinct places than actually exist where they overlap.</p>
-        <div class="seg">
-          ${radio("zoneStyle", "zones", st.zoneStyle || "zones", "Circles")}
-          ${radio("zoneStyle", "no-overlap", st.zoneStyle || "zones", "Merged silhouette")}
-          ${radio("zoneStyle", "stations", st.zoneStyle || "zones", "Points only")}
-          ${radio("zoneStyle", "no-display", st.zoneStyle || "zones", "Don't draw zones")}
         </div>
         <h3 class="sub">Question timer</h3>
         <p class="muted">Optional soft countdown shown when a question is asked. It never blocks anything.</p>
@@ -892,8 +884,7 @@ export class Games {
       const geofenceMetres = parseInt(s.qa('input[name="geofenceMetres"]').find((r) => r.checked)?.value || "0", 10);
       const geofenceAlertStyle = s.qa('input[name="geofenceAlertStyle"]').find((r) => r.checked)?.value || "vibrate-tone";
       const hidingRadiusM = parseInt(s.qa('input[name="hidingRadiusM"]').find((r) => r.checked)?.value ?? String(st.hidingRadiusM || 0), 10) || 0;
-      const zoneStyle = s.qa('input[name="zoneStyle"]').find((r) => r.checked)?.value || st.zoneStyle || "zones";
-      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, geofenceMetres, geofenceAlertStyle, hidingRadiusM, zoneStyle }));
+      store.update((gg) => (gg.settings = { ...gg.settings, distanceMode, units, questionTimer, geofenceMetres, geofenceAlertStyle, hidingRadiusM }));
       // Palette was already applied live on change; persist the chosen one.
       setPalette(s.qa('input[name="palette"]').find((r) => r.checked)?.value || "default");
       // Persist the device-level map style (already applied live via the event).

@@ -108,7 +108,6 @@ test("the entry point itself resolves and pulls in the core modules", () => {
 test("the v2 feature modules are wired to real call sites", () => {
   const reachable = reachableFrom(ENTRY);
   for (const [mod, feature] of [
-    ["hiding-zones.js", "the hiding-zone overlay and its render styles"],
     ["net.js", "request de-duplication and proxy failover"],
     ["share-link.js", "share a game in a URL"],
   ]) {

@@ -18,8 +18,6 @@
 import * as store from "./store.js";
 import { toast, contextMenu, promptText } from "./ui.js";
 import { getPalette } from "./palette.js";
-import { zoneRenderGeometry } from "./hiding-zones.js";
-import { geojsonToPathGroups } from "./geo.js";
 import { toggleStationElimination } from "./stations.js";
 import { addNote } from "./notes.js";
 
@@ -41,10 +39,9 @@ const LONG_PRESS_MS = 500;
 // Exported so the menu contents are unit-tested without a Google Maps instance.
 // A third action, "🔎 What survives here?", used to sit here — a per-station drill-down
 // reporting what percentage of a zone survived and which questions had cut into it. Removed
-// on the owner's call during the station-list review: the station list is a LATE-game
-// instrument for working through the last handful of candidates one at a time, and by then
-// the answer is visible on the map. The zone geometry it read still runs and still protects
-// the board (see _renderZones); only the readout is gone.
+// on the owner's call during the station-list review, along with the zone overlay this layer
+// used to draw underneath the markers. What is left is the honest minimum: a dot per station,
+// and a way for a seeker to strike one off when THEY have ruled it out.
 export function stationLongPressActions(station) {
   const eliminated = !!station?.eliminated;
   return [
@@ -63,7 +60,6 @@ export class StationsLayer {
     // every marker. Rendering is cheap on 8 stations and expensive on 400.
     this._lastListRef = null;
     this._lastFlagsSig = null;
-    this._lastZoneSig = null;
     this._pressState = null;   // {timer, domEvent} while a long-press is pending
     this._dragHandle = null;   // map dragstart cancels a pending press (it's a pan)
   }
@@ -92,27 +88,16 @@ export class StationsLayer {
     return s;
   }
 
-  // v2 Phase 3 (item M). The zone overlay depends on two SETTINGS as well as the list, and
-  // neither is part of `_flagsSig`. Without them in the signature, changing the hiding radius
-  // or the render style leaves the previous overlay on the map — the redraw is skipped
-  // because the station list itself did not change.
-  _zoneSig(g) {
-    return `${g?.settings?.hidingRadiusM || 0}|${g?.settings?.zoneStyle || "zones"}`;
-  }
-
   render() {
     const g = store.getCurrent();
     const list = g?.stations?.list;
     if (!list || !list.length) return this._clear();
     const flagsSig = this._flagsSig(list);
-    const zoneSig = this._zoneSig(g);
-    if (list === this._lastListRef && flagsSig === this._lastFlagsSig && zoneSig === this._lastZoneSig) return;
+    if (list === this._lastListRef && flagsSig === this._lastFlagsSig) return;
     this._clear();
     this._lastListRef = list;
     this._lastFlagsSig = flagsSig;
-    this._lastZoneSig = zoneSig;
     if (!window.google?.maps) return;
-    this._renderZones(g, list);
     const pal = getPalette();
     // Use palette colours that stand out against the mask/active fills already
     // on the map. Active = the palette's "active" outline; eliminated = the
@@ -144,54 +129,6 @@ export class StationsLayer {
       marker.addListener("mouseup", () => this._cancelPress());
       marker.addListener("rightclick", (e) => { this._cancelPress(); this._openChooser(st, e); });
       this.markers.push(marker);
-    }
-  }
-
-  // v2 Phase 3, item M — draw the surviving hiding zones.
-  //
-  // Only stations that still have surviving zone area are drawn. A zone is the ground the
-  // hider could actually be standing on, so drawing an eliminated one invites the seeker to
-  // search somewhere the board has already ruled out.
-  //
-  // Four styles, because one does not fit every board:
-  //   zones      — a circle each. Most informative, unreadable past ~40 overlapping stations.
-  //   stations   — points only. What the layer did before this existed.
-  //   no-overlap — the merged silhouette. On a dense board this is the only readable option
-  //                and it is also the honest one: separate circles imply more distinct places
-  //                than actually exist where they overlap.
-  //   no-display — nothing. The station list still updates; the map stays clean.
-  //
-  // Zones are non-clickable and sit BELOW the station markers, so the existing long-press
-  // interaction on a marker is unaffected.
-  _renderZones(g, list) {
-    const radiusM = g?.settings?.hidingRadiusM || 0;
-    const style = g?.settings?.zoneStyle || "zones";
-    if (!radiusM || style === "no-display" || style === "stations") return;
-
-    // Hand-eliminated stations and zones the questions have ruled out are both gone.
-    const live = list.filter((st) => !st.eliminated);
-    if (!live.length) return;
-
-    const pal = getPalette();
-    const colour = pal?.active || "#38bdf8";
-    const base = {
-      strokeColor: colour, strokeOpacity: 0.55, strokeWeight: 1,
-      fillColor: colour, fillOpacity: 0.10,
-      clickable: false, zIndex: 2, map: this.map,
-    };
-
-    let geom;
-    try { geom = zoneRenderGeometry(live, radiusM, style); }
-    catch (e) { console.warn("zone render failed", e); return; }
-
-    // A failed union must degrade to circles rather than blanking the overlay — the
-    // silhouette is a readability aid, and losing it should not lose the information.
-    const rings = style === "no-overlap" && geom.union
-      ? geojsonToPathGroups(geom.union.geometry || geom.union)
-      : geom.circles.map((c) => geojsonToPathGroups(c.zone.geometry)).flat();
-
-    for (const paths of rings) {
-      this.markers.push(new google.maps.Polygon({ ...base, paths }));
     }
   }
 
