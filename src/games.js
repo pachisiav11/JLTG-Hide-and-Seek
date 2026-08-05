@@ -3,7 +3,7 @@ import * as store from "./store.js";
 import { DEFAULT_SETTINGS } from "./model.js";
 import { openSheet, toast, loadingToast, escapeHtml, promptText } from "./ui.js";
 import { getPaletteName, setPalette } from "./palette.js";
-import { sourceStationsForGame, eliminateStationsOnLine, restoreStationsOnLine, orderStationsAlongLine, eliminateStationsInRange, restoreStationsInRange, makeManualStation } from "./stations.js";
+import { makeManualStation } from "./stations.js";
 import { formatLocationForClipboard } from "./ingest.js";
 import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
 import * as places from "./places.js";
@@ -259,6 +259,10 @@ export class Games {
         history: payload.history || [],
         railFilter: payload.railFilter || undefined,
         settings: payload.settings || undefined,
+        // A hand-tapped shortlist cannot be re-sourced on the receiving device, so the link
+        // carries it outright. Older links (pre-shortlist) have no `stations` and are left
+        // with an empty one rather than a half-restored set.
+        stations: { list: Array.isArray(payload.stations) ? payload.stations : [] },
       });
       await store.openGame(g.id);
       this.zones?.fitToArea();
@@ -306,28 +310,31 @@ export class Games {
     s.q("#im-go").onclick = () => doImport(s.q("#im-text").value);
   }
 
-  // ---- Stations (locked station set — PLAYTEST_IDEAS §0) ----
+  // ---- Stations (a late-game shortlist) ----
   //
-  // A game-owned collection of the stations on this board. Sourced from OSM or Google
-  // Places at the user's choice — the two return overlapping but not identical sets and
-  // the picker exposes both rather than silently fusing them. Once confirmed, the list
-  // is the authoritative station domain for the rest of the game.
+  // Deliberately small. This was a LOCKED SET: sourced board-wide from OSM or Google Places
+  // before play, confirmed once, and treated as the authoritative station domain for the rest
+  // of the game — which meant a Mumbai or Tokyo board asked the seeker to materialise several
+  // hundred stations on turn one before anything referred to them.
+  //
+  // That is backwards. The list is useful at the END of a game: six candidates left, work
+  // through them one at a time, strike off the ones a photo or an ambient clue rules out. So
+  // the only way to build it is now tapping the map, and there is nothing to lock in.
+  //
+  // Removed with the sourcing: bulk eliminate-by-line, range-along-line ("not past Dahisar"),
+  // the OSM/Places pickers and the confirmation gate. Station's Line no longer reads this list
+  // at all — it sources and confirms its own stations per question (see layers.js).
   async openStations() {
     const g = store.getCurrent();
     if (!g) return;
-    const bbox = g.gameArea;
-    const st = g.stations || { list: [], source: null, confirmedAt: null };
-    if (!bbox) {
-      return this._stationsSheet(g, {
-        info: "Draw a game area first — stations are sourced for the board.",
-        actions: false,
-      });
-    }
-    this._stationsSheet(g);
+    this._stationsSheet(g, g.gameArea ? {} : {
+      info: "Draw a play area first — stations are placed inside it.",
+      actions: false,
+    });
   }
 
   _stationsSheet(g, { info = null, actions = true } = {}) {
-    const st = g.stations || { list: [], source: null, confirmedAt: null };
+    const st = g.stations || { list: [] };
     const rows = st.list.length
       ? st.list.map((s) => `
           <li class="station-row" data-id="${escapeHtml(s.id)}">
@@ -336,61 +343,25 @@ export class Games {
               <span class="${s.eliminated ? "station-out" : ""}">${escapeHtml(s.name)}</span>
             </label>
             <span class="muted">${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</span>
-            <button class="btn btn-ghost btn-sm st-drop" data-id="${escapeHtml(s.id)}" title="Remove from set">🗑</button>
+            <button class="btn btn-ghost btn-sm st-drop" data-id="${escapeHtml(s.id)}" title="Remove from list">🗑</button>
           </li>`).join("")
-      : `<li class="muted">No stations yet — pick a source below and materialise the list.</li>`;
-    const meta = st.confirmedAt
-      ? `<p class="muted">Locked in from <strong>${st.source === "osm" ? "OpenStreetMap" : st.source === "places" ? "Google Places" : "manually placed"}</strong> on ${new Date(st.confirmedAt).toLocaleString()} — ${st.list.length} station${st.list.length === 1 ? "" : "s"}.</p>`
-      : st.list.length
-      ? `<p class="muted">${st.source ? `Sourced from ${st.source}, not yet confirmed` : "Added manually, not yet confirmed"} — ${st.list.length} station${st.list.length === 1 ? "" : "s"} in draft.</p>`
-      : `<p class="muted">No station set for this game yet. Pick a source, or tap the map to add stations.</p>`;
-
-    // A4: bulk-eliminate all stations on a chosen rail line. Only shown once BOTH
-    // a station set exists AND rail lines have been loaded (Rail panel opened), so
-    // we don't offer an action that can only fail. Each line row shows the count
-    // of currently-eliminated stations tagged with THIS line's key so the "Restore"
-    // button surface honestly reflects what it will do.
-    const lineGroups = (this.lines?.lineGroups?.() || []).filter((l) => l.paths?.length);
-    const lineTagCount = (key) => st.list.filter((s) => s.eliminatedBy === `line:${key}`).length;
-    const lineBlock = actions && st.list.length && lineGroups.length ? `
-      <h3 class="sub">Eliminate by line</h3>
-      <p class="muted">Playtest Q1: "not the blue line". Marks every station within 100 m of the line as eliminated; Restore undoes only that line's marks (manual eliminations stay).</p>
-      <ul class="list station-line-list">
-        ${lineGroups.map((l) => {
-          const marked = lineTagCount(l.key);
-          return `<li class="station-line-row">
-            <span>${escapeHtml(l.label)}</span>
-            <span class="muted">${marked ? `${marked} marked` : "—"}</span>
-            <button class="btn btn-ghost btn-sm sl-elim" data-key="${escapeHtml(l.key)}">Eliminate</button>
-            <button class="btn btn-ghost btn-sm sl-range" data-key="${escapeHtml(l.key)}">Range…</button>
-            <button class="btn btn-ghost btn-sm sl-restore" data-key="${escapeHtml(l.key)}" ${marked ? "" : "disabled"}>Restore</button>
-          </li>`;
-        }).join("")}
-      </ul>
-    ` : "";
-    const lineHint = actions && st.list.length && !lineGroups.length
-      ? `<p class="muted"><em>Open the 🚄 Rail panel first to enable per-line elimination.</em></p>`
+      : `<li class="muted">No stations yet — tap the map to add the ones still in play.</li>`;
+    const live = st.list.filter((x) => !x.eliminated).length;
+    const meta = st.list.length
+      ? `<p class="muted"><strong>${live}</strong> still in play of ${st.list.length} added.</p>`
       : "";
 
     const s = openSheet({
       title: "Stations",
       bodyHTML: `
-        <p class="muted">The stations on this board. Locked in once — the rest of the game (line elimination, range elimination, "N of Y" counters) refers to this set.</p>
+        <p class="muted">A shortlist of the stations you are still considering. Add them when a game has narrowed down, then tick one off as you rule it out — here, or by long-pressing its marker on the map.</p>
         ${info ? `<p class="warn-note">${escapeHtml(info)}</p>` : ""}
         ${meta}
         ${actions ? `
-        <div class="row">
-          <button id="st-osm" class="btn">🌍 Source from OSM</button>
-          <button id="st-places" class="btn">🅶 Source from Google Places</button>
-        </div>
         <div class="row"><button id="st-pick" class="btn">📍 Add stations (tap map)</button></div>
-        <p class="muted">Tap the map to drop a station pin, keep tapping to add more, then Done. Use this when a real station doesn't show up from OSM/Places.</p>
         <ul class="list station-list">${rows}</ul>
-        ${lineBlock}
-        ${lineHint}
         <div class="sheet-actions">
-          <button id="st-confirm" class="btn btn-primary" ${st.list.length && !st.confirmedAt ? "" : "disabled"}>Lock in this set</button>
-          <button id="st-clear" class="btn btn-ghost" ${st.list.length ? "" : "disabled"}>Clear set</button>
+          <button id="st-clear" class="btn btn-ghost" ${st.list.length ? "" : "disabled"}>Clear list</button>
         </div>` : ""}
       `,
     });
@@ -398,48 +369,8 @@ export class Games {
 
     const refresh = () => { s.close(); this._stationsSheet(store.getCurrent()); };
 
-    const materialise = async (source) => {
-      const btn = s.q(source === "osm" ? "#st-osm" : "#st-places");
-      btn.disabled = true;
-      btn.textContent = "Loading…";
-      try {
-        const cur = store.getCurrent();
-        const out = await sourceStationsForGame(cur, {
-          source,
-          placesImpl: source === "places" ? { searchCategory: (opts) => places.searchCategory(this.map, opts) } : null,
-        });
-        // Preserve prior per-station edits (eliminated flag, notes) by id: refetching
-        // OSM shouldn't undo a manual elimination the seeker already recorded.
-        const priorById = new Map((cur.stations?.list || []).map((s) => [s.id, s]));
-        const list = out.stations.map((s) => {
-          const prior = priorById.get(s.id);
-          return prior ? { ...s, eliminated: prior.eliminated || false, note: prior.note || null } : s;
-        });
-        store.update((gg) => {
-          gg.stations = {
-            source,
-            bbox: out.bbox,
-            confirmedAt: null, // materialising resets the confirmation — user must re-lock
-            list,
-          };
-        });
-        store.saveNow();
-        toast(`${list.length} station${list.length === 1 ? "" : "s"} from ${source === "osm" ? "OSM" : "Google Places"}.`);
-      } catch (e) {
-        console.warn("station source failed", e);
-        toast(`Couldn't load stations — ${e.message}`);
-        btn.disabled = false;
-        btn.textContent = source === "osm" ? "🌍 Source from OSM" : "🅶 Source from Google Places";
-        return;
-      }
-      refresh();
-    };
-
-    s.q("#st-osm").onclick = () => materialise("osm");
-    s.q("#st-places").onclick = () => materialise("places");
-    // "Add stations (tap map)": keep tapping to drop as many station pins as needed,
-    // each added directly at the tapped point — no snapping to an existing station and
-    // no name prompt (see makeManualStation in stations.js).
+    // Keep tapping to drop as many station pins as needed, each added directly at the tapped
+    // point — no snapping to an existing station and no name prompt (see makeManualStation).
     const pickBtn = s.q("#st-pick");
     if (pickBtn) pickBtn.onclick = async () => {
       if (!this.layers?.pickMulti) return toast("Map isn’t ready.");
@@ -447,7 +378,7 @@ export class Games {
       const pts = await this.layers.pickMulti("Tap the map to drop a station. Tap Done when finished.", { constrainToArea: true });
       if (!pts || !pts.length) return; // cancelled, or Done with nothing added
       store.update((gg) => {
-        if (!gg.stations) gg.stations = { source: null, bbox: null, confirmedAt: null, list: [] };
+        if (!gg.stations) gg.stations = { list: [] };
         if (!Array.isArray(gg.stations.list)) gg.stations.list = [];
         let seq = gg.stations.list.length;
         for (const p of pts) {
@@ -455,25 +386,15 @@ export class Games {
           const manual = makeManualStation(p, seq);
           if (manual) gg.stations.list.push(manual);
         }
-        gg.stations.confirmedAt = null; // the set changed — must re-lock
       });
       store.saveNow();
       toast(`${pts.length} station${pts.length === 1 ? "" : "s"} added.`);
       refresh();
     };
-    s.q("#st-confirm").onclick = () => {
-      store.update((gg) => {
-        if (!gg.stations) return false;
-        gg.stations.confirmedAt = Date.now();
-      });
-      store.saveNow();
-      toast("Station set locked in.");
-      refresh();
-    };
     s.q("#st-clear").onclick = () => {
-      store.update((gg) => { gg.stations = { source: null, bbox: null, confirmedAt: null, list: [] }; });
+      store.update((gg) => { gg.stations = { list: [] }; });
       store.saveNow();
-      toast("Station set cleared.");
+      toast("Station list cleared.");
       refresh();
     };
     for (const el of s.qa(".st-drop")) {
@@ -482,49 +403,8 @@ export class Games {
         store.update((gg) => {
           if (!gg.stations?.list) return false;
           gg.stations.list = gg.stations.list.filter((s) => s.id !== id);
-          gg.stations.confirmedAt = null;
         });
         store.saveNow();
-        refresh();
-      };
-    }
-    for (const el of s.qa(".sl-elim")) {
-      el.onclick = () => {
-        const key = el.dataset.key;
-        const line = lineGroups.find((l) => l.key === key);
-        if (!line) return;
-        let hits = 0;
-        store.update((gg) => {
-          if (!gg.stations?.list) return false;
-          const { hitIds } = eliminateStationsOnLine(gg.stations.list, key, line.paths);
-          hits = hitIds.length;
-        });
-        store.saveNow();
-        toast(hits ? `${hits} station${hits === 1 ? "" : "s"} on ${line.label} marked eliminated.` : `No stations near ${line.label} on this board.`);
-        refresh();
-      };
-    }
-    for (const el of s.qa(".sl-range")) {
-      el.onclick = () => {
-        const key = el.dataset.key;
-        const line = lineGroups.find((l) => l.key === key);
-        if (!line) return;
-        s.close();
-        this._openRangeSheet(line);
-      };
-    }
-    for (const el of s.qa(".sl-restore")) {
-      el.onclick = () => {
-        const key = el.dataset.key;
-        const line = lineGroups.find((l) => l.key === key);
-        let restored = 0;
-        store.update((gg) => {
-          if (!gg.stations?.list) return false;
-          const { changed } = restoreStationsOnLine(gg.stations.list, key);
-          restored = changed.length;
-        });
-        store.saveNow();
-        toast(restored ? `${restored} station${restored === 1 ? "" : "s"} on ${line?.label || key} restored.` : `No line-tagged eliminations to restore.`);
         refresh();
       };
     }
@@ -535,88 +415,13 @@ export class Games {
           const entry = gg.stations?.list?.find((s) => s.id === id);
           if (!entry) return false;
           entry.eliminated = el.checked;
-          // Manual toggle wins over any line tag. Otherwise a station eliminated via
-          // "Eliminate this line" then unchecked here would be silently re-eliminated
-          // by a later "Restore this line", because the tag still matched.
           entry.eliminatedBy = el.checked ? "manual" : null;
         });
-        // Toggling elimination doesn't invalidate the lock; only structural changes do.
+        store.saveNow();
+        refresh();
       };
     }
     return s;
-  }
-
-  // ---- Range elimination on a line (A5 — playtest Q0 "not past Dahisar") ----
-  //
-  // A subsheet driven by orderStationsAlongLine. Two dropdowns pick From and To;
-  // the seeker chooses whether to eliminate the range inclusively (a mid-line
-  // block) or the OUTSIDE of it (the "past X" case — hider is between the two,
-  // everything else is out). Restore un-flips only what this range tagged.
-  _openRangeSheet(line) {
-    const g = store.getCurrent();
-    const list = g?.stations?.list || [];
-    const ordered = orderStationsAlongLine(list, line.paths);
-    if (!ordered.length) {
-      toast(`No stations found on ${line.label}.`);
-      return this._stationsSheet(g);
-    }
-    const rangeTag = `line:${line.key}:range`;
-    const marked = list.filter((s) => s.eliminatedBy === rangeTag).length;
-    const opts = ordered.map((s, i) => `<option value="${escapeHtml(s.id)}">${i + 1}. ${escapeHtml(s.name)}</option>`).join("");
-    const s = openSheet({
-      title: `Range on ${line.label}`,
-      bodyHTML: `
-        <p class="muted">Playtest Q0: <em>"not past Dahisar"</em>. Order along the line is approximated from the longest way — pick two endpoints, then eliminate the inside or the outside of that range.</p>
-        <label class="fieldlbl">From</label>
-        <select id="r-from" class="field">${opts}</select>
-        <label class="fieldlbl">To</label>
-        <select id="r-to" class="field">${opts}</select>
-        <div class="row">
-          <button id="r-inside" class="btn">Eliminate range (inclusive)</button>
-          <button id="r-outside" class="btn btn-primary">Eliminate <em>outside</em> range</button>
-        </div>
-        <div class="row">
-          <button id="r-restore" class="btn btn-ghost" ${marked ? "" : "disabled"}>Restore range (${marked} marked)</button>
-          <button id="r-back" class="btn btn-ghost">Back to stations</button>
-        </div>
-      `,
-    });
-    // Preselect first + last so the "outside" default is the natural playtest
-    // Q0 shape — "keep only stations 1..last, eliminate everything not between."
-    s.q("#r-to").value = ordered[ordered.length - 1].id;
-
-    const apply = (mode) => {
-      const fromId = s.q("#r-from").value;
-      const toId = s.q("#r-to").value;
-      let n = 0;
-      store.update((gg) => {
-        const cur = gg?.stations?.list;
-        if (!cur) return false;
-        const curOrdered = orderStationsAlongLine(cur, line.paths);
-        const { changed } = eliminateStationsInRange(curOrdered, fromId, toId, line.key, { mode });
-        n = changed.length;
-      });
-      store.saveNow();
-      toast(n ? `${n} station${n === 1 ? "" : "s"} on ${line.label} marked eliminated.` : `Nothing to eliminate for that range.`);
-      s.close();
-      this._stationsSheet(store.getCurrent());
-    };
-    s.q("#r-inside").onclick = () => apply("range");
-    s.q("#r-outside").onclick = () => apply("outside");
-    s.q("#r-restore").onclick = () => {
-      let n = 0;
-      store.update((gg) => {
-        const cur = gg?.stations?.list;
-        if (!cur) return false;
-        const { changed } = restoreStationsInRange(cur, line.key);
-        n = changed.length;
-      });
-      store.saveNow();
-      toast(n ? `${n} station${n === 1 ? "" : "s"} restored.` : "Nothing to restore.");
-      s.close();
-      this._stationsSheet(store.getCurrent());
-    };
-    s.q("#r-back").onclick = () => { s.close(); this._stationsSheet(store.getCurrent()); };
   }
 
   // ---- Live seeker→hider location share (§C5) ----

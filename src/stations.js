@@ -1,20 +1,23 @@
-// Locked station set (PLAYTEST_IDEAS §0, cross-cutting).
+// Station sourcing and line membership.
 //
-// The first-real-world playtest ended AT Devipada — but the app has no concept of
-// "the stations for this game". Range-elimination (Q0 "not past Dahisar"), whole-line
-// exclusion (Q1 "not the blue line"), and name-length matching with visible cross-outs
-// (Q5) all need the same thing: an explicit, tappable, per-game collection of stations
-// with stable ids and known positions.
+// This module used to serve a LOCKED STATION SET: a board-wide collection materialised
+// before play and treated as the authoritative station domain for the rest of the game. That
+// went in the station-list review — it asked a seeker to load several hundred stations on
+// turn one, for a tool that earns its keep at the END of a game with six candidates left.
 //
-// This module is the sourcing side. The panel that shows / edits / confirms the set
-// lives in src/games.js; the persisted shape lives in game.stations (src/model.js).
-// Consumers (A3/A4/A5, and the "would eliminate X of Y stations" counter in B1) key
-// off station ids from the game's list, so those ids must be stable across refetches —
-// hence `osm:node/<id>` for OSM and `places:<place_id>` for Google Places.
+// What remains has two distinct users, and they no longer share a list:
+//
+//   * Station's Line (layers.js) sources stations PER QUESTION and confirms them with the
+//     seeker. `loadStationsFromOsm` / `loadStationsFromPlaces` fetch, and
+//     `stationsOnLineWithLabels` decides which sit on the chosen line. Nothing persists.
+//   * The Stations panel (games.js) is now a hand-built shortlist: `makeManualStation` for a
+//     tapped point, `toggleStationElimination` for striking one off.
+//
+// Ids stay stable across refetches (`osm:node/<id>`, `places:<place_id>`) because the
+// per-question cache is keyed on them and a confirm list should not shuffle under a seeker.
 
 import * as db from "./db.js";
 import { dedupe, withProxyFailover } from "./net.js";
-import { boardBbox } from "./lines.js";
 
 // Rail geometry TTL is 30 days; stations move even less often, but the same reasoning
 // applies — a month-old station list beats an empty list outdoors on a phone with no
@@ -195,136 +198,10 @@ export function stationsOnLineWithLabels(stations, chosenLine, allLines = [], { 
 }
 
 
-// A4 bulk action: mark every station on the given line as eliminated, tagged with
-// `line:<key>` so a later "restore this line" un-eliminates exactly those and not
-// the ones the seeker had already marked out for other reasons.
-//
-// A station previously eliminated with `eliminatedBy = "manual"` is deliberately
-// SKIPPED: the tap-a-station action (Phase 6) is a directly reasoned deduction —
-// a clue photo, a hider slip — and a later bulk rule must not silently overwrite
-// its tag, because a subsequent `restoreStationsOnLine` would then un-eliminate
-// it via the line tag it never should have carried. Line-vs-line clobber is a
-// different case: game 6 in game-line-elimination.test.mjs pins the "later
-// line rule wins" convention, and this fix does not touch it.
-//
-// Returns the mutation as a list of {id, wasEliminated, wasBy} so a caller can
-// build a fold-style undo (Phase 4 does not create a real fold step — the station
-// list is not a fold input — but the undo shape is worth preserving anyway).
-export function eliminateStationsOnLine(stationsList, lineKey, wayPaths, opts = {}) {
-  const hits = stationsWithinLine(stationsList, wayPaths, opts);
-  const changed = [];
-  for (const s of stationsList) {
-    if (!hits.has(s.id)) continue;
-    if (s.eliminatedBy === "manual") continue;
-    changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
-    s.eliminated = true;
-    s.eliminatedBy = `line:${lineKey}`;
-  }
-  return { changed, hitIds: [...hits] };
-}
 
-// Inverse of the above. Restores only the stations this line eliminated — a station
-// the seeker marked out MANUALLY (or via a different line) keeps its state. That is
-// the whole reason `eliminatedBy` exists: a bulk restore must not undo unrelated
-// work.
-export function restoreStationsOnLine(stationsList, lineKey) {
-  const tag = `line:${lineKey}`;
-  const changed = [];
-  for (const s of stationsList) {
-    if (s.eliminatedBy !== tag) continue;
-    changed.push({ id: s.id });
-    s.eliminated = false;
-    s.eliminatedBy = null;
-  }
-  return { changed };
-}
 
-// Phase 7 (A5): order stations along a line, so a range action ("everything past
-// Dahisar", playtest Q0) has something meaningful to iterate over.
-//
-// A rail line's `paths` is many ways, not a single polyline, and OSM does not
-// guarantee they connect head-to-tail. The full correct ordering would need to
-// stitch ways in the right order at the right endpoints, which is a real graph
-// problem — and one this feature doesn't need. What it DOES need is a stable
-// ordering that reads as "north end to south end" (or "airport to city centre")
-// on a typical metro line.
-//
-// The chosen approximation: project every on-line station onto the LONGEST way
-// in the line — the spine — and sort by distance along it. On a real metro line
-// the longest way is almost always the trunk and the shorter ways are branches;
-// stations on branches still project cleanly onto the trunk and end up in
-// roughly the right place. Where this is wrong (a line whose ways are all
-// branches with no dominant trunk) the range picker still offers all stations
-// on the line — just possibly not in walking order.
-export function orderStationsAlongLine(stations, wayPaths, { toleranceM } = {}) {
-  const hits = stationsWithinLine(stations, wayPaths, toleranceM ? { toleranceM } : undefined);
-  const onLine = stations.filter((s) => hits.has(s.id));
-  if (!onLine.length || typeof window === "undefined" || !window.turf) return onLine;
-  const turf = window.turf;
-  // Pick the longest way (by point count as a proxy for length) as the spine.
-  let spine = null;
-  for (const p of wayPaths) if (Array.isArray(p) && (!spine || p.length > spine.length)) spine = p;
-  if (!spine || spine.length < 2) return onLine;
-  let line;
-  try { line = turf.lineString(spine.map(([lat, lng]) => [lng, lat])); }
-  catch (_) { return onLine; }
-  const withKey = [];
-  for (const s of onLine) {
-    let key = 0;
-    try {
-      const np = turf.nearestPointOnLine(line, turf.point([s.lng, s.lat]));
-      key = np?.properties?.location ?? 0;
-    } catch (_) { /* keep key=0 — station sorts to the start rather than dropping */ }
-    withKey.push({ s, key });
-  }
-  withKey.sort((a, b) => a.key - b.key);
-  return withKey.map((x) => x.s);
-}
 
-// Phase 7: eliminate a CONTIGUOUS range of stations on an already-ordered list.
-// `fromId` and `toId` name the endpoints (inclusive); the mutator flips the
-// range's `eliminated` flag and tags each with `line:<key>:range` so a later
-// "restore this range" undoes exactly what this call did without touching manual
-// eliminations or other range actions.
-//
-// `mode`: "range" eliminates from → to inclusive; "outside" eliminates
-// everything NOT in the range (the natural shape of playtest Q0 — "hider is
-// SOUTH of Dahisar, so eliminate everything from Dahisar northward").
-export function eliminateStationsInRange(orderedList, fromId, toId, lineKey, { mode = "range" } = {}) {
-  const fromIdx = orderedList.findIndex((s) => s.id === fromId);
-  const toIdx = orderedList.findIndex((s) => s.id === toId);
-  if (fromIdx < 0 || toIdx < 0) return { changed: [] };
-  const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
-  const inRange = (i) => i >= lo && i <= hi;
-  const tag = `line:${lineKey}:range`;
-  const changed = [];
-  for (let i = 0; i < orderedList.length; i++) {
-    const s = orderedList[i];
-    const shouldEliminate = mode === "outside" ? !inRange(i) : inRange(i);
-    if (!shouldEliminate) continue;
-    // Same manual-tag preservation as eliminateStationsOnLine above.
-    if (s.eliminatedBy === "manual") continue;
-    changed.push({ id: s.id, wasEliminated: !!s.eliminated, wasBy: s.eliminatedBy || null });
-    s.eliminated = true;
-    s.eliminatedBy = tag;
-  }
-  return { changed, lineKey };
-}
 
-// The counterpart to eliminateStationsInRange: restore only the stations THIS
-// range action tagged. Mirrors restoreStationsOnLine — a manual elimination or
-// a whole-line rule stays intact.
-export function restoreStationsInRange(list, lineKey) {
-  const tag = `line:${lineKey}:range`;
-  const changed = [];
-  for (const s of list) {
-    if (s.eliminatedBy !== tag) continue;
-    changed.push({ id: s.id });
-    s.eliminated = false;
-    s.eliminatedBy = null;
-  }
-  return { changed };
-}
 
 // Phase 6 (A3): toggle a single station's `eliminated` flag by id, applying the
 // same convention as the Stations panel (`eliminatedBy = "manual"` when the user
@@ -358,21 +235,3 @@ export function makeManualStation(point, seq) {
   };
 }
 
-// Turn a game + a source pick into the station list the game should lock in. Board
-// bbox is derived from the game's own area, so the returned set covers exactly the
-// ground the game is played on — a station 30 km beyond the board is not a candidate
-// answer to any question here.
-export async function sourceStationsForGame(game, { source = "osm", proxyBase = null, placesImpl = null, dbImpl = db, now = Date.now() } = {}) {
-  const bbox = boardBbox(game?.gameArea);
-  if (!bbox) throw new Error("Draw a game area first — stations are sourced for the board.");
-  if (source === "osm") {
-    const proxy = proxyBase ?? (typeof window !== "undefined" ? window.JLTG_CONFIG?.OVERPASS_PROXY_URL || null : null);
-    const data = await loadStationsFromOsm(bbox, { proxyBase: proxy, now, dbImpl });
-    return { ...data, source: "osm", bbox };
-  }
-  if (source === "places") {
-    const data = await loadStationsFromPlaces(bbox, { placesImpl });
-    return { ...data, source: "places", bbox };
-  }
-  throw new Error(`Unknown station source "${source}" (expected "osm" or "places").`);
-}

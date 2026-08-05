@@ -8,14 +8,19 @@
 // playtest, in the same session order the app supports.
 //
 // Game 1 — "Andheri chase" (phases 1, 2, 3, 4, 6, 8):
-//   set up the hider's zone → source stations from OSM → toggle the geofence on
-//   with vibrate+tone → seeker eliminates the blue line → verifies the draft
-//   preview count → makes a wrong-turn manual toggle to fix a mistake.
+//   set up the hider's zone → toggle the geofence on with vibrate+tone → the
+//   seeker builds a late-game station shortlist by tapping the map and strikes
+//   candidates off it one at a time.
 //
-// Game 2 — "WhatsApp relay" (phases 5, 7, 10, 11):
-//   seeker WhatsApps their coords → hider pastes them → uses range elim ("south
-//   of Dahisar") → drops a note pin for an off-app clue → copies own location
-//   for reply and round-trips it back through the parser.
+// Game 2 — "WhatsApp relay" (phases 5, 10, 11):
+//   seeker WhatsApps their coords → hider pastes them → drops a note pin for an
+//   off-app clue → copies own location for reply and round-trips it back
+//   through the parser.
+//
+// The station-list review removed board-wide sourcing, whole-line elimination and
+// range-along-line, so the steps that used them are gone rather than rewritten —
+// there is no longer anything to compose them WITH. What remains of stations here
+// is the tap-and-strike-off shortlist that replaced them.
 //
 // Game 3 — "Live share close approach" (phases 9, 12 + composition with 3, 8):
 //   hider joins a live-share session as receiver → seeker publishes a live point
@@ -26,15 +31,7 @@ import assert from "node:assert/strict";
 import { squareArea, turf } from "./helpers/turf-env.mjs";
 
 import { createGame, normalizeGame } from "../src/model.js";
-import {
-  sourceStationsForGame,
-  stationsWithinLine,
-  eliminateStationsOnLine,
-  restoreStationsOnLine,
-  toggleStationElimination,
-  orderStationsAlongLine,
-  eliminateStationsInRange,
-} from "../src/stations.js";
+import { makeManualStation, toggleStationElimination } from "../src/stations.js";
 import { computeElimination } from "../src/tools.js";
 import { evaluateGeofence } from "../src/geofence.js";
 import { formatLocationForClipboard } from "../src/ingest.js";
@@ -48,47 +45,10 @@ import * as store from "../src/store.js";
 // ----------------------------------------------------------------------------
 const AREA = squareArea([72.8777, 19.176], 0.4);
 
-const OSM_PAYLOAD = { stations: [
-  { id: "osm:node/100", name: "Devipada",  lat: 19.2400, lng: 72.8700, kind: "halt" },
-  { id: "osm:node/101", name: "Dahisar",   lat: 19.2500, lng: 72.8600, kind: "station" },
-  { id: "osm:node/102", name: "Kandivali", lat: 19.2050, lng: 72.8500, kind: "station" },
-  { id: "osm:node/103", name: "Borivali",  lat: 19.2280, lng: 72.8570, kind: "station" },
-  { id: "osm:node/104", name: "Malad",     lat: 19.1870, lng: 72.8480, kind: "station" },
-  { id: "osm:node/105", name: "Goregaon",  lat: 19.1650, lng: 72.8500, kind: "station" },
-  { id: "osm:node/106", name: "Jogeshwari",lat: 19.1370, lng: 72.8480, kind: "station" },
-  { id: "osm:node/107", name: "Andheri",   lat: 19.1200, lng: 72.8460, kind: "station" },
-], counts: { raw: 8, kept: 8 } };
-
-// A single north-south "Blue Line 1" running through Andheri → Dahisar. Every
-// station in the fixture except Devipada (a halt one node east) is close enough
-// to be considered on it, once we widen the tolerance for the fixture geometry.
-const BLUE_LINE = {
-  key: "subway:1",
-  label: "Line 1",
-  paths: [[
-    [19.12, 72.846],  // Andheri
-    [19.137, 72.848],
-    [19.165, 72.850],
-    [19.187, 72.848],
-    [19.205, 72.850],
-    [19.228, 72.857],
-    [19.240, 72.860],
-    [19.250, 72.860], // Dahisar
-  ]],
-};
-
-function freshDbImpl() {
-  const s = new Map();
-  return { get: async (_st, k) => s.get(k) || null, put: async (_st, v) => { s.set(v.key, v); } };
-}
-
 // ============================================================================
 // GAME 1 — Andheri chase.
 // ============================================================================
-test("game 1: hider sets up in Andheri; seeker tightens with line + preview + manual toggle", async () => {
-  const dbImpl = freshDbImpl();
-  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => OSM_PAYLOAD });
-
+test("game 1: hider sets up in Andheri; seeker builds a shortlist and strikes it down", () => {
   // 1. Board created; hider zone = 500 m circle around Andheri.
   const game = createGame({
     name: "Andheri chase",
@@ -97,13 +57,7 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
     settings: { geofenceMetres: 80, geofenceAlertStyle: "vibrate-tone" },
   });
 
-  // 2. Phase 1: source the locked station set from OSM.
-  const sourced = await sourceStationsForGame(game, { source: "osm", proxyBase: "http://x", dbImpl });
-  game.stations = { source: "osm", bbox: sourced.bbox, confirmedAt: Date.now(), list: sourced.stations };
-  assert.equal(game.stations.list.length, 8, "8 stations locked in");
-  assert.ok(game.stations.list.some((s) => s.name === "Devipada"), "the halt is in the set (Phase 1 halt-tag fix)");
-
-  // 3. Phase 3 + 8: hider steps close to the edge; evaluateGeofence returns an
+  // 2. Phase 3 + 8: hider steps close to the edge; evaluateGeofence returns an
   //    approaching alert and the (Phase 8) style pick is honoured. First tick is
   //    a warm-up so `prior.inside` is set, otherwise a first-time "approaching"
   //    ping is refused by the crossing-side gate.
@@ -126,42 +80,43 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
   assert.equal(gState.notify.kind, "approaching");
   assert.match(gState.pill, /In zone/, "pill stays visible");
 
-  // 4. Phase 4: seeker asks "same line?" — hider says "not the blue line".
-  //    Bulk-eliminate every station within 200 m of the line's ways.
-  const onLine = stationsWithinLine(game.stations.list, BLUE_LINE.paths, { toleranceM: 200 });
-  assert.ok(onLine.size >= 4, `blue-line hits at least the 4 nearest stations, got ${onLine.size}`);
-  eliminateStationsOnLine(game.stations.list, BLUE_LINE.key, BLUE_LINE.paths, { toleranceM: 200 });
-  const activeAfterLine = game.stations.list.filter((s) => !s.eliminated);
-  const eliminatedByLine = game.stations.list.filter((s) => s.eliminatedBy === `line:${BLUE_LINE.key}`);
-  assert.equal(eliminatedByLine.length + activeAfterLine.length, 8, "every station accounted for");
+  // 3. Late game: the board has narrowed to a handful of candidates, so the seeker
+  //    taps them in. This is the whole station workflow now — no sourcing, no
+  //    lock-in, and nothing exists until a human puts it there.
+  game.stations = { list: [] };
+  const tapped = [
+    { lat: 19.120, lng: 72.846 },
+    { lat: 19.155, lng: 72.850 },
+    { lat: 19.190, lng: 72.855 },
+  ];
+  tapped.forEach((p, i) => game.stations.list.push(makeManualStation(p, i + 1)));
+  assert.equal(game.stations.list.length, 3, "three hand-placed candidates");
+  assert.ok(game.stations.list.every((s) => s.kind === "manual" && s.id.startsWith("manual:")),
+    "every entry is hand-placed — there is no other way to add one");
+  assert.equal(new Set(game.stations.list.map((s) => s.id)).size, 3, "ids are unique across a rapid burst of taps");
 
-  // 5. Phase 2: draft a NEW radar at Malad, 3 km radius, side=in — how many
-  //    still-active stations would it eliminate?
-  //
-  //    That counter was removed in the station-list review — it was the one thing
-  //    pushing a seeker to build a station set on turn one. The elimination itself
-  //    is still asserted either side of here; only the readout is gone.
+  // 4. A photo rules one out. Strike it off; the others are untouched.
+  const ruledOut = game.stations.list[1];
+  toggleStationElimination(game.stations.list, ruledOut.id);
+  assert.equal(ruledOut.eliminated, true);
+  assert.equal(ruledOut.eliminatedBy, "manual", "a seeker's observation, not a deduction");
+  assert.deepEqual(
+    game.stations.list.filter((s) => s.eliminated).map((s) => s.name),
+    [ruledOut.name],
+    "striking one off leaves the rest in play",
+  );
 
-  // 6. Phase 6: the seekers realise ONE off-line station (Devipada) is also
-  //    ruled out by an ambient clue. A manual toggle wins.
-  const dev = game.stations.list.find((s) => s.name === "Devipada");
-  const beforeTag = dev.eliminatedBy;
-  toggleStationElimination(game.stations.list, dev.id);
-  assert.equal(dev.eliminated, true);
-  assert.equal(dev.eliminatedBy, "manual", "manual tag replaces whatever it had");
-  assert.notEqual(dev.eliminatedBy, beforeTag);
+  // 5. And it is reversible — a seeker who mis-taps must be able to undo it.
+  toggleStationElimination(game.stations.list, ruledOut.id);
+  assert.equal(ruledOut.eliminated, false);
+  assert.equal(ruledOut.eliminatedBy, null);
+  toggleStationElimination(game.stations.list, ruledOut.id);
 
-  // 7. Undo the blue-line action: the manual toggle survives.
-  restoreStationsOnLine(game.stations.list, BLUE_LINE.key);
-  assert.equal(dev.eliminated, true, "Devipada stays eliminated — manual tag is not a line tag");
-  const stillEliminated = game.stations.list.filter((s) => s.eliminated).map((s) => s.name).sort();
-  assert.deepEqual(stillEliminated, ["Devipada"], "only the manual eliminations survive the line restore");
-
-  // 8. Round-trip through serialize/normalize — everything above must survive
+  // 6. Round-trip through serialize/normalize — everything above must survive
   //    a reload the way a real PWA close/reopen would exercise.
   const restored = normalizeGame(JSON.parse(JSON.stringify(game)));
-  assert.equal(restored.stations.list.length, 8);
-  assert.equal(restored.stations.list.find((s) => s.name === "Devipada").eliminated, true);
+  assert.equal(restored.stations.list.length, 3);
+  assert.equal(restored.stations.list.find((s) => s.id === ruledOut.id).eliminated, true);
   assert.equal(restored.settings.geofenceMetres, 80);
   assert.equal(restored.settings.geofenceAlertStyle, "vibrate-tone");
 });
@@ -169,25 +124,16 @@ test("game 1: hider sets up in Andheri; seeker tightens with line + preview + ma
 // ============================================================================
 // GAME 2 — WhatsApp relay.
 // ============================================================================
-test("game 2: seeker WhatsApps a location; hider ingests, runs range elim, drops a note, replies with their own location", () => {
+test("game 2: seeker WhatsApps a location; hider ingests, drops a note, replies with their own location", () => {
   const game = createGame({ name: "WhatsApp relay", gameArea: AREA });
-  game.stations = { source: "osm", bbox: "0,0,0,0", confirmedAt: Date.now(), list: OSM_PAYLOAD.stations.map((s) => ({ ...s })) };
+  // A shortlist already built by tapping, as game 1 does.
+  game.stations = { list: [
+    makeManualStation({ lat: 19.19, lng: 72.85 }, 1),
+    makeManualStation({ lat: 19.24, lng: 72.86 }, 2),
+  ] };
+  toggleStationElimination(game.stations.list, game.stations.list[1].id);
 
-  // 1. Phase 7: hider asks "are you north or south of Dahisar?" — seeker says
-  //    "south". Run range elim on the blue line with mode=outside so everything
-  //    NORTH of (and including) Dahisar stays eliminated.
-  const ordered = orderStationsAlongLine(game.stations.list, BLUE_LINE.paths, { toleranceM: 200 });
-  assert.ok(ordered.length >= 4, `blue-line ordering returned ${ordered.length} stations`);
-  // Order runs south→north on this fixture's spine. "South of Dahisar" ⇒ everything
-  // at Dahisar and beyond (northernmost) is out.
-  const dahisar = ordered.find((s) => s.name === "Dahisar");
-  const northmost = ordered[ordered.length - 1];
-  eliminateStationsInRange(ordered, dahisar.id, northmost.id, BLUE_LINE.key, { mode: "range" });
-  const dEntry = game.stations.list.find((s) => s.name === "Dahisar");
-  assert.equal(dEntry.eliminated, true);
-  assert.equal(dEntry.eliminatedBy, `line:${BLUE_LINE.key}:range`, "range tag distinct from whole-line tag");
-
-  // 3. Phase 10: seeker drops a note pin — off-app clue, no elimination effect.
+  // 1. Phase 10: seeker drops a note pin — off-app clue, no elimination effect.
   const noteEntry = addNote(game.notes, { lat: 19.19, lng: 72.85 }, "photo shows a mall");
   assert.ok(noteEntry.id.startsWith("note_"));
   assert.equal(game.notes.length, 1);
@@ -199,20 +145,20 @@ test("game 2: seeker WhatsApps a location; hider ingests, runs range elim, drops
   const eliminatedIdsAfter = game.stations.list.filter((s) => s.eliminated).map((s) => s.id).sort();
   assert.deepEqual(eliminatedIdsBefore, eliminatedIdsAfter, "notes do not eliminate stations");
 
-  // 4. Phase 11: hider copies THEIR OWN location — a clean 5dp "lat, lng" pair.
+  // 2. Phase 11: hider copies THEIR OWN location — a clean 5dp "lat, lng" pair.
   const myLat = 19.076, myLng = 72.877;
   const clipboard = formatLocationForClipboard(myLat, myLng);
   assert.equal(clipboard, "19.07600, 72.87700");
 
-  // 5. Delete one note — the mutation is precise.
+  // 3. Delete one note — the mutation is precise.
   removeNote(game.notes, noteEntry.id);
   assert.equal(game.notes.length, 1);
   assert.equal(game.notes[0].text, "heard train 3:12");
 
-  // 6. Serialize + normalize: eliminated station and remaining note survive.
+  // 4. Serialize + normalize: eliminated station and remaining note survive.
   const round = normalizeGame(JSON.parse(JSON.stringify(game)));
   assert.equal(round.notes.length, 1);
-  assert.equal(round.stations.list.find((s) => s.name === "Dahisar").eliminated, true);
+  assert.equal(round.stations.list.filter((s) => s.eliminated).length, 1);
 });
 
 // ============================================================================

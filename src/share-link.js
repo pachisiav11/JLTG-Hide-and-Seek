@@ -88,22 +88,23 @@ export async function decompressFromToken(token) {
 /**
  * Strip a game down to what a share link needs to carry.
  *
- * Deliberately omits three things:
- *   - `stations.list`, which can be hundreds of entries and is re-sourceable from the board.
- *     Keeping it is what would push an ordinary board past the URL limit. The station
- *     ELIMINATIONS are kept, because those are hand-made deductions that cannot be re-derived.
+ * Deliberately omits two things:
  *   - `notes`, which routinely contain private context ("hider's sister lives here"). A share
  *     link is handed to the other team as often as to a teammate, and a note leaking is not
  *     recoverable. Exporting the JSON file still carries them; that is a deliberate,
  *     file-shaped action rather than a pasted link.
  *   - `redoStack`, which is per-device UI state and means nothing on another phone.
+ *
+ * The station list IS carried, which reverses an earlier decision. It used to be omitted as
+ * "hundreds of entries, re-sourceable from the board", with only the ELIMINATIONS sent as
+ * `stationEliminations` — a field nothing ever read back, so a seeker's station calls
+ * silently did not travel. Both halves of that reasoning are now wrong: the list is a
+ * hand-tapped shortlist of a few points rather than a sourced set, and hand-placed ids
+ * (`manual:…`) cannot be re-derived on another device by any means. Small enough to send,
+ * and impossible to reconstruct if it is not.
  */
 export function toSharePayload(game) {
   if (!game) throw new Error("There is no game to share.");
-  const eliminated = (game.stations?.list || [])
-    .filter((s) => s.eliminated)
-    .map((s) => ({ id: s.id, eliminatedBy: s.eliminatedBy || "manual" }));
-
   return {
     v: 1,
     name: game.name,
@@ -112,8 +113,8 @@ export function toSharePayload(game) {
     history: game.history || [],
     railFilter: game.railFilter || null,
     settings: game.settings || null,
-    // Enough to restore the seeker's manual station calls once the set is re-sourced.
-    stationEliminations: eliminated,
+    // The whole shortlist, eliminations included — see above.
+    stations: game.stations?.list || [],
   };
 }
 

@@ -495,6 +495,44 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — the station list is now a hand-tapped shortlist
+
+The end of the review. The locked, board-wide station set is gone; what is left is a
+shortlist you build by tapping the map when a game has narrowed down.
+
+**Removed:** whole-board sourcing from OSM and Google Places, the "Lock in this set"
+confirmation gate, eliminate-every-station-on-a-line, range-along-a-line ("not past
+Dahisar"), and the `source` / `bbox` / `confirmedAt` fields behind them.
+
+**Kept, and now the whole workflow:** tap the map to add candidates, see them as markers,
+long-press one to strike it off or drop a note. This is what the list was wanted for — six
+candidates left, work through them one at a time — and it was previously the smallest button
+in a sheet that opened by asking you to materialise several hundred stations.
+
+**Station's Line was the blocker, and was rebuilt first** (previous entry): it sources and
+confirms its own stations per question, so no question reads the list any more. That is what
+made the set removable at all.
+
+**A latent bug found on the way out.** Share links carried `stationEliminations` — the ids of
+stations the seeker had ruled out — on the theory that the receiver would re-source the same
+set and re-apply them. Nothing ever read the field back, so those deductions silently did not
+travel, and with hand-placed `manual:` ids they never could have. The link now carries the
+shortlist outright, which is affordable precisely because it is a shortlist: 25 stations sit
+comfortably inside the URL budget where 400 sourced ones were the reason for the original
+omission.
+
+**Old saves open unchanged.** The retired keys are ignored rather than migrated, and there is
+a test asserting a game saved in the old shape still opens with its stations and its
+eliminations intact.
+
+Suite 895 → 886: four test files existed only for sourcing, line elimination and range
+elimination. `game-full-playtest.test.mjs` was rewritten rather than deleted — its games 1
+and 2 now compose the geofence, ingest, notes and live-share phases with the tap-and-strike
+workflow that replaced the removed steps.
+
+Verified: 886/886 unit tests; `test/stations-panel-e2e.mjs` 19/19 in a browser, half of it
+asserting the removed buttons are actually absent; the 5-game playtest still clean.
+
 ## v2 — the station list becomes a late-game instrument
 
 A point-by-point review of everything the station list did, and most of it went. The list is

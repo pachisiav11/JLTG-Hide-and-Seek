@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { squareArea } from "./helpers/turf-env.mjs";
-import { loadStationsFromOsm, loadStationsFromPlaces, sourceStationsForGame, stationsCacheKey } from "../src/stations.js";
+import { loadStationsFromOsm, loadStationsFromPlaces, stationsCacheKey } from "../src/stations.js";
 
 const store = new Map();
 let dbThrows = false;
@@ -76,17 +76,6 @@ test("Places without a key throws — the user asked for Places and it isn't con
   await assert.rejects(() => loadStationsFromPlaces(BBOX, { placesImpl: null }), /Google Places is not available/);
 });
 
-test("sourceStationsForGame refuses a game with no area — stations need a board", async () => {
-  const game = { gameArea: null };
-  await assert.rejects(() => sourceStationsForGame(game, { source: "osm", dbImpl }), /Draw a game area first/);
-});
 
-test("sourceStationsForGame + osm returns the OSM shape plus source metadata", async () => {
-  store.clear();
-  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload });
-  const game = { gameArea: AREA };
-  const out = await sourceStationsForGame(game, { source: "osm", proxyBase: "http://x", dbImpl });
-  assert.equal(out.source, "osm");
-  assert.equal(out.stations.length, 2);
-  assert.ok(out.bbox, "the bbox used must be reported so a later refetch is byte-identical");
-});
+
+

@@ -47,17 +47,18 @@ export function createGame(overrides = {}) {
     zones: overrides.zones || [],          // Zone[]
     gameArea: overrides.gameArea || null,  // GeoJSON polygon (turf.union of zones)
     focusZone: overrides.focusZone || { point: null, radius: null }, // solo target zone (point + radius)
-    // Locked station set (PLAYTEST_IDEAS §0, cross-cutting). Materialised once at game
-    // set-up from OSM (via the Overpass proxy) or from Google Places, then used as the
-    // authoritative station domain for the rest of the game — every "eliminate this
-    // station", "eliminate this line's stations", and "would eliminate X of Y stations"
-    // counter references entries here by id.
+    // A late-game SHORTLIST of stations the seeker is still considering, built by tapping
+    // the map. Entries: {id, name, lat, lng, kind, eliminated?, eliminatedBy?}.
     //
-    // `list` entries: {id, name, lat, lng, kind, eliminated?, note?}. `id` is stable
-    // across refetches (`osm:node/<id>` for OSM, `places:<place_id>` for Places), so a
-    // station the seeker eliminated stays eliminated when the set is re-materialised.
-    // `source` records how the list was populated; null on a fresh game.
-    stations: overrides.stations || { source: null, bbox: null, confirmedAt: null, list: [] },
+    // This was a locked, board-wide set sourced from OSM or Places and confirmed before
+    // play — which asked a seeker to materialise several hundred stations on turn one. The
+    // sourcing, the confirmation gate and the bulk line/range actions that justified it are
+    // all gone; nothing populates this but a human tap, and no question reads it (Station's
+    // Line sources its own stations per question).
+    //
+    // The old shape carried `source`, `bbox` and `confirmedAt` alongside `list`. Saved games
+    // still have them; they are simply ignored, so an old save opens with its stations intact.
+    stations: overrides.stations || { list: [] },
     // Phase 10 (§C1): free-form note pins the seeker drops via long-press on the
     // map. Off-app clues (playtest 1 Q4 "photo of a building", ambient "heard a
     // train at 3:12") became map state instead of getting lost in a WhatsApp

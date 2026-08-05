@@ -94,26 +94,47 @@ test("notes are NOT shared — a link goes to the other team as often as to a te
   assert.doesNotMatch(JSON.stringify(p), /sister/, "no note text may survive into the link");
 });
 
-test("the station list is dropped but its eliminations are kept", () => {
-  // The list is re-sourceable from the board and is what would blow the URL budget. The
-  // eliminations are hand-made deductions that cannot be re-derived, so they travel.
+test("the station shortlist travels in full, eliminations included", () => {
+  // Reversed from the original design, which sent only `stationEliminations` on the grounds
+  // that the list was hundreds of re-sourceable entries. Both halves stopped being true: the
+  // list is now a hand-tapped shortlist of a few points, and a hand-placed `manual:` id
+  // cannot be re-derived on another device by any means. (The old field was also never read
+  // back on load, so those eliminations silently did not travel at all.)
   const p = toSharePayload(game());
-  assert.equal(p.stations, undefined, "the full list must not travel");
-  assert.deepEqual(p.stationEliminations, [{ id: "osm:node/2", eliminatedBy: "manual" }]);
+  assert.equal(p.stationEliminations, undefined, "the write-only field is gone");
+  assert.equal(p.stations.length, 2, "the whole shortlist travels");
+  assert.deepEqual(p.stations.map((s) => s.id), ["osm:node/1", "osm:node/2"]);
+  const b = p.stations.find((s) => s.id === "osm:node/2");
+  assert.equal(b.eliminated, true, "and each entry keeps its elimination");
+  assert.equal(b.eliminatedBy, "manual");
+});
+
+test("a hand-tapped shortlist survives the full round trip to another device", async () => {
+  // The property that matters: what the sender sees is what the receiver gets. Manual ids
+  // are random, so this fails the moment anything tries to re-derive them.
+  const tapped = game({ stations: { list: [
+    { id: "manual:m1x:ab12cd", name: "Station 1", lat: 19.03, lng: 72.83, kind: "manual" },
+    { id: "manual:m1x:ef34gh", name: "Station 2", lat: 19.04, lng: 72.84, kind: "manual", eliminated: true, eliminatedBy: "manual" },
+  ] } });
+  const token = await compressToToken(JSON.stringify(toSharePayload(tapped)));
+  const back = await parseShareToken(token);
+  assert.deepEqual(back.stations, tapped.stations.list);
 });
 
 test("redoStack is dropped — it is per-device UI state", () => {
   assert.equal(toSharePayload(game()).redoStack, undefined);
 });
 
-test("dropping the station list is what keeps a big board shareable", async () => {
-  const big = game({
-    stations: { list: Array.from({ length: 400 }, (_, i) => ({
-      id: `osm:node/${i}`, name: `Station number ${i}`, lat: 19 + i * 1e-4, lng: 72.8 + i * 1e-4,
+test("a shortlist-sized station list stays comfortably inside the URL budget", async () => {
+  // Carrying the list is only affordable because it is a shortlist now. Pin the size that
+  // actually ships: a seeker with 25 candidates left is already an unusually crowded endgame.
+  const shortlist = game({
+    stations: { list: Array.from({ length: 25 }, (_, i) => ({
+      id: `manual:m${i}:zzzzzz`, name: `Station number ${i}`, lat: 19 + i * 1e-4, lng: 72.8 + i * 1e-4,
     })) },
   });
-  const { tooLong } = await buildShareUrl(big, "https://example.test/app/");
-  assert.equal(tooLong, false, "400 stations must not push the link over the limit");
+  const { tooLong, length } = await buildShareUrl(shortlist, "https://example.test/app/");
+  assert.equal(tooLong, false, `25 stations must not push the link over the limit (was ${length})`);
 });
 
 // ---- Untrusted input ----------------------------------------------------

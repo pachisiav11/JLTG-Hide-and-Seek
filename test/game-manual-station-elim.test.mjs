@@ -70,3 +70,23 @@ test("game 4: manual eliminations survive save/reload (game.stations persists)",
   const kept = reopened.stations.list.filter((s) => s.eliminated).map((s) => s.name).sort();
   assert.deepEqual(kept, ["Dahisar", "Devipada"]);
 });
+
+test("a game saved with the OLD station shape still opens with its stations", () => {
+  // Backwards compatibility, asserted rather than assumed. The persisted shape used to be
+  // {source, bbox, confirmedAt, list} — a locked board-wide set. It is now just {list}, a
+  // hand-tapped shortlist. A save from before that change must open with its stations and
+  // their eliminations intact; the three retired keys are simply ignored, not migrated.
+  const old = createGame({
+    name: "From an older build", gameArea: AREA,
+    stations: { source: "osm", bbox: "18.9,72.7,19.3,73.0", confirmedAt: 1721000000000, list: STATIONS() },
+  });
+  toggleStationElimination(old.stations.list, "osm:node/1");
+
+  const reopened = normalizeGame(JSON.parse(JSON.stringify(old)));
+  assert.equal(reopened.stations.list.length, STATIONS().length, "the list survives");
+  assert.equal(reopened.stations.list.find((s) => s.id === "osm:node/1").eliminated, true,
+    "and so does an elimination the seeker made before the change");
+  // Striking one off must still work on a list that came in the old shape.
+  toggleStationElimination(reopened.stations.list, "osm:node/2");
+  assert.equal(reopened.stations.list.find((s) => s.id === "osm:node/2").eliminated, true);
+});
