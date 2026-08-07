@@ -36,17 +36,25 @@ const SEEKER_CLOSE_TAG = "jltg-seeker-close";
 //
 // The presets (500 m / 1 / 2 / 5 km) cover the common cases; this lets a hider
 // dial in an arbitrary distance for a larger or oddly-sized board. Kept pure so
-// the reject/clamp rules are unit-tested without any DOM. Returns null for junk
+// the reject rules are unit-tested without any DOM. Returns null for junk
 // (empty, non-numeric, NaN, ≤ 0, ±Infinity) so the caller can fall back to a
 // preset rather than silently storing a bogus 0/negative threshold; a valid
-// value is rounded to whole metres and clamped to MAX_APPROACH_KM (50 km) so a
-// fat-fingered "500" (km) can't set an alert that never fires.
-export const MAX_APPROACH_KM = 50;
+// value is rounded to whole metres.
+//
+// There is deliberately NO upper bound. It used to clamp to MAX_APPROACH_KM
+// (50 km) on the theory that a fat-fingered "500" meant "5". That guess is
+// wrong in both directions: it silently rewrote the number the hider typed —
+// the exact failure mode section A of the audit exists to remove — and it
+// capped legitimate play. Boards are not all city-sized, and a hider who wants
+// to know the moment a seeker is within 200 km of them (a cross-country game,
+// a train-scale board) was told 50 and given no way to say otherwise. Values
+// too large to be useful are self-evident once set: the pill reads the live
+// distance and the alert fires immediately, which is visible feedback the
+// clamp never gave. Junk is still rejected; only the ceiling is gone.
 export function parseApproachKm(str) {
   const km = typeof str === "number" ? str : parseFloat(String(str ?? "").trim());
   if (!Number.isFinite(km) || km <= 0) return null;
-  const clamped = Math.min(km, MAX_APPROACH_KM);
-  return Math.round(clamped * 1000);
+  return Math.round(km * 1000);
 }
 
 // Phase 47 (playtest fix): "make it instantaneous" — a seeker's ping now goes

@@ -495,6 +495,45 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — the seeker-distance alert has no upper bound
+
+The **Approach threshold** on the live-share sheet — "alert when the seeker is within this
+distance of your zone centre" — used to clamp a custom value to 50 km (`MAX_APPROACH_KM`,
+Phase 28). Typing 500 stored 50. That clamp is gone; the typed value is now stored as typed.
+
+Two things were wrong with it. It **silently rewrote the number the hider entered**, which is
+the same class of failure the v2 audit's section A exists to remove — a threshold the player
+never chose, presented as though it had been honoured. And it **capped legitimate play**: a
+board wider than 50 km could not arm an alert that spanned it, and a hider on a train-scale
+game who wants to know the moment a seeker is within 200 km had no way to say so.
+
+The old justification was that a fat-fingered "500" would "set an alert that never fires" — it
+is the wrong way round (a too-large ring fires immediately and constantly), and either way the
+live pill reads the seeker's distance and the alert's own behaviour makes an absurd value
+obvious within seconds. That is feedback the clamp never gave.
+
+- `parseApproachKm` drops the `Math.min`; `MAX_APPROACH_KM` is deleted, not merely unused, so
+  no caller can re-impose it by accident.
+- The Custom km input loses its `max` attribute, and its `step` goes `0.1` → `any` so the
+  browser stops treating an off-step entry like 1.25 km as invalid — the same `step="any"` the
+  app's other distance fields already use. What is typed is what is used.
+- **Junk is still rejected** — empty, non-numeric, NaN, ±Infinity, zero and negatives all
+  return `null` and fall back to the stored value with a toast, which now reads *"Enter a
+  custom distance in km, greater than zero."* rather than naming a range that no longer exists.
+- Nothing else moved. Radar's radius and Measuring's "your distance" were already unbounded,
+  and the relay's `registerZone` already accepted any finite non-negative threshold, so the
+  server needed no change to agree with the client.
+
+One honest limitation, unchanged by this and worth stating: `metresBetween` is an
+equirectangular approximation, documented as accurate for the sub-kilometre distances the
+geofence and the alert were built for. A 500 km ring is therefore a ring of *roughly* 500 km —
+good to a percent or so, not a surveyed radius. That was always true; removing the ceiling
+just makes it reachable.
+
+Verified: 888/888 unit tests (887 + one pinning that the ceiling constant is gone rather than
+orphaned). The threshold suite now asserts that 500 km stores 500 km and still behaves as a
+real ring — a seeker 585 km out is outside it, and crossing to 6.7 km fires exactly one alert.
+
 ## v2 — sweeping up after the station list
 
 Leftovers from the removed features, found by asking what still referenced them.

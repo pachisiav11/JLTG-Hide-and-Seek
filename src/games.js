@@ -5,7 +5,7 @@ import { openSheet, toast, loadingToast, escapeHtml, promptText } from "./ui.js"
 import { getPaletteName, setPalette } from "./palette.js";
 import { makeManualStation } from "./stations.js";
 import { formatLocationForClipboard } from "./ingest.js";
-import { LiveShare, generateSessionCode, parseApproachKm, MAX_APPROACH_KM } from "./live-share.js";
+import { LiveShare, generateSessionCode, parseApproachKm } from "./live-share.js";
 import { guideBodyHTML } from "./guide.js";
 import { formatBuildStamp } from "./build-info.js";
 import { isNativeCapacitor } from "./bg-spike.js";
@@ -464,7 +464,7 @@ export class Games {
           <label><input type="radio" name="ls-th" value="2000" ${isPreset(2000) ? "checked" : ""}/> 2 km</label>
           <label><input type="radio" name="ls-th" value="5000" ${isPreset(5000) ? "checked" : ""}/> 5 km</label>
           <label><input type="radio" name="ls-th" value="custom" ${isCustom ? "checked" : ""}/> Custom
-            <input id="ls-th-km" class="field field-inline" type="number" step="0.1" min="0" max="${MAX_APPROACH_KM}" value="${escapeHtml(customKm)}" placeholder="km"/> km</label>
+            <input id="ls-th-km" class="field field-inline" type="number" step="any" min="0" value="${escapeHtml(customKm)}" placeholder="km"/> km</label>
         </div>
         <p class="muted">Status: <strong>${shareState?.role ? `${shareState.role} in "${escapeHtml(shareState.code || "")}"` : "not connected"}</strong></p>
         <div class="row">
@@ -498,10 +498,12 @@ export class Games {
       const raw = s.qa('input[name="ls-th"]').find((r) => r.checked)?.value || "2000";
       let v;
       if (raw === "custom") {
-        // Reject junk/≤0/over-max; fall back to the current stored value rather
-        // than a bogus threshold so a mistyped Custom doesn't disarm the alert.
+        // Reject junk/≤0; fall back to the current stored value rather than a
+        // bogus threshold so a mistyped Custom doesn't disarm the alert. There
+        // is no upper bound — see parseApproachKm — so the toast names the one
+        // rule that is left rather than a range.
         v = parseApproachKm(kmInput?.value);
-        if (v == null) { toast(`Enter a custom distance between 0 and ${MAX_APPROACH_KM} km.`); return false; }
+        if (v == null) { toast("Enter a custom distance in km, greater than zero."); return false; }
       } else {
         v = parseInt(raw, 10);
       }
