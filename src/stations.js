@@ -196,8 +196,33 @@ export function stationsOnLineWithLabels(stations, chosenLine, allLines = [], { 
     }));
 }
 
+// The hiding radius, typed in METRES at the point of use.
+//
+// This used to be a four-way radio in Settings (Off / 400 / 800 / 1600 m). Two things were
+// wrong with that. It sat in Settings while having exactly one consumer — the Station's Line
+// question — so a seeker met it long before it meant anything and never again once it did;
+// and four fixed rungs are not the rule any given group is playing. It now lives on that
+// card's own answer sheet as a free number, and this is the parser behind it.
+//
+// Bounds are the group's, not a guess about typos: 1 m is the smallest radius that is not
+// simply "the station point", and 100000 m (100 km) is wider than any board this app draws
+// on. Out-of-range input is REJECTED, never clamped — same rule as parseApproachKm in
+// live-share.js. Silently rewriting a distance a player typed is how a board ends up
+// eliminating ground on a number nobody chose; the caller toasts the range instead.
+//
+// Pure, so the rules are unit-testable without a DOM. Returns null for anything unusable.
+export const MIN_HIDING_RADIUS_M = 1;
+export const MAX_HIDING_RADIUS_M = 100000;
 
-
+export function parseHidingRadiusM(str) {
+  const m = typeof str === "number" ? str : parseFloat(String(str ?? "").trim());
+  if (!Number.isFinite(m)) return null;
+  // Round BEFORE the range test, so 0.6 m — which rounds to 1 — is accepted rather than
+  // refused for being under a bound it actually meets once stored.
+  const rounded = Math.round(m);
+  if (rounded < MIN_HIDING_RADIUS_M || rounded > MAX_HIDING_RADIUS_M) return null;
+  return rounded;
+}
 
 
 

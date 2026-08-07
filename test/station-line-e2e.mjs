@@ -81,16 +81,45 @@ const picked = await page.evaluate(() => window.__picked.then(v => v && v.map(x 
 check('only the ticked stations are returned', JSON.stringify(picked) === JSON.stringify(['Andheri','Dadar']), String(picked));
 
 // Step 3 — the answer sheet, then commit.
+//
+// No seed argument: the sheet is asked to work out its own prefill, which is the path the app
+// actually takes. The radius is TYPED HERE now, not set in Settings — that card was its only
+// consumer, so a seeker used to meet it long before it meant anything and then had to leave
+// the question flow to go and set it.
 await page.evaluate(async ({ card, line }) => {
   const chosen = await window.__picked;
-  window.__jltg.layers._stationLineAnswer(card, line, chosen, 800);
+  window.__jltg.layers._stationLineAnswer(card, line, chosen);
 }, { card: CARD, line: LINE });
 await page.waitForTimeout(600);
 t = await sheetText();
 check('the answer sheet asks same/different', /Did the hider answer the same/.test(t), t.split('\n')[0]);
 check('it names the line and the confirmed count', /Western Line/.test(t) && /2 stations confirmed/.test(t));
+check('it asks for the hiding radius in metres', /Hiding radius/i.test(t) && /In metres, 1[–-]100000/.test(t), (t.match(/In metres.*/) || [''])[0]);
 
-await page.evaluate(() => document.querySelector('#sl-add').click());
+const field = await page.evaluate(() => {
+  const el = document.querySelector('#sl-radius');
+  return el ? { value: el.value, min: el.getAttribute('min'), max: el.getAttribute('max'), step: el.getAttribute('step') } : null;
+});
+check('the field exists and is bounded 1–100000', field?.min === '1' && field?.max === '100000', JSON.stringify(field));
+check('step="any" — a typed value is not snapped to a rung', field?.step === 'any', String(field?.step));
+check('it prefills from the radius this board last used', field?.value === '800', String(field?.value));
+
+// Out of range is REJECTED, never clamped: a mistyped 100001 must not commit a 100 km
+// elimination the seeker never agreed to. The sheet stays open and nothing is stored.
+await page.evaluate(() => {
+  const el = document.querySelector('#sl-radius'); el.value = '100001';
+  document.querySelector('#sl-add').click();
+});
+await page.waitForTimeout(500);
+check('over the ceiling does not commit', await page.evaluate(() => !(window.__jltg.store.getCurrent().history || []).some(x => x.inputs?.mode === 'stationLine')));
+check('the sheet stays open after a rejection', await page.evaluate(() => !!document.querySelector('#sl-radius')));
+check('the rejected number is left alone, not rewritten', await page.evaluate(() => document.querySelector('#sl-radius')?.value) === '100001');
+
+// A custom value no preset ever offered — the point of the change.
+await page.evaluate(() => {
+  const el = document.querySelector('#sl-radius'); el.value = '1250';
+  document.querySelector('#sl-add').click();
+});
 await page.waitForTimeout(800);
 
 const step = await page.evaluate(() => {
@@ -104,7 +133,8 @@ check('a step was committed', !!step, JSON.stringify(step));
 check('it carries ONLY the confirmed stations', step?.n === 2, `${step?.n} stations: ${step?.names}`);
 check('the unticked station is absent', !step?.ids.includes('osm:2'), String(step?.ids));
 check('every carried station is a member', JSON.stringify(step?.ids) === JSON.stringify(step?.members));
-check('the radius came from settings', step?.radius === 800);
+check('the radius is the one typed on the sheet, not a Settings value', step?.radius === 1250, String(step?.radius));
+check('the board remembers it as the next prefill', await page.evaluate(() => window.__jltg.store.getCurrent().settings?.hidingRadiusM) === 1250);
 check('the line label is stored', step?.label === 'Western Line');
 check('no page errors', errs.length === 0, errs.join(' | '));
 

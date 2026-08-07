@@ -432,7 +432,8 @@ function matchingStationLine(step, gameArea) {
     // exact failure this build has been removing everywhere else.
     throw new Error(
       `"Same line" needs a hiding radius: with none set, a station's zone is a single point ` +
-      `and the answer cannot rule out any ground. Set one in Settings ▸ Hiding zones.`,
+      `and the answer cannot rule out any ground. Re-ask the question and type the radius, in ` +
+      `metres, on its answer sheet.`,
     );
   }
 

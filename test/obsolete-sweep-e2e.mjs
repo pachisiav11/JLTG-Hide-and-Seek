@@ -1,10 +1,13 @@
 // Guards the sweep after the station-list removal.
 //
 // Mostly assertions of ABSENCE, in the two places absence is invisible to a unit test: the
-// in-app guide's prose, and what the Games class carries. It also pins the two things that
-// survived and are easy to mistake for casualties — the Rail panel (which the removed
-// eliminate-by-line lived behind, but which still feeds Transit Line and Station\'s Line) and
-// the hiding radius (Station\'s Line\'s only input for how much ground a station covers).
+// in-app guide's prose, and what the Games class carries. It also pins the one thing that
+// survived and is easy to mistake for a casualty — the Rail panel, which the removed
+// eliminate-by-line lived behind but which still feeds Transit Line and Station\'s Line.
+//
+// The hiding radius has since left Settings too, and its absence there is pinned below: it is
+// typed on Station\'s Line\'s own answer sheet now (see test/station-line-e2e.mjs), because
+// that card was always its only consumer.
 //
 // Not part of `npm test` (needs Playwright + a served copy):
 //   npx http-server -p 8899 -s .   then   node test/obsolete-sweep-e2e.mjs
@@ -50,12 +53,13 @@ const railUsers = await page.evaluate(async () => {
 });
 check('candidateLines still exported (Transit Line + Station\'s Line)', railUsers.candidateLines === 'function', JSON.stringify(railUsers));
 
-// Settings: hiding radius is the only station-ish setting left.
+// Settings: no station-ish settings left at all. The hiding radius moved out to the one card
+// that ever read it, so a seeker no longer meets it before it can mean anything.
 await page.evaluate(() => window.__jltg.games.openSettings());
 await page.waitForTimeout(500);
 const st = await page.evaluate(() => document.querySelector('.sheet')?.innerText || '');
 check('Settings has no Zone display', !/Zone display/i.test(st));
-check('Settings keeps Hiding radius', /Hiding radius/i.test(st));
+check('Settings no longer offers Hiding radius', !/Hiding radius/i.test(st), st.replace(/\n/g, ' | ').slice(0, 200));
 check('no page errors', errs.length === 0, errs.join(' | '));
 console.log(`\n${results.filter(Boolean).length}/${results.length} checks passed`);
 await browser.close(); process.exit(results.every(Boolean) ? 0 : 1);

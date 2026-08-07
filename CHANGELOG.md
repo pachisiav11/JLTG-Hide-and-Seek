@@ -495,6 +495,52 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## v2 — the hiding radius is typed where it is used, and is any number of metres
+
+The **hiding radius** — "how far from a station a hider may be" — was a four-way radio in
+Settings: Off / 400 m / 800 m / 1.6 km. It is gone from Settings entirely, and is now typed as
+a free value in metres on the **Station's Line** answer sheet, bounded 1–100000 m (100 km).
+
+It was in the wrong place. The radius has exactly **one** consumer — the Station's Line
+question — so a seeker met it in Settings long before it could mean anything, and then, at the
+moment it did mean something, had to leave the question flow, open Settings, find it among
+map styles and timers, set it, and come back. The card's own guard rail made that worse: with
+no radius set it refused outright, and the toast's advice was to go to Settings. A setting
+whose only job is to unblock one card belongs on that card.
+
+And four fixed rungs are not a rule any given group is actually playing. "Within a five-minute
+walk of a station" is not 400, 800 or 1600 m; it is whatever that group agreed. The radius is
+an input to a real elimination, so a seeker forced to round it to the nearest offered rung is
+eliminating ground on a number nobody chose.
+
+- **`parseHidingRadiusM`** (new, `src/stations.js`) with `MIN_HIDING_RADIUS_M` /
+  `MAX_HIDING_RADIUS_M`. It **rounds before it range-checks**, so a value that lands in range
+  once stored is accepted rather than refused for a bound it actually meets (0.6 m → 1 m;
+  100000.4 → 100000; 0.4 → rejected, because 0 is not a radius).
+- **Out of range is REJECTED, never clamped** — the rule the seeker-distance alert above
+  established, and the same shape as `parseApproachKm`. `100001` returns `null`; the sheet
+  toasts the range, leaves the typed number alone, stays open, and stores nothing. A clamp
+  here would quietly turn a mistyped `1000000` into a 100 km elimination.
+- **The field** is `type="number"` with `min`/`max` from those constants and **`step="any"`**,
+  so the browser does not treat an off-step 1250 m as invalid — the same `step="any"` the app's
+  other distance fields use.
+- **`settings.hidingRadiusM` survives, demoted to a memory.** It is now only the last radius
+  this board used, so the next such question prefills with it — a seed, never the committed
+  value. Each step already stored its own `radiusM`, so this cannot retroactively rewrite a
+  question already on the board. Settings' Save no longer writes the key at all; `...gg.settings`
+  carries it through untouched. Old saves need no migration.
+- **`src/tools.js`**'s no-radius guard no longer points at a Settings screen that has no such
+  control; it says to re-ask the question and type the radius on its answer sheet.
+
+Verified: 897/897 unit tests (888 + 9 new in `test/hiding-radius.test.mjs`, covering the
+bounds, the round-before-range ordering, rejection-not-clamping, and junk). All five browser
+suites green — `station-line-e2e` 25/25 now drives the sheet with **no** seed argument, so the
+prefill path the app actually takes is the one under test: it asserts the field renders
+`min=1 max=100000 step=any` prefilled at 800, that `100001` is refused without committing or
+rewriting the box, and that a typed **1250** — a value no rung ever offered — is what the step
+carries and what the board remembers next time. `obsolete-sweep-e2e` 12/12 pins the absence:
+Settings no longer mentions a hiding radius at all.
+
 ## v2 — the seeker-distance alert has no upper bound
 
 The **Approach threshold** on the live-share sheet — "alert when the seeker is within this

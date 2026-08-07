@@ -18,10 +18,13 @@ export const DEFAULT_SETTINGS = {
   // (it did the seeker's spatial reasoning for them), and so were the station counter and the
   // per-station drill-down that consumed it.
   //
-  // Its one remaining consumer is the Station's Line question, which needs it to know how
-  // much ground "near one of these stations" actually covers; that card refuses outright
-  // rather than guess when this is 0. Defaults to 0 so no saved board changes meaning when
-  // reopened, and so a seeker who has not agreed a radius is never silently given one.
+  // NOT a Settings control any more. Its one consumer is the Station's Line question, so a
+  // seeker met it in Settings long before it meant anything and never again once it did; it is
+  // now typed in metres on that card's own answer sheet (layers.js _stationLineAnswer, parsed
+  // by parseHidingRadiusM in stations.js). What survives here is the MEMORY of the last radius
+  // used on this board, so the next such question prefills with it — a seed, never the value
+  // that gets committed. Each step stores its own radiusM, so editing this later cannot rewrite
+  // a question already on the board. Defaults to 0, meaning "nothing agreed yet, no prefill".
   hidingRadiusM: 0,
 };
 

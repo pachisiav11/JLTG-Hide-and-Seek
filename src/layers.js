@@ -10,6 +10,7 @@ import { startCountdown } from "./timer.js";
 import { searchCategoryResilient, reverseGeocode, searchText, adminDivisionsAt, matchNames } from "./places.js";
 import { TENTACLES, findTentacle, MATCHING, findMatching, MEASURING, findMeasuring } from "./data/questions.js";
 import { openSheet, closeSheet, toast, loadingToast, escapeHtml, pluralLabel, promptText, distanceFieldHTML, readDistanceMeters, repairRadioSelection, splitDistance } from "./ui.js";
+import { parseHidingRadiusM, MIN_HIDING_RADIUS_M, MAX_HIDING_RADIUS_M } from "./stations.js";
 import { getPalette } from "./palette.js";
 import { geoWatch } from "./geo-watch.js";
 
@@ -1590,6 +1591,9 @@ export class Layers {
   //                       against without one.
   //   2. a hiding radius — the answer constrains the hider to "near one of these stations";
   //                        with no radius that region has no area (see matchingStationLine).
+  //                        It is asked for on this card's own answer sheet, in metres, at the
+  //                        step where it means something — NOT as a Settings prerequisite the
+  //                        seeker had to have guessed at before the game started.
   //   3. real line geometry — membership is not derivable from Google, only from OSM.
   //
   // `memberIds` is resolved NOW and stored on the step, so the elimination recomputes
@@ -1597,12 +1601,6 @@ export class Layers {
   // line cards use for storing their geometry.
   async _matchStationLine(card) {
     const g = store.getCurrent();
-    const radiusM = g?.settings?.hidingRadiusM || 0;
-    if (radiusM <= 0) {
-      toast("Set a hiding radius in Settings ▸ Hiding radius first — without one this question can't rule out any ground.");
-      return this.openPanel();
-    }
-
     const hide = loadingToast("Finding lines…");
     let lines = [];
     try {
@@ -1642,7 +1640,7 @@ export class Layers {
 
       const chosen = await this._stationLineCandidates(card, line, found);
       if (!chosen || !chosen.length) return this.openPanel();
-      this._stationLineAnswer(card, line, chosen, radiusM);
+      this._stationLineAnswer(card, line, chosen);
     };
   }
 
@@ -1776,10 +1774,21 @@ export class Layers {
     });
   }
 
-  // Same/different, then commit. Only the stations ON the line are stored: matchingStationLine
-  // filters by `memberIds` and never looks at the rest, so carrying the whole board's stations
-  // on the step (as this card used to) was dead weight in every save and share link.
-  _stationLineAnswer(card, line, chosen, radiusM) {
+  // Same/different + the hiding radius, then commit. Only the stations ON the line are stored:
+  // matchingStationLine filters by `memberIds` and never looks at the rest, so carrying the
+  // whole board's stations on the step (as this card used to) was dead weight in every save and
+  // share link.
+  //
+  // The radius is asked HERE, not in Settings. It has exactly one consumer — this card — so in
+  // Settings a seeker met it long before it meant anything and never again once it did, and had
+  // to abandon the question flow to go and set it. Four fixed rungs (Off / 400 / 800 / 1600 m)
+  // were also not the rule any given group is playing; it is a free number in metres now.
+  //
+  // `seedM` is a PREFILL only, defaulting to whatever the last question on this board used, so a
+  // group playing one radius all game types it once. It is never committed on its own: the
+  // number that reaches the step is the one in the box when Add is pressed.
+  _stationLineAnswer(card, line, chosen, seedM = store.getCurrent()?.settings?.hidingRadiusM || 0) {
+    const seed = seedM > 0 ? String(seedM) : "";
     const s = openSheet({
       title: card.label,
       bodyHTML: `
@@ -1788,12 +1797,22 @@ export class Layers {
           <label><input type="radio" name="sl-match" value="yes" checked/> Yes — same line (keep those stations' zones)</label>
           <label><input type="radio" name="sl-match" value="no"/> No — different line (remove them)</label>
         </div>
+        <h3 class="sub">Hiding radius</h3>
+        <p class="muted">The rule your group is playing: how far from a station a hider may be. This question needs it to know how much ground "near one of these stations" covers — set it too small and it can rule out the hider. In metres, ${MIN_HIDING_RADIUS_M}–${MAX_HIDING_RADIUS_M}.</p>
+        <label class="row"><input id="sl-radius" type="number" inputmode="decimal" min="${MIN_HIDING_RADIUS_M}" max="${MAX_HIDING_RADIUS_M}" step="any" value="${seed}" placeholder="e.g. 800"/> <span class="muted">m</span></label>
         <div class="sheet-actions"><button id="sl-back" class="btn btn-ghost">Cancel</button><button id="sl-add" class="btn btn-primary">Add question</button></div>`,
     });
     s.q("#sl-back").onclick = () => { s.close(); this.openPanel(); };
     s.q("#sl-add").onclick = () => {
+      // Rejected, never clamped — same rule as parseApproachKm. Silently rewriting a distance a
+      // player typed is how a board ends up eliminating ground on a number nobody chose.
+      const radiusM = parseHidingRadiusM(s.q("#sl-radius")?.value);
+      if (radiusM == null) return toast(`Enter a hiding radius in metres, ${MIN_HIDING_RADIUS_M} to ${MAX_HIDING_RADIUS_M}.`);
       const match = (s.qa('input[name="sl-match"]').find((r) => r.checked)?.value ?? "yes") === "yes";
       const stations = chosen.map((st) => ({ id: st.id, name: st.name, lat: st.lat, lng: st.lng }));
+      // Remembered on the board so the next Station's Line question prefills with it. The step
+      // still carries its OWN radiusM, so changing it later never rewrites a committed question.
+      store.update((gg) => (gg.settings = { ...gg.settings, hidingRadiusM: radiusM }));
       this.addStep("matching", {
         mode: "stationLine", category: card.id, categoryLabel: card.label,
         stations, memberIds: stations.map((st) => st.id), radiusM, lineLabel: line.label,
