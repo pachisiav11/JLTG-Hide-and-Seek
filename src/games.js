@@ -211,7 +211,7 @@ export class Games {
       title: "Share this game",
       bodyHTML: `
         <p class="muted">The whole board — zones, questions and answers — travels in this link. Nothing is uploaded anywhere.</p>
-        <p class="muted">Your <strong>notes are not included</strong>, and neither is the station list (it is re-sourced from the board on the other device; your station eliminations do travel).</p>
+        <p class="muted">Your <strong>notes are not included</strong>. Your station shortlist and its eliminations do travel. To send only the boundary, use <strong>Zones ▸ 📤 Share area</strong> instead.</p>
         <textarea id="sh-url" class="field" rows="4" readonly>${escapeHtml(built.url)}</textarea>
         <div class="sheet-actions">
           <button id="sh-close" class="btn btn-ghost">Close</button>

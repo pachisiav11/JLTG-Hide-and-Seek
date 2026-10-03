@@ -292,25 +292,55 @@ export function parseZoneInput(text) {
   return ring.length >= 3 ? [{ name: "", ring }] : [];
 }
 
+// Each parsed zone is { name, ring } plus `mode: "subtract"` when it is an EXCLUDED area.
+//
+// Mode comes from two places:
+//   - `properties.mode: "subtract"`, which is how the Zones ▸ Export text marks an excluded
+//     area (area-share.js). Dropping it re-imported the bay as an ADDED zone, so the receiving
+//     phone played on ground the sending phone had cut out.
+//   - a polygon's INNER rings. These used to be flattened into separate zones by
+//     geojsonToPaths, i.e. ADDED — and the union of an outer ring with its own hole is just the
+//     outer ring, so a hole in a pasted boundary silently vanished. A hole is precisely what a
+//     subtracted zone is, so that is what it becomes.
+//
+// The holes of a feature that is itself an exclusion are dropped: "exclude this, except that
+// bit" would need an add AFTER a subtract, and the board is order-independent by design
+// (assembleBoard), so it cannot be expressed. That is rare enough to skip rather than misread.
 function geojsonToZones(obj) {
   const zones = [];
-  const pushGeom = (geom, name) => {
-    for (const path of geojsonToPaths(geom)) {
-      const ring = path.map((p) => [p.lat, p.lng]);
-      // Drop the closing duplicate vertex for storage.
-      if (ring.length > 1) {
-        const a = ring[0], b = ring[ring.length - 1];
-        if (a[0] === b[0] && a[1] === b[1]) ring.pop();
-      }
-      if (ring.length >= 3) zones.push({ name: name || "", ring });
+  const toRing = (coords) => {
+    const ring = (coords || []).map(([lng, lat]) => [lat, lng]);
+    // Drop the closing duplicate vertex for storage.
+    if (ring.length > 1) {
+      const a = ring[0], b = ring[ring.length - 1];
+      if (a[0] === b[0] && a[1] === b[1]) ring.pop();
+    }
+    return ring;
+  };
+  const pushGeom = (geom, name, props) => {
+    if (!geom) return;
+    const subtract = props?.mode === "subtract";
+    let polys = [];
+    if (geom.type === "MultiPolygon") polys = geom.coordinates || [];
+    else if (geom.type === "Polygon") polys = [geom.coordinates || []];
+    for (const poly of polys) {
+      (poly || []).forEach((coords, i) => {
+        const ring = toRing(coords);
+        if (ring.length < 3) return;
+        if (i === 0) {
+          zones.push(subtract ? { name: name || "", ring, mode: "subtract" } : { name: name || "", ring });
+        } else if (!subtract) {
+          zones.push({ name: name ? `${name} (hole)` : "", ring, mode: "subtract" });
+        }
+      });
     }
   };
   if (obj.type === "FeatureCollection") {
-    for (const f of obj.features || []) pushGeom(f.geometry, f.properties?.name);
+    for (const f of obj.features || []) pushGeom(f?.geometry, f?.properties?.name, f?.properties);
   } else if (obj.type === "Feature") {
-    pushGeom(obj.geometry, obj.properties?.name);
+    pushGeom(obj.geometry, obj.properties?.name, obj.properties);
   } else if (obj.type === "Polygon" || obj.type === "MultiPolygon") {
-    pushGeom(obj, "");
+    pushGeom(obj, "", null);
   }
   return zones;
 }

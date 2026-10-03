@@ -495,6 +495,46 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## Playtest 2, Phase A — share the play area as text, and check both phones agree
+
+Found in the second test game: there was no way to hand another player **just the board**.
+The only route was ☰ Menu ▸ Share link, which bundles every question and answer, and nothing
+could export the zones on their own — even though Zones ▸ Import has always read GeoJSON. A
+"fixed game between players" needs the boundary on every phone before anyone asks anything,
+and a way to see that it arrived intact.
+
+- **Zones ▸ 📤 Share area** (`src/area-share.js`, `src/zones.js`). Produces the board as a
+  GeoJSON FeatureCollection — the exact format **⇩ Import area** already reads, so the
+  receiving side is the existing, tested paste-and-import path and the text also opens in
+  geojson.io / Google My Maps. Copy, the phone's share sheet (where available), or a
+  `.geojson` file. Six-decimal coordinates (~0.1 m). Only the boundary travels — no questions,
+  no notes.
+- **Excluded areas stay excluded.** Each excluded zone carries `properties.mode: "subtract"`
+  and the importer honours it. Without that the bay came back as an ADDED zone, so one phone
+  played on ground the other had cut out.
+- **Area check** — a 6-hex fingerprint of the board's geometry, shown in the Zones panel, on
+  the export sheet and in the receiver's import toast (`Imported 2 zones · 326 km² · area
+  check #E75639`). Same code = same board. It is order-independent (the board is —
+  `assembleBoard` unions all adds, then removes all subtractions) and blind to zone names
+  (a pasted coordinate list arrives as "Imported zone"), and any real change of a vertex or of
+  a zone's add/exclude mode changes it.
+- **Import order no longer matters.** `addZone` folds the board after every zone, so a file
+  listing the bay before the coast folded a board made only of a subtraction, which is
+  correctly refused — and the exclusion was dropped. Imports now fold every added zone before
+  any excluded one (`addsBeforeSubtractions`).
+- **A pasted polygon's holes are exclusions.** `geojsonToZones` used to flatten inner rings
+  into separate ADDED zones; the union of an outer ring with its own hole is the outer ring,
+  so a hole in a pasted boundary silently vanished. Inner rings now import as excluded zones
+  named "<name> (hole)".
+- Fixed in passing: the Share-link sheet still said the station list "is re-sourced from the
+  board on the other device", which stopped being true when the shortlist started travelling
+  in the link.
+
+Tests: `test/area-share.test.mjs` (11 — round trip, exclusions, holes, fingerprint stability
+and sensitivity, import order); `test/area-share-e2e.mjs` (14 checks, two isolated browser
+contexts standing in for two phones: export on A, paste on B, same zones, same exclusion, same
+area to 0.01 km², same code in both Zones panels). Suite 897 → 908.
+
 ## v2 — the hiding radius is typed where it is used, and is any number of metres
 
 The **hiding radius** — "how far from a station a hider may be" — was a four-way radio in

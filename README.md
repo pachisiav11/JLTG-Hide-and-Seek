@@ -141,6 +141,10 @@ On a new device it asks once for your Maps API key (stored only on that device).
     **official boundary** of the division you're in (via Data-Driven Styling) to trace
     over. Only L1/L2/locality exist as DDS FeatureTypes, and rendering needs boundary
     FeatureLayers enabled on the Map ID (the sheet says so + degrades gracefully).
+- **Playtest 2, Phase A — Share the play area** ✅
+  - **Zones ▸ 📤 Share area** copies the board as GeoJSON text; the other player pastes it into
+    **Zones ▸ ⇩ Import area**. Excluded areas stay excluded. Both phones show the same
+    **area check** code (e.g. `#E75639`) when they are on the same board.
 
 ## Run it locally
 

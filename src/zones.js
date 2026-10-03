@@ -7,6 +7,7 @@ import { createZone } from "./model.js";
 import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfIntersections, ringCrossesAntimeridian, assembleBoard } from "./geo.js";
 import { openSheet, toast, escapeHtml } from "./ui.js";
 import { getPalette } from "./palette.js";
+import { exportAreaText, areaFingerprint, addsBeforeSubtractions } from "./area-share.js";
 
 // Non-colour style props; hues come from the active palette (Phase 7 colour-blind
 // toggle) so a theme switch restyles zones live. The drawing preview keeps the
@@ -251,17 +252,34 @@ export class Zones {
     // rings and say which: refusing the whole paste over one bad polygon would throw away
     // the good ones, and importing it silently would be the failure this guard is for.
     let skipped = 0, crossing = 0, added = 0, unmerged = 0;
-    for (const { name, ring } of parsed) {
+    // Adds first, then exclusions — see addsBeforeSubtractions. An exported board lists its
+    // zones in the order they were drawn, and a bay drawn before the coast would otherwise be
+    // folded onto an empty board, refused, and lost.
+    for (const { name, ring, mode } of addsBeforeSubtractions(parsed)) {
       if (ringSelfIntersections(ring)) { skipped++; continue; }
       if (ringCrossesAntimeridian(ring)) { crossing++; continue; }
+      const subtract = mode === "subtract";
       // addZone now returns null when the union refused the zone — count it as skipped
       // rather than added, or the paste reports a zone the board does not have.
-      if (await this.addZone(name || `Imported zone`, ring, { toLibrary: true })) added++;
+      // An excluded area stays out of the library for the same reason a drawn one does: it is
+      // a decision about THIS board, not a reusable place (see _finishDraw).
+      const zone = await this.addZone(name || (subtract ? "Imported exclusion" : "Imported zone"), ring,
+        { toLibrary: !subtract, mode: subtract ? "subtract" : "add" });
+      if (zone) added++;
       else unmerged++;
     }
     if (skipped) toast(`Skipped ${skipped} self-crossing polygon${skipped === 1 ? "" : "s"} — ${skipped === 1 ? "it has" : "they have"} no clear inside.`);
     if (crossing) toast(`Skipped ${crossing} polygon${crossing === 1 ? "" : "s"} crossing the ±180° line — not supported yet.`);
     if (unmerged) toast(`Skipped ${unmerged} polygon${unmerged === 1 ? "" : "s"} that couldn’t be merged into the play area.`);
+    // The receiving half of the fingerprint check: the sender's export sheet shows a code, and
+    // this is where the receiver reads theirs. Only when nothing was skipped — a partial import
+    // has already said so above, and a fingerprint beside it would just disagree.
+    if (added && !skipped && !crossing && !unmerged) {
+      const g = store.getCurrent();
+      const fp = areaFingerprint(g?.zones);
+      const sum = areaSummary(g?.gameArea, g?.settings?.units);
+      if (fp) toast(`Imported ${added} zone${added === 1 ? "" : "s"} · ${sum ? `${sum.sizeTxt} · ` : ""}area check #${fp}`, 6000);
+    }
     return added;
   }
 
@@ -303,7 +321,12 @@ export class Zones {
       : `<li class="muted">Library is empty.</li>`;
 
     const sum = g.gameArea ? areaSummary(g.gameArea, g.settings?.units) : null;
-    const areaLine = sum ? `<p class="muted">Game area: <strong>${escapeHtml(sum.sizeTxt)}</strong> · ${escapeHtml(sum.tier)}</p>` : "";
+    // The fingerprint sits beside the size so two players can read their codes to each other
+    // and know they are on the same board — the same code means the same zones, to ~0.1 m.
+    const fp = g.gameArea ? areaFingerprint(g.zones) : "";
+    const areaLine = sum
+      ? `<p class="muted">Game area: <strong>${escapeHtml(sum.sizeTxt)}</strong> · ${escapeHtml(sum.tier)}${fp ? ` · area check <strong class="area-fp">#${escapeHtml(fp)}</strong>` : ""}</p>`
+      : "";
     const s = openSheet({
       title: "Zones",
       bodyHTML: `
@@ -312,10 +335,11 @@ export class Zones {
         </div>
         <div class="row">
           <button id="z-draw" class="btn">✎ Draw zone</button>
-          <button id="z-import" class="btn">⇩ Import</button>
+          <button id="z-subtract" class="btn">✂️ Exclude an area</button>
         </div>
         <div class="row">
-          <button id="z-subtract" class="btn">✂️ Exclude an area</button>
+          <button id="z-import" class="btn">⇩ Import area</button>
+          <button id="z-export" class="btn ${g.zones.length ? "btn-primary" : ""}" ${g.zones.length ? "" : "disabled"}>📤 Share area</button>
         </div>
         <h3 class="sub">In this game</h3>
         ${areaLine}
@@ -333,6 +357,7 @@ export class Zones {
       this.startDraw();
     };
     s.q("#z-import").onclick = () => this._openImport();
+    s.q("#z-export").onclick = () => this._openExport();
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.removeZone(b.dataset.del); s.close(); this.openPanel(); }));
     s.qa("[data-add]").forEach((b) => (b.onclick = async () => {
       await this.addFromLibrary(lib.find((x) => x.id === b.dataset.add));
@@ -344,11 +369,71 @@ export class Zones {
     }));
   }
 
+  // The play area as GeoJSON text, for another player to paste into ⇩ Import area.
+  //
+  // Text, not a link: it is the format the import box already reads, it survives any chat app,
+  // and it opens in other map tools as-is. Excluded areas travel marked as exclusions.
+  _openExport() {
+    const g = store.getCurrent();
+    if (!g?.zones?.length) { toast("No zones to share yet — draw or import one first."); return; }
+    const text = exportAreaText(g);
+    const fp = areaFingerprint(g.zones);
+    const sum = areaSummary(g.gameArea, g.settings?.units);
+    const excluded = g.zones.filter((z) => z.mode === "subtract").length;
+    const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+    const s = openSheet({
+      title: "Share play area",
+      bodyHTML: `
+        <p class="muted">Send this text to the other players. On their phone: <strong>Zones ▸ ⇩ Import area</strong>, paste, Import. Only the boundary travels — no questions, no notes.</p>
+        <p>${g.zones.length} zone${g.zones.length === 1 ? "" : "s"}${excluded ? ` (${excluded} excluded)` : ""}${sum ? ` · ${escapeHtml(sum.sizeTxt)}` : ""}${fp ? ` · area check <strong class="area-fp">#${escapeHtml(fp)}</strong>` : ""}</p>
+        <p class="muted">Their Zones panel shows the same area check once it's in. Same code = same board. If theirs had zones already, the codes won't match — they should start a ➕ New game first.</p>
+        <textarea id="ax-text" class="field" rows="6" readonly>${escapeHtml(text)}</textarea>
+        <div class="sheet-actions">
+          <button id="ax-close" class="btn btn-ghost">Close</button>
+          <button id="ax-file" class="btn">⬇️ File</button>
+          ${canShare ? `<button id="ax-share" class="btn">Send…</button>` : ""}
+          <button id="ax-copy" class="btn btn-primary">Copy</button>
+        </div>
+        <p id="ax-status" class="muted"></p>`,
+    });
+    const status = (t) => { const el = s.q("#ax-status"); if (el) el.textContent = t; };
+    s.q("#ax-close").onclick = () => s.close();
+    s.q("#ax-copy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        status("Copied — paste it into your group chat.");
+      } catch {
+        // Clipboard is permission-gated and blocked outright in some in-app browsers.
+        // Selecting the text is the fallback that always works.
+        s.q("#ax-text").select();
+        status("Couldn't copy automatically — the text is selected, copy it manually.");
+      }
+    };
+    if (canShare) {
+      s.q("#ax-share").onclick = async () => {
+        try { await navigator.share({ title: `${g.name} — play area`, text }); status("Sent."); }
+        catch (e) { if (e?.name !== "AbortError") status("Couldn't open the share sheet — use Copy instead."); }
+      };
+    }
+    s.q("#ax-file").onclick = () => {
+      try {
+        const blob = new Blob([text], { type: "application/geo+json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(g.name || "play-area").replace(/[^\w.-]+/g, "_")}.geojson`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        status("Saved as a .geojson file.");
+      } catch { status("Couldn't save a file here — use Copy instead."); }
+    };
+  }
+
   _openImport() {
     const s = openSheet({
-      title: "Import zone",
+      title: "Import area",
       bodyHTML: `
-        <p class="muted">Paste GeoJSON (Polygon / Feature / FeatureCollection) or a coordinate list (one <code>lat,lng</code> per line).</p>
+        <p class="muted">Paste the text from another player's <strong>📤 Share area</strong>, any GeoJSON (Polygon / Feature / FeatureCollection), or a coordinate list (one <code>lat,lng</code> per line). Zones are added to this board; excluded areas stay excluded.</p>
         <textarea id="imp" class="field" rows="8" placeholder='{"type":"Polygon","coordinates":[[[72.82,19.09],[72.84,19.09],[72.84,19.11],[72.82,19.11],[72.82,19.09]]]}'></textarea>
         <div class="sheet-actions">
           <button id="imp-cancel" class="btn btn-ghost">Cancel</button>
