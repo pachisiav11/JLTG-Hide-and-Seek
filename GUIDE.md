@@ -485,6 +485,26 @@ not, clip in `normalize()`. Spike this before building §G1's render.
 > The answer-deriving code exists exactly once, in `test/oracle.js`, where it proves the
 > hider is never falsely eliminated. `test/no-auto-answer.test.mjs` fails if it ever becomes
 > reachable from `src/`, and has no allowlist.
+>
+> **One scoped exception, the players' own call after Playtest 2: the hider's measure aid.**
+> When the seekers send the hider their reference (📤 Copy for hider — a line they drew, a POI
+> list they ticked), the hider's phone can measure the hider's own GPS position, or a point
+> they tap, against *that reference*: metres to each listed place, to each line, inside or
+> outside each region. It is bounded on purpose, and each bound is tested in
+> `test/measure-aid.test.mjs`:
+>
+> - it runs only on a reference the seekers explicitly sent, never on a board or a step;
+> - it returns measurements only — no "closer", no "same", no chosen item — and shows the
+>   seekers' own figure beside the hider's, so the human compares and answers aloud;
+> - `src/measure-aid.js` is imported by `src/received.js` alone (no seeker flow, not the
+>   elimination engine), and `received.js` never writes a step;
+> - the seekers still enter the hider's answer by hand.
+>
+> The reason it is acceptable is the same reason the rule exists. In Playtest 2 the hider
+> answered against Google's coastline while the seekers had drawn their own: the hider
+> eyeballing an unseen line is the "confident, subtly wrong measurement" this section warns
+> about. Measuring against the line both teams are actually using removes that guess without
+> taking the answer away from the human.
 
 - Toggle to mark a **hiding zone**: a centre point (tap or current location) and a per-game
   radius. Everything outside it is shaded out.

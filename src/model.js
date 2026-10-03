@@ -67,6 +67,12 @@ export function createGame(overrides = {}) {
     // train at 3:12") became map state instead of getting lost in a WhatsApp
     // thread. Each entry: {id, point:{lat,lng}, text, at}.
     notes: overrides.notes || [],
+    // Playtest 2: references the SEEKERS sent this phone (src/question-ref.js), pasted by the
+    // hider so they answer against the seekers' own line / places instead of Google's. Each entry:
+    // {id, receivedAt, shown, ref} where `ref` is parseQuestionRef's normalised output. Display
+    // only — nothing here eliminates anything or feeds `history`. Per device: share links and the
+    // play-area export do not carry it.
+    received: Array.isArray(overrides.received) ? overrides.received : [],
     history: overrides.history || [],      // Step[] — ordered, each toggleable
     // Step ids undone and awaiting redo, most recent last. Lives on the GAME, not on the
     // Layers instance: as instance state it died on reload, so undoing a question and

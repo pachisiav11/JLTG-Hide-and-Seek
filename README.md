@@ -151,6 +151,13 @@ On a new device it asks once for your Maps API key (stored only on that device).
     distance, their nearest), previewed in words before it is copied. Also on each such
     question's row in the Questions panel. OSM-sourced lines are not offered — they are the
     same on both phones.
+- **Playtest 2, Phase C — The hider sees it and measures against it** ✅
+  - The hider pastes the message into **Questions ▸ 📥 Received question**, or picks the card
+    first and uses **📥 Paste the seekers' version** (a message for another card is refused).
+    The seekers' line / places / region appear on the hider's map with the seekers' side
+    beside them, and **📍 From my location** / **✋ Tap where I am** measure the hider against
+    exactly that reference — distances only, no verdict; the hider still answers aloud. A
+    scoped, tested exception to "the app never answers" (GUIDE.md §6.1).
 
 ## Run it locally
 

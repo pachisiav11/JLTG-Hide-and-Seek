@@ -495,6 +495,57 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## Playtest 2, Phase C — the hider pastes it, sees it, and measures against it
+
+The other half of Phase B. A reference the seekers send is only useful if the hider can put it
+on their own map and answer against it.
+
+- **Two ways in** (`src/received.js`), as the players asked for both:
+  - **Questions ▸ 📥 Received question (hider)** — one paste box for any question. The message
+    names its own question, so it cannot be filed under the wrong one. A **📋 Paste** button
+    reads the clipboard directly.
+  - **Measuring / Matching / Tentacles ▸ pick the card ▸ 📥 Paste the seekers' version** — for
+    a hider who goes to the question first. A message for a different card is refused with
+    both names ("This is the seekers' Measuring · Coastline question, not Body of Water. Pick
+    Coastline instead…"), rather than drawing a body of water while the hider thinks it is the
+    coast. Matched on card id; Measuring steps saved before Phase B fall back to the label.
+- **On the map**: the seekers' places as numbered markers (their numbering), their lines in
+  the same identity colours the seeker's pickers use, their regions outlined, and for
+  Tentacles their position ("S") and reach circle. The map fits to it on arrival.
+- **The view** shows the question, when it arrived, what it contains, the seekers' side in
+  bold ("Seekers' distance to the nearest coastline: 900 m.", "Seekers' nearest: #3 Mid
+  Museum."), and the list with the seekers' pick marked.
+- **Measure aid** (`src/measure-aid.js`) — the players chose "show + measure aid" knowing it
+  bends the no-auto-answer rule, so it is built as a bounded exception and the bounds are
+  tested (`test/measure-aid.test.mjs`): from the hider's GPS (with its accuracy) or a point
+  they tap, it gives the hider's distance to the seekers' line / nearest listed place / region
+  edge, inside or outside each region, ranked distances to every listed place or line, and
+  distance to the seekers' Tentacles position beside their reach. It prints the seekers' figure
+  next to the hider's and **no verdict** — no "closer", no "same". The output is asserted to
+  contain measurement fields only; `measure-aid.js` is asserted to be imported by
+  `received.js` alone; `received.js` is asserted never to touch `history` or add a step.
+  GUIDE.md §6.1 records the exception and its reasoning.
+- **Display only**: a received reference never becomes a question on the hider's phone (the
+  players' call: "hider view only") and eliminates nothing. Listed under **Received from
+  seekers** in the Questions panel; each can be viewed, hidden from the map, shown again or
+  removed. Stored per game (`game.received`) so it survives a reload; not carried by share
+  links or the play-area export; cleared by Clear board. Re-pasting the same message replaces
+  the earlier copy instead of stacking a duplicate.
+- **A hider with no board** opening a question picker is pointed at 📥 Received question,
+  which needs no board.
+- **Fixed in passing — pills stole taps from sheets.** The status pill stack ("📍 Location
+  on", geofence, live share) floats above every sheet at z-index 9998, and a pill's box took
+  the tap from whatever sheet button sat under it — in the e2e run, the hider's own "Show it".
+  While a sheet is open the pills now stay visible, fade, and let taps through.
+
+Tests: `test/measure-aid.test.mjs` (9 — distances to places, lines, region edges and the
+seekers' centre; three wall tests); `test/received-e2e.mjs` (29 checks on two phones: seeker
+copies a drawn coastline and a ticked museum list, hider imports the play area with a matching
+area check, pastes through both ways in, is refused under the wrong card, measures by GPS and
+by tap — 1.05 km to the seekers' line vs the seekers' 900 m — hides / shows / removes, and
+reloads with everything redrawn; play-area and truncated pastes refused). Suite 924 → 933; all
+nine browser suites, the build-identity check and the 5-game playtest green.
+
 ## Playtest 2, Phase B — the seekers can send the hider their line or places
 
 Found in the second test game: the seekers asked the Coastline question against a line they

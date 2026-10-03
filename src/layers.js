@@ -81,6 +81,10 @@ const TENTACLE_LINE_COLOURS = ["#f472b6", "#38bdf8", "#facc15", "#4ade80", "#c08
 // candidates apart: past eight, two lines repeat a colour and the list and the map disagree.
 const MATCH_LINE_LIMIT = TENTACLE_LINE_COLOURS.length;
 
+// The tool pickers need a board to ask anything. A HIDER opening one may be there for the
+// seekers' reference instead, which needs no board — so the refusal says where that lives.
+const NO_AREA_MSG = "Add zones first to define the search area. Hider with a message from the seekers? Use Questions ▸ 📥 Received question.";
+
 // Google's nearbySearch radius ceiling. Not ours to raise — it is the API's hard maximum.
 const GOOGLE_MAX_RADIUS_M = 50000;
 
@@ -1110,9 +1114,15 @@ export class Layers {
           <button id="t-redo" class="btn" ${canRedo ? "" : "disabled"}>↷ Redo</button>
         </div>
         ${g.settings?.questionTimer > 0 ? `<div class="row"><button id="t-timer" class="btn">⏱ Start ${Math.round(g.settings.questionTimer / 60)}-min timer</button></div>` : ""}
+        ${this.received ? `<div class="row"><button id="t-received" class="btn">📥 Received question (hider)</button></div>` : ""}
         <h3 class="sub">Questions</h3>
-        <ul class="list">${rows}</ul>`,
+        <ul class="list">${rows}</ul>
+        ${this.received ? this.received.panelRowsHTML() : ""}`,
     });
+    if (this.received) {
+      s.q("#t-received").onclick = () => this.received.openPasteSheet();
+      this.received.wirePanelRows(s, { reopen: () => this.openPanel() });
+    }
 
     if (g.settings?.questionTimer > 0) s.q("#t-timer").onclick = () => { startCountdown(g.settings.questionTimer, { onEnd: () => toast("⏱ Question time's up.") }); s.close(); };
     s.q("#t-radar").onclick = () => this.startRadar();
@@ -1142,6 +1152,22 @@ export class Layers {
       store.update((g) => { const st = g.history.find((x) => x.id === b.dataset.rename); if (st) st.title = name || undefined; });
       this.openPanel();
     }));
+  }
+
+  // "Pick the question first" route for a HIDER: choose the card in the tool picker, then paste
+  // the seekers' message for it. received.js refuses a message for any other card.
+  _pasteRowHTML(id) {
+    return this.received ? `<div class="row"><button id="${id}" class="btn btn-ghost" type="button">📥 Paste the seekers' version (hider)</button></div>` : "";
+  }
+
+  _wirePasteRow(sheet, id, tool, currentCard) {
+    const b = sheet.q(`#${id}`);
+    if (!b || !this.received) return;
+    b.onclick = () => {
+      const card = currentCard();
+      if (!card) return toast("That card is unavailable.");
+      this.received.openPasteSheet({ expect: { tool, ...card } });
+    };
   }
 
   // ---- Admin-division comparison (Phase 9) ----
@@ -1421,7 +1447,7 @@ export class Layers {
   // ---- Matching (only the game's cards; reveal hider's value, keep region) ----
   async startMatching() {
     const g = store.getCurrent();
-    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    if (!g?.gameArea) return toast(NO_AREA_MSG, 5000);
     const opts = MATCHING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
     const { html: customOpts, cats } = await this._customCategoryOptions();
     const s = openSheet({
@@ -1430,6 +1456,7 @@ export class Layers {
         <p class="muted">You (the seeker) ask “is your nearest ___ the same as mine?” Enter <em>your</em> answer, then tap Yes (hider matches) or No (hider differs) — the app keeps or removes your region accordingly.</p>
         <label class="fieldlbl">Question</label>
         <select id="mt-cat" class="field">${opts}${customOpts}</select>
+        ${this._pasteRowHTML("mt-recv")}
         <div class="sheet-actions">
           <button id="mt-cancel" class="btn btn-ghost">Cancel</button>
           <button id="mt-next" class="btn btn-primary">Next</button>
@@ -1437,6 +1464,11 @@ export class Layers {
         <p id="mt-status" class="muted"></p>`,
     });
     s.q("#mt-cancel").onclick = () => s.close();
+    this._wirePasteRow(s, "mt-recv", "matching", () => {
+      const val = s.q("#mt-cat").value;
+      const c = val.startsWith("custom:") ? cats.find((x) => `custom:${x.id}` === val) : findMatching(val);
+      return c ? { cardId: val, cardLabel: c.label } : null;
+    });
     s.q("#mt-next").onclick = async () => {
       const val = s.q("#mt-cat").value;
       // A custom library category behaves like a nearest-of-category card.
@@ -2226,7 +2258,7 @@ export class Layers {
   // ---- Tentacles (fixed-radius "which are you closest to?") ----
   async startTentacles() {
     const g = store.getCurrent();
-    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    if (!g?.gameArea) return toast(NO_AREA_MSG, 5000);
     const rTxt = (r) => (r >= 1000 ? `${r / 1000} km` : `${r} m`);
     // `approx` describes a card whose automatic source is a PROXY for the real feature. A card
     // with a lineKind sources the real thing and keeps `approx` only to word its fallback, so
@@ -2248,6 +2280,7 @@ export class Layers {
         <p class="muted">A “of the {places} within R of me, which are you closest to?” card. Pick one, tap YOUR location, then auto-find or place the candidates. The radius reaches out from you — “none” is a miss (a negative radar around you).</p>
         <label class="fieldlbl">Card</label>
         <select id="tt-cat" class="field">${opts}${customOptsR}</select>
+        ${this._pasteRowHTML("tt-recv")}
         <div class="sheet-actions">
           <button id="tt-cancel" class="btn btn-ghost">Cancel</button>
           <button id="tt-manual" class="btn">✋ Place my own</button>
@@ -2256,6 +2289,10 @@ export class Layers {
         <p id="tt-status" class="muted"></p>`,
     });
     s.q("#tt-cancel").onclick = () => s.close();
+    this._wirePasteRow(s, "tt-recv", "tentacles", () => {
+      const c = resolveCat(s.q("#tt-cat").value);
+      return c ? { cardId: c.id, cardLabel: c.label } : null;
+    });
     // Tap the seeker's location — the centre of the tentacle reach. Constrained to
     // the play area (the seeker is within the game region). Shared by both paths.
     const pickCentre = async (cat) => {
@@ -2455,7 +2492,7 @@ export class Layers {
   // cards fall back to an on-map draw because Google exposes no such geometry.
   async startMeasuring() {
     const g = store.getCurrent();
-    if (!g?.gameArea) return toast("Add zones first to define the search area.");
+    if (!g?.gameArea) return toast(NO_AREA_MSG, 5000);
     const opts = MEASURING.map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`).join("");
     const { html: customOpts, cats } = await this._customCategoryOptions();
     const s = openSheet({
@@ -2464,6 +2501,7 @@ export class Layers {
         <p class="muted">You (the seeker) ask “are you closer to / farther from the nearest ___ than me?” Enter <em>your</em> distance, then tap the hider's answer.</p>
         <label class="fieldlbl">Question</label>
         <select id="m-cat" class="field">${opts}${customOpts}</select>
+        ${this._pasteRowHTML("m-recv")}
         <div class="sheet-actions">
           <button id="m-cancel" class="btn btn-ghost">Cancel</button>
           <button id="m-next" class="btn btn-primary">Next</button>
@@ -2471,6 +2509,11 @@ export class Layers {
         <p id="m-status" class="muted"></p>`,
     });
     s.q("#m-cancel").onclick = () => s.close();
+    this._wirePasteRow(s, "m-recv", "measuring", () => {
+      const val = s.q("#m-cat").value;
+      const c = val.startsWith("custom:") ? cats.find((x) => `custom:${x.id}` === val) : findMeasuring(val);
+      return c ? { cardId: val, cardLabel: c.label } : null;
+    });
     s.q("#m-next").onclick = async () => {
       const val = s.q("#m-cat").value;
       // A custom library category behaves like a nearest-of-category (points) card.

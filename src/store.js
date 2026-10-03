@@ -149,6 +149,9 @@ export async function clearBoard() {
   current.focusZone = { point: null, radius: null };
   current.stations = { list: [] };
   current.notes = [];
+  // The seekers' references belong to the questions of THIS board; on a cleared board they would
+  // sit on the map describing a game that no longer exists.
+  current.received = [];
   // These two were left behind, and both outlive the board they belonged to.
   //
   // `redoStack` holds steps whose geometry refers to zones that no longer exist, so Redo on a

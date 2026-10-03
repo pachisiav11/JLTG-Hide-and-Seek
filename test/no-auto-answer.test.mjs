@@ -21,6 +21,12 @@
 //                                                   (the route that skips the oracle entirely)
 //
 // There is deliberately no allowlist. An exception here would defeat the whole point.
+//
+// The one product-level exception — the HIDER's measure aid against a reference the seekers
+// sent (src/measure-aid.js, Playtest 2) — is not an allowlist entry here, because it derives no
+// answer: it returns distances and inside/outside only. Its walls (measurements only, imported
+// by received.js alone, never writes a step) are asserted in test/measure-aid.test.mjs. See
+// GUIDE.md §6.1.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";

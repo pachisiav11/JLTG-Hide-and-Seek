@@ -20,6 +20,7 @@ import { GpsStatus } from "./gps-status.js";
 import { SeekerDot } from "./seeker-dot.js";
 import { Lines } from "./lines.js";
 import { Games } from "./games.js";
+import { Received } from "./received.js";
 import { initBgSpike } from "./bg-spike.js";
 import { toast } from "./ui.js";
 import * as db from "./db.js";
@@ -229,7 +230,13 @@ async function main() {
       onError: (msg) => toast(`Live share: ${msg}`, 4000),
     });
     const games = new Games(zones, { boundaries, features, library, liveShare, layers });
+    // Playtest 2: references the seekers sent this phone, drawn on the hider's map. Attached to
+    // layers because both ways in (the 📥 box and "paste the seekers' version" inside a question)
+    // start from the Questions panel and the tool sheets.
+    const received = new Received(map, { layers });
+    layers.received = received;
     layers.init();
+    received.init();
     focus.init();
     // Hider geofence (Phase 3 / A1): watches GPS against the focus zone edge and fires
     // notifications when the hider drifts near or across it. Inert until the seeker
@@ -328,7 +335,7 @@ async function main() {
     // nothing, and it clears the parameter either way so a refresh cannot re-import
     // duplicates. Awaited-but-contained: a bad link must not take the rest of boot down.
     games.loadFromShareLink().catch((e) => console.warn("share link load failed", e));
-    window.__jltg = { zones, features, layers, focus, geofence, selfLocation, gpsStatus, seekerDot, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
+    window.__jltg = { zones, features, layers, received, focus, geofence, selfLocation, gpsStatus, seekerDot, stationsLayer, notes, liveShare, lines, games, boundaries, library, store }; // debug / testing handle
   } catch (e) {
     console.error("tool init failed", e);
     toast("Some map tools failed to load — see console.");
