@@ -495,6 +495,53 @@ answer produces a confident, wrong, plausible-looking result.
 **This is still simulated play, not field play.** Real GPS drift, real Overpass latency and a
 real phone remain untested; `v1-stable` is still the field-tested branch.
 
+## Playtest 2, Phase B — the seekers can send the hider their line or places
+
+Found in the second test game: the seekers asked the Coastline question against a line they
+had drawn themselves, and the hiders answered against the coast Google Maps shows them. Being
+told "we're using a custom line" did not help — nobody on the hiders' side could see it. The
+answer was wrong in a way neither team could detect, and every question whose answer depends on
+a set the SEEKERS chose has the same failure mode.
+
+- **📤 Copy for hider** in every question sheet whose reference the seekers chose
+  (`src/question-ref.js`, `src/ref-share-ui.js`, `src/layers.js`):
+  - Measuring — ticked POI lists (every points card and custom category), a hand-drawn line,
+    a drawn body of water, the Sea Level region;
+  - Matching — ticked POI lists (nearest-of-category, custom categories), Station's Name
+    Length, Station's Line (the confirmed stations + the hiding radius), hand-drawn Street /
+    Transit lines, drawn admin-division and landmass regions;
+  - Tentacles — the ticked places, with the seekers' position and the card's reach.
+  **Not** offered where the app sources the reference from OpenStreetMap (sourced coastline,
+  borders, high-speed rail, sourced transit lines, Metro Lines): those are the same query on
+  both phones by construction. This is the players' own rule — custom references only.
+- **The seekers' side travels too**, as the seeker entered it: their distance (Measuring),
+  which listed place or line they are nearest to, their station's name length. The panel is
+  two-step on purpose — the first tap only previews, in words ("Seekers' distance to the
+  nearest coastline: 1.20 km"), and Copy reads the sheet again at the moment it is pressed,
+  so a GPS prefill is never sent unseen and an edit after opening the preview is what gets
+  copied. A missing side is refused with a reason ("Pick which one is nearest to you first").
+- **The hider's answer never travels.** A test flips every answer field on every shareable
+  question type and asserts the message is byte-identical.
+- **📤 on committed question rows** (Questions panel) for any question with a custom
+  reference, built from the step itself, so a hider who missed the message can be sent exactly
+  what the elimination used.
+- **Wire format**: one plain-English line ("JLTG question for the hider — Measuring ·
+  Coastline. Paste this whole message into Questions ▸ 📥 Received question.") followed by a
+  GeoJSON FeatureCollection with a `jltg` member. The parser skips anything before the first
+  `{`, so a forwarded chat message pastes as-is. Coordinates at 6 dp. Validated, not trusted:
+  truncation, a bad coordinate, an unknown version, an empty or oversized reference are each
+  refused with their own message, and a play-area export pasted in the wrong box is redirected.
+- **Wrong-box guard**: a question pasted into Zones ▸ ⇩ Import area is refused. Without it
+  the coordinate-list fallback scraped the message's numbers into a zone.
+- Measuring steps now record the card id (`inputs.refCard`), so a reference can be matched to
+  the card it came from; older steps fall back to the label.
+
+Tests: `test/question-ref.test.mjs` (16 — every variant round-trips, OSM-sourced and
+reference-free questions are not shareable, the hider's answer cannot leak, each refusal);
+`test/ref-share-e2e.mjs` (31 checks through the real sheets: offered / not offered per card,
+refuses without the seekers' side, preview follows edits, the clipboard parses back to the same
+question, committed rows, wrong-box guard). Suite 908 → 924.
+
 ## Playtest 2, Phase A — share the play area as text, and check both phones agree
 
 Found in the second test game: there was no way to hand another player **just the board**.

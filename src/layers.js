@@ -13,6 +13,8 @@ import { openSheet, closeSheet, toast, loadingToast, escapeHtml, pluralLabel, pr
 import { parseHidingRadiusM, MIN_HIDING_RADIUS_M, MAX_HIDING_RADIUS_M } from "./stations.js";
 import { getPalette } from "./palette.js";
 import { geoWatch } from "./geo-watch.js";
+import { sharePanelHTML, wireSharePanel, openStepShareSheet } from "./ref-share-ui.js";
+import { isCustomReference, isShareableStep } from "./question-ref.js";
 
 // Instead of tinting the still-possible area (which read too much like the drawn
 // zones), we shade EVERYTHING outside it: the mask fills the excluded region dark,
@@ -1080,6 +1082,7 @@ export class Layers {
             <span class="li-actions">
               <button class="btn btn-ghost btn-sm" data-draft="${s.id}" title="${s.draft ? "Apply this question" : "Preview only — draw its boundary without eliminating"}">${s.draft ? "✓" : "◐"}</button>
               <button class="btn btn-ghost btn-sm" data-hide="${s.id}" title="${s.hidden ? "Show this question's guides" : "Keep the elimination, hide the guides"}">${s.hidden ? "🙈" : "👁"}</button>
+              ${isShareableStep(s) ? `<button class="btn btn-ghost btn-sm" data-share="${s.id}" title="Copy this question's line / places for the hider">📤</button>` : ""}
               <button class="btn btn-ghost btn-sm" data-rename="${s.id}">✏️</button>
               <button class="btn btn-ghost btn-sm" data-del="${s.id}">🗑</button>
             </span>
@@ -1126,6 +1129,12 @@ export class Layers {
     s.qa("[data-draft]").forEach((b) => (b.onclick = () => { this.setDraft(b.dataset.draft); s.close(); this.openPanel(); }));
     s.qa("[data-hide]").forEach((b) => (b.onclick = () => { this.setHidden(b.dataset.hide); s.close(); this.openPanel(); }));
     s.qa("[data-del]").forEach((b) => (b.onclick = () => { this.remove(b.dataset.del); s.close(); this.openPanel(); }));
+    // The seekers' reference for a question already on the board, for a hider who needs it again
+    // (or never got it). Built from the step, so it is exactly what the elimination used.
+    s.qa("[data-share]").forEach((b) => (b.onclick = () => {
+      const step = store.getCurrent().history.find((x) => x.id === b.dataset.share);
+      if (step) openStepShareSheet(step);
+    }));
     s.qa("[data-rename]").forEach((b) => (b.onclick = async () => {
       const step = store.getCurrent().history.find((x) => x.id === b.dataset.rename);
       const name = await promptText({ title: "Rename question", label: "Question", value: step?.title || describeStep(step), cta: "Save" });
@@ -1491,6 +1500,7 @@ export class Layers {
         <p class="muted">Which is <strong>your</strong> nearest ${escapeHtml(card.label.toLowerCase())}?</p>
         ${degeneracyHTML(feats.length, { kind: pluralLabel(card.label).toLowerCase() })}
         ${this._featureListHTML("mt-feat", feats)}
+        ${sharePanelHTML()}
         <label class="fieldlbl">Did the hider answer the same?</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="mt-match" value="yes" checked/> Yes — same (keep this region)</label>
@@ -1501,6 +1511,17 @@ export class Layers {
     });
     this._wireFeatureSearch(s2, "mt-feat");
     s2.q("#mt-cancel2").onclick = () => s2.close();
+    // The ticked list plus the seeker's own nearest — the hider cannot say "same" or "different"
+    // without knowing which one that is.
+    wireSharePanel(s2, () => {
+      const picked = s2.qa('input[name="mt-feat"]').find((r) => r.checked);
+      if (!picked) throw new Error("Pick which one is nearest to you first — the hider needs it to answer.");
+      return {
+        tool: "matching",
+        inputs: { mode: "nearest", category: card.id, categoryLabel: card.label, features: feats },
+        seeker: { nearest: parseInt(picked.value, 10) + 1 },
+      };
+    });
     s2.q("#mt-add").onclick = () => {
       // Require an explicit pick. Defaulting to "0" here was the second mouth of the same
       // bug: with the checked item filtered away, Add silently recorded a station the
@@ -1557,6 +1578,7 @@ export class Layers {
       bodyHTML: `
         <p class="muted">Nearest-station regions grouped by name length. Pick <strong>your</strong> nearest-station name length.</p>
         <div class="seg">${list}</div>
+        ${sharePanelHTML()}
         <label class="fieldlbl">How does the hider's station name compare?</label>
         <p class="muted">Ask for the direction, not just yes/no — the hider knows it and it costs them nothing to say. "Different" keeps every other length; "shorter" or "longer" keeps about half of them, so the same answer eliminates roughly twice as much.</p>
         <div class="seg" role="radiogroup">
@@ -1569,6 +1591,11 @@ export class Layers {
       onClose: () => temp.forEach((m) => m.setMap(null)),
     });
     s2.q("#nl-cancel").onclick = () => s2.close();
+    wireSharePanel(s2, () => ({
+      tool: "matching",
+      inputs: { mode: "nameLength", category: card.id, categoryLabel: card.label, features: feats },
+      seeker: { nameLength: parseInt(s2.qa('input[name="nl"]').find((r) => r.checked)?.value ?? "", 10) },
+    }));
     s2.q("#nl-add").onclick = () => {
       const L = parseInt(s2.qa('input[name="nl"]').find((r) => r.checked)?.value ?? `${lengths[0]}`, 10);
       const cmp = s2.qa('input[name="nl-cmp"]').find((r) => r.checked)?.value ?? "same";
@@ -1800,9 +1827,21 @@ export class Layers {
         <h3 class="sub">Hiding radius</h3>
         <p class="muted">The rule your group is playing: how far from a station a hider may be. This question needs it to know how much ground "near one of these stations" covers — set it too small and it can rule out the hider. In metres, ${MIN_HIDING_RADIUS_M}–${MAX_HIDING_RADIUS_M}.</p>
         <label class="row"><input id="sl-radius" type="number" inputmode="decimal" min="${MIN_HIDING_RADIUS_M}" max="${MAX_HIDING_RADIUS_M}" step="any" value="${seed}" placeholder="e.g. 800"/> <span class="muted">m</span></label>
+        ${sharePanelHTML()}
         <div class="sheet-actions"><button id="sl-back" class="btn btn-ghost">Cancel</button><button id="sl-add" class="btn btn-primary">Add question</button></div>`,
     });
     s.q("#sl-back").onclick = () => { s.close(); this.openPanel(); };
+    // The confirmed stations of the seekers' line, and the radius when one is typed — the hider
+    // needs both to know which ground "near one of these stations" means.
+    wireSharePanel(s, () => {
+      const stations = chosen.map((st) => ({ id: st.id, name: st.name, lat: st.lat, lng: st.lng }));
+      const radiusM = parseHidingRadiusM(s.q("#sl-radius")?.value);
+      return {
+        tool: "matching",
+        inputs: { mode: "stationLine", category: card.id, categoryLabel: card.label, stations, memberIds: stations.map((st) => st.id), radiusM: radiusM ?? undefined, lineLabel: line.label },
+        seeker: {},
+      };
+    });
     s.q("#sl-add").onclick = () => {
       // Rejected, never clamped — same rule as parseApproachKm. Silently rewriting a distance a
       // player typed is how a board ends up eliminating ground on a number nobody chose.
@@ -1975,6 +2014,7 @@ export class Layers {
       bodyHTML: `
         <p class="muted">Which ${escapeHtml(card.label.toLowerCase())} are <strong>you</strong> nearest to?${sourced ? " Drawn on the map in the list's colours." : ""}</p>
         <div class="seg">${list}</div>
+        ${sourced ? "" : sharePanelHTML()}
         <label class="fieldlbl">Did the hider answer the same one?</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="ln-match" value="yes" checked/> Yes — same (keep that region)</label>
@@ -1984,6 +2024,16 @@ export class Layers {
       onClose,
     });
     s.q("#ln-cancel").onclick = () => s.close();
+    // Hand-drawn lines only: sourced ones are the same OSM query on the hider's phone.
+    if (!sourced) wireSharePanel(s, () => {
+      const picked = s.qa('input[name="ln"]').find((r) => r.checked);
+      if (!picked) throw new Error(`Pick which ${card.label.toLowerCase()} you're nearest to first — the hider needs it to answer.`);
+      return {
+        tool: "matching",
+        inputs: { mode: "nearestLine", category: card.id, categoryLabel: card.label, lines, source: "drawn" },
+        seeker: { nearestLine: picked.value },
+      };
+    });
     s.q("#ln-add").onclick = () => {
       const picked = s.qa('input[name="ln"]').find((r) => r.checked);
       if (!picked) return toast(`Choose which ${card.label.toLowerCase()} you're nearest to.`);
@@ -1999,7 +2049,10 @@ export class Layers {
   // Draw a [lat,lng] region and keep the hider's side. Shared by Matching (admin
   // divisions / landmass) and Measuring (sea level); onAdd(ring, inside) records
   // the tool-specific step.
-  async _regionSideSheet({ drawHint, title, intro }, onAdd) {
+  //
+  // `share` ({ tool, inputsFor(ring) }) adds the 📤 panel: a hand-drawn region is exactly the kind
+  // of reference the hider cannot reproduce, so every caller passes it.
+  async _regionSideSheet({ drawHint, title, intro }, onAdd, share = null) {
     const pts = await this._drawShape(3, drawHint, { ring: true });
     if (!pts) return this.openPanel();
     const ring = pts.map((p) => [p.lat, p.lng]);
@@ -2007,6 +2060,7 @@ export class Layers {
       title,
       bodyHTML: `
         <p class="muted">${intro}</p>
+        ${share ? sharePanelHTML() : ""}
         <label class="fieldlbl">Did the hider answer the same?</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="rg" value="in" checked/> Yes — same (keep inside this region)</label>
@@ -2015,6 +2069,7 @@ export class Layers {
         <div class="sheet-actions"><button id="rg-cancel" class="btn btn-ghost">Cancel</button><button id="rg-add" class="btn btn-primary">Add question</button></div>`,
     });
     s.q("#rg-cancel").onclick = () => s.close();
+    if (share) wireSharePanel(s, () => ({ tool: share.tool, inputs: share.inputsFor(ring), seeker: {} }));
     s.q("#rg-add").onclick = () => {
       const inside = (s.qa('input[name="rg"]').find((r) => r.checked)?.value ?? "in") === "in";
       onAdd(ring, inside);
@@ -2036,6 +2091,7 @@ export class Layers {
           this.addStep("matching", { mode: "region", category: card.id, categoryLabel: card.label, ring }, { inside });
           toast("Matching question added.");
         },
+        { tool: "matching", inputsFor: (ring) => ({ mode: "region", category: card.id, categoryLabel: card.label, ring }) },
       );
     } finally { cleanup(); }
   }
@@ -2355,6 +2411,7 @@ export class Layers {
         <div class="row">
           <button id="tt-more" class="btn">➕ Add a candidate</button>
         </div>
+        ${sharePanelHTML()}
         <div class="sheet-actions">
           <button id="tt-cancel2" class="btn btn-ghost">Cancel</button>
           <button id="tt-add" class="btn btn-primary">Add question</button>
@@ -2363,6 +2420,13 @@ export class Layers {
     });
     this._wireFeatureSearch(s, "tt-feat");
     s.q("#tt-cancel2").onclick = () => s.close();
+    // The ticked places plus the seekers' position and reach. No seeker "side": the card asks
+    // which of these the HIDER is closest to.
+    wireSharePanel(s, () => ({
+      tool: "tentacles",
+      inputs: { category: cat.id, categoryLabel: cat.label, radius: cat.radius, features, center },
+      seeker: {},
+    }));
     // Escape hatch: if the hider names a place the auto-find missed, re-enter the candidate
     // picker seeded with what we already have, rather than forcing Cancel — which discarded
     // the whole sub-flow (centre and all) and meant restarting from startTentacles.
@@ -2427,6 +2491,13 @@ export class Layers {
   // Distance + within/beyond controls, shared by the buffer-based measuring cards.
   _distanceSheet(card, addInputs) {
     const units = store.getCurrent()?.settings?.units || "metric";
+    // Which card this was asked from. describeStep only ever needed the label, but a hider pasting
+    // the seekers' reference inside Measuring ▸ <card> is checked against the card id, and a label
+    // is not unique across tools. Older steps lack it; question-ref.js falls back to the label.
+    addInputs = { refCard: card.id, ...addInputs };
+    // Only a reference the seekers CHOSE travels to the hider; a sourced OSM line is the same
+    // query on both phones by construction (question-ref.js).
+    const shareable = isCustomReference("measuring", addInputs);
     const s = openSheet({
       title: card.label,
       bodyHTML: `
@@ -2438,6 +2509,7 @@ export class Layers {
           <button id="m-measure" class="btn btn-ghost" type="button">📍 Measure from my location</button>
         </div>
         <p id="m-measured" class="muted"></p>
+        ${shareable ? sharePanelHTML() : ""}
         <label class="fieldlbl">The hider is…</label>
         <div class="seg" role="radiogroup">
           <label><input type="radio" name="m-side" value="in" checked/> Closer than me (within — keep inside)</label>
@@ -2503,6 +2575,14 @@ export class Layers {
 
     s.q("#m-measure").onclick = () => measureNow({ manual: true });
     measureNow();
+
+    // The seeker's distance goes with the reference, read from the field as it stands — never a
+    // background prefill sent unseen. The panel shows it back in words before Copy.
+    if (shareable) wireSharePanel(s, () => {
+      const distance = readDistanceMeters(s, "m-dist", units);
+      if (!Number.isFinite(distance) || distance <= 0) throw new Error("Enter your distance first — the hider compares their own distance against it.");
+      return { tool: "measuring", inputs: addInputs, seeker: { distanceM: distance } };
+    });
 
     s.q("#m-add").onclick = () => {
       // Validate, never clamp — see the Radar sheet. Zero is rejected with its own reason
@@ -2696,9 +2776,10 @@ export class Layers {
         intro: `Draw the region on <strong>your</strong> side of the ${escapeHtml(card.label.toLowerCase())} boundary, then answer whether the hider is on the same side.`,
       },
       (ring, inside) => {
-        this.addStep("measuring", { refType: "region", refLabel: card.label, ring }, { inside });
+        this.addStep("measuring", { refType: "region", refLabel: card.label, refCard: card.id, ring }, { inside });
         toast("Measuring question added.");
       },
+      { tool: "measuring", inputsFor: (ring) => ({ refType: "region", refLabel: card.label, refCard: card.id, ring }) },
     );
   }
 }

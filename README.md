@@ -145,6 +145,12 @@ On a new device it asks once for your Maps API key (stored only on that device).
   - **Zones ▸ 📤 Share area** copies the board as GeoJSON text; the other player pastes it into
     **Zones ▸ ⇩ Import area**. Excluded areas stay excluded. Both phones show the same
     **area check** code (e.g. `#E75639`) when they are on the same board.
+- **Playtest 2, Phase B — Send the hider the seekers' line or places** ✅
+  - Every question built on a reference the seekers chose (a drawn line or region, a ticked
+    POI list) has **📤 Copy for hider**: the reference plus the seekers' own side (their
+    distance, their nearest), previewed in words before it is copied. Also on each such
+    question's row in the Questions panel. OSM-sourced lines are not offered — they are the
+    same on both phones.
 
 ## Run it locally
 

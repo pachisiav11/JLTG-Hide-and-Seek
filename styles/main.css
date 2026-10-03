@@ -339,6 +339,16 @@ textarea.field { resize: vertical; }
 .feat-list { max-height: 42vh; overflow-y: auto; }
 .feat-search { margin: 12px 0 0; }
 
+/* Playtest 2: the seekers' reference, copied for the hider (src/ref-share-ui.js) and shown on
+   the hider's phone (src/received.js). Bordered so it reads as its own step between "your side"
+   and "the hider's answer" in a question sheet. */
+.share-ref { margin: 12px 0 4px; }
+.share-ref > .btn { width: 100%; }
+.share-ref-body { border: 1px solid var(--teal-dim); border-radius: 12px; padding: 10px 12px; }
+.share-ref-body .row { margin-bottom: 0; }
+.share-ref-summary { margin: 6px 0 8px; line-height: 1.45; }
+.area-fp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.04em; }
+
 /* Layer list toggles */
 .li-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .li-toggle input { accent-color: var(--teal); width: 18px; height: 18px; }

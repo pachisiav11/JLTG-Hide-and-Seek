@@ -8,6 +8,7 @@ import { geojsonToPaths, unionRings, parseZoneInput, areaSummary, ringSelfInters
 import { openSheet, toast, escapeHtml } from "./ui.js";
 import { getPalette } from "./palette.js";
 import { exportAreaText, areaFingerprint, addsBeforeSubtractions } from "./area-share.js";
+import { looksLikeQuestionRef } from "./question-ref.js";
 
 // Non-colour style props; hues come from the active palette (Phase 7 colour-blind
 // toggle) so a theme switch restyles zones live. The drawing preview keeps the
@@ -242,6 +243,12 @@ export class Zones {
 
   // ---- Import (paste GeoJSON or coordinates) ----
   async importText(text) {
+    // A seekers' question pasted into the wrong box. Without this, the coordinate-list fallback
+    // would scrape its numbers into a zone and silently reshape the board.
+    if (looksLikeQuestionRef(text)) {
+      toast("That's a question from the seekers, not a play area — paste it in Questions ▸ 📥 Received question.", 6000);
+      return 0;
+    }
     const parsed = parseZoneInput(text);
     if (!parsed.length) {
       toast("Couldn’t parse any polygon from that input.");
